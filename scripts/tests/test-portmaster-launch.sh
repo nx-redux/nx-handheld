@@ -66,7 +66,7 @@ cat > "$PM/bin/python3" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
   *disable_python_function.py)
-    printf '# portmaster_install disabled\n' >> "\$2"; exit 0 ;;
+    printf '# %s disabled\n' "\$3" >> "\$2"; exit 0 ;;
   pugwash)
     n=\$(( \$(cat "$TMP/runs" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$TMP/runs"
     cp -f "$PM/gamecontrollerdb.txt" "$TMP/db_seen_by_pugwash.\$n" 2>/dev/null
@@ -74,6 +74,10 @@ case "\$1" in
     if [ -f "$TMP/simulate_first_run" ]; then
       rm -f "$TMP/simulate_first_run"
       printf 'PORTS = "/mnt/SDCARD/Roms/PORTS"\nIMGS = "/mnt/SDCARD/Imgs/PORTS"\n' > "$PM/pylibs/harbourmaster/platform.py"
+    fi
+    if [ -f "$TMP/simulate_first_run_pkg" ]; then
+      rm -f "$TMP/simulate_first_run_pkg"
+      printf 'PORTS = "/mnt/SDCARD/Roms/PORTS"\nIMGS = "/mnt/SDCARD/Imgs/PORTS"\n' > "$PM/pylibs/harbourmaster/platform/trimui.py"
     fi
     if [ -f "$TMP/simulate_reboot" ]; then
       rm -f "$TMP/simulate_reboot"; touch "$PM/.pugwash-reboot"
@@ -116,6 +120,7 @@ export DEVICE_CAPABILITIES="$(echo "${CAPS[@]}" | tr ' ' '\n' | sort -u | tr '\n
 EOF
   printf 'PORTS = "/mnt/SDCARD/Roms/PORTS"\nIMGS = "/mnt/SDCARD/Imgs/PORTS"\n' > "$PM/pylibs/harbourmaster/platform.py"
   mkdir -p "$PM/pylibs/harbourmaster/__pycache__"; touch "$PM/pylibs/harbourmaster/__pycache__/stale.pyc"
+  rm -rf "$PM/pylibs/harbourmaster/platform"
   printf 'CUR_TTY="/dev/fd/1"\nexport HOME="/mnt/SDCARD/Data/home"\n' > "$PM/mod_TrimUI.txt"
   echo 'nintendo-db' > "$PM/files/gamecontrollerdb_nintendo.txt"
   echo 'xbox-db'     > "$PM/files/gamecontrollerdb_xbox.txt"
@@ -228,6 +233,29 @@ seed_runtime; touch "$TMP/simulate_reboot"
 run_launcher >/dev/null 2>&1
 [ "$(cat "$TMP/runs")" = 2 ] && pass "reboot marker: pugwash restarted" || fail "reboot marker: ran $(cat "$TMP/runs") times"
 [ ! -e "$PM/.pugwash-reboot" ] && pass "reboot marker: consumed" || fail "reboot marker: left behind"
+
+# ---- 6b. 2026.10.18+ layout: PlatformTrimUI in the platform/ package ------
+# Python imports harbourmaster/platform/ over the platform.py marker beside it,
+# so the paths and the portmaster_install disable must land in trimui.py.
+seed_pkg() {
+  seed_runtime
+  mkdir -p "$PM/pylibs/harbourmaster/platform/__pycache__"
+  touch "$PM/pylibs/harbourmaster/platform/__pycache__/stale.pyc"
+  printf 'PORTS = "/mnt/SDCARD/Roms/PORTS"\nIMGS = "/mnt/SDCARD/Imgs/PORTS"\n' > "$PM/pylibs/harbourmaster/platform/trimui.py"
+  printf '# NOT CODE: a marker for older spruce releases.\n' > "$PM/pylibs/harbourmaster/platform.py"
+}
+seed_pkg
+run_launcher >/dev/null 2>&1
+T="$PM/pylibs/harbourmaster/platform/trimui.py"
+grep -q "\"$ROMS\"" "$T" && grep -q "\"$ROMS/.media\"" "$T" && ! grep -q '/Roms/PORTS' "$T" \
+  && pass "package: trimui.py paths patched" || fail "package: trimui.py paths left stock"
+grep -q 'portmaster_install disabled' "$T" && pass "package: portmaster_install disabled in trimui.py" || fail "package: portmaster_install not disabled in trimui.py"
+grep -q 'gamelist_add disabled' "$T" && pass "package: gamelist_add disabled in trimui.py" || fail "package: gamelist_add not disabled in trimui.py"
+grep -q 'portmaster_install disabled' "$PM/pylibs/harbourmaster/platform.py" && fail "package: patched the unused platform.py" || pass "package: platform.py marker left alone"
+[ ! -e "$PM/pylibs/harbourmaster/platform/__pycache__/stale.pyc" ] && pass "package: platform/ pycache cleared" || fail "package: platform/ pycache kept"
+seed_pkg; touch "$TMP/simulate_first_run_pkg"
+run_launcher >/dev/null 2>&1
+[ "$(cat "$TMP/runs")" = 2 ] && grep -q "\"$ROMS\"" "$T" && pass "package: retry re-patches a fresh trimui.py" || fail "package: retry ran $(cat "$TMP/runs") times"
 
 # ---- 7. --patch-only (ports_launch.sh after an install / self-update) -----
 # PortMaster's install and self-update put back the stock control.txt; the Ports launcher runs the tool's patch-only
@@ -431,6 +459,25 @@ for plat in tg5040 tg5050; do
   OUT="$(SYSTEM_PATH="$TMP/nowhere" bash -c "$RPF"$'\n''run_port_fixes pre; run_port_fixes retry && echo rerun || echo none')"
   [ "$OUT" = none ] && pass "run_port_fixes $plat: no port_fixes dir is a no-op" || fail "run_port_fixes $plat: failed without a port_fixes dir"
 done
+
+# ---- 11d. port_fixes/moonlight_new.sh: its launcher keeps our library path --
+for plat in tg5040 tg5050; do
+  FIX="$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/port_fixes/moonlight_new.sh"
+  MP="$TMP/moonlight-$plat"; mkdir -p "$MP/moonlightnew/gui"
+  LUA='    local fullCommand = string.format("LD_LIBRARY_PATH=%s/moonlight/libs:/usr/lib/compat %s/moonlight/%s %s > %s 2>&1 &", currentDir, currentDir, command, keydirOption, outputFileName)'
+  printf '%s\n' "$LUA" > "$MP/moonlightnew/gui/main.lua"
+  PATH="$BIN:$PATH" PORTS_DIR="$MP" bash -c ". '$FIX'; moonlight_new_pre; moonlight_new_pre"
+  grep -qF 'LD_LIBRARY_PATH=%s/moonlight/libs:/usr/lib/compat:$LD_LIBRARY_PATH %s/moonlight/%s' "$MP/moonlightnew/gui/main.lua" \
+    && [ "$(grep -o 'LD_LIBRARY_PATH' "$MP/moonlightnew/gui/main.lua" | wc -l | tr -d ' ')" = 2 ] \
+    && pass "moonlight_new $plat: launcher keeps the inherited library path, patched once" || fail "moonlight_new $plat: main.lua is '$(cat "$MP/moonlightnew/gui/main.lua")'"
+  rm -rf "$MP/moonlightnew"
+  PORTS_DIR="$MP" bash -c ". '$FIX'; moonlight_new_pre" && pass "moonlight_new $plat: other ports untouched" || fail "moonlight_new $plat: failed without the port"
+  # the patched line, run by sh with PortMaster's lib/ inherited, resolves ffmpeg 58 there
+  OUT="$(LD_LIBRARY_PATH=/pm/lib sh -c 'echo LD_LIBRARY_PATH=x/moonlight/libs:/usr/lib/compat:$LD_LIBRARY_PATH')"
+  [ "$OUT" = 'LD_LIBRARY_PATH=x/moonlight/libs:/usr/lib/compat:/pm/lib' ] && pass "moonlight_new $plat: sh expands the inherited path" || fail "moonlight_new $plat: expanded to '$OUT'"
+done
+cmp -s "$ROOT"/skeleton/SYSTEM/tg5040/paks/Tools/Xtras.pak/catalog/portmaster/pak/port_fixes/moonlight_new.sh "$ROOT"/skeleton/SYSTEM/tg5050/paks/Tools/Xtras.pak/catalog/portmaster/pak/port_fixes/moonlight_new.sh \
+  && pass "port_fixes: same Moonlight fix on both platforms" || fail "port_fixes: Moonlight fix differs between platforms"
 
 # ---- 12. PowerVR SDL-context switches also exported by tg5040 ports_launch ---
 P40="$ROOT/skeleton/SYSTEM/tg5040/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh"
