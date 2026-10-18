@@ -460,6 +460,25 @@ for plat in tg5040 tg5050; do
   [ "$OUT" = none ] && pass "run_port_fixes $plat: no port_fixes dir is a no-op" || fail "run_port_fixes $plat: failed without a port_fixes dir"
 done
 
+# ---- 11d. port_fixes/moonlight_new.sh: its launcher keeps our library path --
+for plat in tg5040 tg5050; do
+  FIX="$ROOT/skeleton/SYSTEM/$plat/paks/Tools/Xtras.pak/catalog/portmaster/pak/port_fixes/moonlight_new.sh"
+  MP="$TMP/moonlight-$plat"; mkdir -p "$MP/moonlightnew/gui"
+  LUA='    local fullCommand = string.format("LD_LIBRARY_PATH=%s/moonlight/libs:/usr/lib/compat %s/moonlight/%s %s > %s 2>&1 &", currentDir, currentDir, command, keydirOption, outputFileName)'
+  printf '%s\n' "$LUA" > "$MP/moonlightnew/gui/main.lua"
+  PATH="$BIN:$PATH" PORTS_DIR="$MP" bash -c ". '$FIX'; moonlight_new_pre; moonlight_new_pre"
+  grep -qF 'LD_LIBRARY_PATH=%s/moonlight/libs:/usr/lib/compat:$LD_LIBRARY_PATH %s/moonlight/%s' "$MP/moonlightnew/gui/main.lua" \
+    && [ "$(grep -o 'LD_LIBRARY_PATH' "$MP/moonlightnew/gui/main.lua" | wc -l | tr -d ' ')" = 2 ] \
+    && pass "moonlight_new $plat: launcher keeps the inherited library path, patched once" || fail "moonlight_new $plat: main.lua is '$(cat "$MP/moonlightnew/gui/main.lua")'"
+  rm -rf "$MP/moonlightnew"
+  PORTS_DIR="$MP" bash -c ". '$FIX'; moonlight_new_pre" && pass "moonlight_new $plat: other ports untouched" || fail "moonlight_new $plat: failed without the port"
+  # the patched line, run by sh with PortMaster's lib/ inherited, resolves ffmpeg 58 there
+  OUT="$(LD_LIBRARY_PATH=/pm/lib sh -c 'echo LD_LIBRARY_PATH=x/moonlight/libs:/usr/lib/compat:$LD_LIBRARY_PATH')"
+  [ "$OUT" = 'LD_LIBRARY_PATH=x/moonlight/libs:/usr/lib/compat:/pm/lib' ] && pass "moonlight_new $plat: sh expands the inherited path" || fail "moonlight_new $plat: expanded to '$OUT'"
+done
+cmp -s "$ROOT"/skeleton/SYSTEM/tg5040/paks/Tools/Xtras.pak/catalog/portmaster/pak/port_fixes/moonlight_new.sh "$ROOT"/skeleton/SYSTEM/tg5050/paks/Tools/Xtras.pak/catalog/portmaster/pak/port_fixes/moonlight_new.sh \
+  && pass "port_fixes: same Moonlight fix on both platforms" || fail "port_fixes: Moonlight fix differs between platforms"
+
 # ---- 12. PowerVR SDL-context switches also exported by tg5040 ports_launch ---
 P40="$ROOT/skeleton/SYSTEM/tg5040/paks/Tools/Xtras.pak/catalog/portmaster/pak/ports_launch.sh"
 L40C="$(awk '/^export HC_PURE_SDL_CONTEXTS/,/SC_PURE_SDL_CONTEXTS=1$/' "$L40")"
