@@ -12,8 +12,8 @@
 #     first_run / self-update overwrite them): control.txt (plus the
 #     exFAT `ln -s` fallback and curl stand-in port scripts get),
 #     device_info.txt (TrimUI model, Brick Pro sticks and the trimui
-#     capability on the 2026.09.19+ probe), platform.py
-#     (paths + portmaster_install disabled), mod_TrimUI.txt (HOME),
+#     capability on the 2026.09.19+ probe), platform/trimui.py or platform.py
+#     (paths + portmaster_install and gamelist_add disabled), mod_TrimUI.txt (HOME),
 #     pugwash (800x600 UI on the Brick / Brick Pro)
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
@@ -41,7 +41,17 @@ PM_FILES="$PM_DIR/files"
 PORTS_ROM_DIR="$SDCARD_PATH/Roms/Ports (PORTS)"
 XTRAS_STATE_DIR="$SHARED_USERDATA_PATH/xtras"
 PY="$PM_DIR/bin/python3"
-PP="$PM_DIR/pylibs/harbourmaster/platform.py"
+# PortMaster 2026.10.18+ keeps the platform code in the harbourmaster/platform/
+# package (PlatformTrimUI in trimui.py), and Python imports that package over the
+# platform.py left beside it, so patch whichever one runs. Resolved on each use:
+# a self-update can switch layouts while the pugwash loop runs.
+platform_py() {
+    if [ -f "$PM_DIR/pylibs/harbourmaster/platform/trimui.py" ]; then
+        echo "$PM_DIR/pylibs/harbourmaster/platform/trimui.py"
+    else
+        echo "$PM_DIR/pylibs/harbourmaster/platform.py"
+    fi
+}
 DI="$PM_DIR/device_info.txt"
 
 splash() { # $1 = text, $2 = extra show2 args
@@ -263,6 +273,7 @@ EOF
 
 
 patch_platform_py() {
+    PP="$(platform_py)"
     [ -f "$PP" ] || return 0
     # NxRedux names the Ports folder differently from what PortMaster
     # hardcodes. PlatformTrimUI.portmaster_install (first run, self-update)
@@ -271,9 +282,15 @@ patch_platform_py() {
     # Emus/shared and empties tasksetter: none of that fits NX Redux. A
     # self-update still runs it once with the fresh code, before this patch
     # is back; ports_launch.sh repairs control.txt before the next port.
+    # PlatformTrimUI.gamelist_add (a port with a gameinfo.xml) copies the
+    # port script into the ROM folder it already sits in, without the
+    # same-file check add_port_script has, so the install failed and rolled
+    # back; its stock game list and "-pre" art are unused here (art is synced
+    # to .media after the run).
     sed -i "s|/mnt/SDCARD/Roms/PORTS|$PORTS_ROM_DIR|g;s|/mnt/SDCARD/Imgs/PORTS|$PORTS_ROM_DIR/.media|g" "$PP"
     "$PY" "$PM_DIR/disable_python_function.py" "$PP" portmaster_install 2>/dev/null
-    rm -rf "$PM_DIR/pylibs/harbourmaster/__pycache__"
+    "$PY" "$PM_DIR/disable_python_function.py" "$PP" gamelist_add 2>/dev/null
+    rm -rf "$PM_DIR/pylibs/harbourmaster/__pycache__" "$PM_DIR/pylibs/harbourmaster/platform/__pycache__"
 }
 
 # Upstream sets CUR_TTY="/dev/fd/1" (the port's stdout). Port scripts write
@@ -544,7 +561,7 @@ while true; do
     fi
     # Unpatched paths again = pugwash re-extracted pylibs and crashed on
     # them; one retry with the patches applied.
-    if grep -q '/Roms/PORTS' "$PP" 2>/dev/null && [ "$RETRIES" -lt 1 ]; then
+    if grep -q '/Roms/PORTS' "$(platform_py)" 2>/dev/null && [ "$RETRIES" -lt 1 ]; then
         RETRIES=$((RETRIES + 1))
         continue
     fi
