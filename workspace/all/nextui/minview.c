@@ -376,7 +376,7 @@ void MinView_render(SDL_Surface* dst, int lastScreen) {
 		last_sel = -1;
 		slide_tw.active = false;
 		if (n <= 0)
-			UI_renderCenteredMessage(dst, "Empty folder");
+			UI_renderCenteredMessage(dst, GameList_emptyText());
 		return;
 	}
 

@@ -31,7 +31,6 @@
 #include "controller_art.h"
 #include "menutabs.h"
 #include "ui_font.h"
-#include "search.h"
 #include "tiles.h"
 #include "ui_contextmenu.h"
 #include "ui_fade.h"
@@ -84,7 +83,6 @@ static void Menu_init(void) {
 	MenuTabs_openRoot(MenuTabs_initialTab(last_path));
 	loadLast(); // restore state when available
 
-	Search_init();
 	GameList_init(simple_mode);
 }
 // The last frame drew its moving pictures as GPU sprites (the Consoles carousel, the Grid) and nothing into the
@@ -103,7 +101,6 @@ static void Menu_quit(void) {
 	DirectoryArray_free(stack);
 	MenuTabs_quit(); // the parked roots (never in the stack)
 
-	Search_quit();
 	InfoBand_quit();
 	UI_fadeCacheClear();
 	ArtLoader_quit(); // the worker first: it decodes into surfaces the caches below would otherwise never see freed
@@ -389,23 +386,6 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			gsanimdir = gsr.gsanimdir;
-		} else if (currentScreen == SCREEN_SEARCH) {
-			SearchResult sr = Search_handleInput(now);
-			if (sr.dirty)
-				dirty = true;
-			if (sr.folderbgchanged)
-				requestBackgroundReupload();
-			if (sr.startgame)
-				startgame = true;
-			if (sr.screen != SCREEN_SEARCH) {
-				currentScreen = sr.screen;
-				if (currentScreen == SCREEN_GAMELIST) {
-					animationdirection = SLIDE_RIGHT;
-					// Search's per-row readyResume left the shared resume state on its last result; recompute it
-					// for the list's own selection, or the root's hint shows that result's X RESUME
-					readyResume(top->entries->count > 0 ? top->entries->items[top->selected] : NULL);
-				}
-			}
 		} else if (!ContextMenu_isOpen()) {
 			bool was_backdrop = RowView_hasPicture();
 			GameListResult glr =
@@ -445,12 +425,6 @@ int main(int argc, char* argv[]) {
 			 RowView_animating() || MinView_animating() || MenuTabs_dimAnimating()))
 			dirty = true;
 
-		// Search's dirty signal comes entirely from sr.dirty above
-		// (selection travel + glide, set in Search_handleInput). Do NOT add
-		// UI_listViewBusy(Search_view()) here: its needsRender term would run
-		// full renders through the marquee's 1s pre-scroll delay, re-uploading
-		// the thumbnail layer every frame - visible artwork flicker.
-
 		if (dirty) {
 			SDL_Surface* tmpOldScreen = NULL;
 			bool frame_animated = animationdirection != ANIM_NONE;
@@ -485,7 +459,7 @@ int main(int argc, char* argv[]) {
 			// frame the screen's body still holds what that frame left there (it drew it nowhere but on the GPU; a
 			// Backdrop's transparent over its picture, else black, and the row refills it when another kind of frame
 			// left it): only the bars' rows need clearing. Only when this frame is a Grid, Carousel or Backdrop one too
-			// (they fill their body themselves): any other (a List, Home's, Search) is drawn over a clear body, or the
+			// (they fill their body themselves): any other (a List, Home's) is drawn over a clear body, or the
 			// sprite frame's black stays in it, over the art under the screen (Home's List back from Consoles).
 			bool screen_clear = false; // the whole screen is clear (0,0,0,0) here: the top fade can be written, not blended
 			if (!(drawScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
@@ -522,8 +496,6 @@ int main(int argc, char* argv[]) {
 			const char* menu_title;
 			if (currentScreen == SCREEN_GAMESWITCHER)
 				menu_title = sw_list ? "Recent" : NULL; // Full screen draws the game's name itself, larger
-			else if (currentScreen == SCREEN_SEARCH)
-				menu_title = "Search";
 			else if (!CFG_getPageTitle())
 				menu_title = NULL; // Layouts > Page title: Hide (no tab row either, below); the status icons stay
 			else if (stack->count > 1)
@@ -572,10 +544,7 @@ int main(int argc, char* argv[]) {
 			if (animationdirection != ANIM_NONE)
 				menuBarSurface = UI_captureMenuBar(screen);
 
-			if (currentScreen == SCREEN_SEARCH) {
-				Search_render(screen, lastScreen);
-				lastScreen = SCREEN_SEARCH;
-			} else if (startgame) {
+			if (startgame) {
 				GFX_clearLayers(LAYER_ALL);
 				GFX_clear(screen);
 				GFX_flipHidden();
@@ -673,10 +642,7 @@ int main(int argc, char* argv[]) {
 			if (menuBarSurface)
 				SDL_FreeSurface(menuBarSurface);
 
-			if (lastScreen == SCREEN_SEARCH) {
-				updateBackgroundLayer(blackBG);
-				renderThumbnail(1, false);
-			} else if (lastScreen == SCREEN_GAMELIST) {
+			if (lastScreen == SCREEN_GAMELIST) {
 				// Both GPU-layer uploads are deferred while the selection pill
 				// is gliding: a full-screen layer upload costs ~25ms in one
 				// frame — a visible mid-glide hitch. folderbgchanged /
@@ -757,9 +723,7 @@ int main(int argc, char* argv[]) {
 
 			dirty = false;
 		} else if (backgroundLayerPending() ||
-				   (GameList_scrollBusy() && !ContextMenu_isOpen()) ||
-				   (currentScreen == SCREEN_SEARCH &&
-					UI_listViewMarqueeBusy(Search_view()))) {
+				   (GameList_scrollBusy() && !ContextMenu_isOpen())) {
 			updateBackgroundLayer(blackBG);
 			renderThumbnail(1, false);
 			// Same flash as the dirty pass (see gamelist.c / 81a0c40a): the idle
@@ -769,12 +733,8 @@ int main(int argc, char* argv[]) {
 			// scrollBusy *term* too, not just the tick: needs_scroll stays
 			// latched while the menu is open, so an otherwise-idle loop must
 			// fall through to the sleeping path below instead of spinning here.
-			if (drawScreen != SCREEN_GAMESWITCHER &&
-				currentScreen != SCREEN_SEARCH && !ContextMenu_isOpen()) {
+			if (drawScreen != SCREEN_GAMESWITCHER && !ContextMenu_isOpen()) {
 				GameList_scrollTickIdle();
-			} else if (currentScreen == SCREEN_SEARCH &&
-					   UI_listViewMarqueeBusy(Search_view())) {
-				UI_listViewTickIdle(Search_view());
 			} else {
 				SDL_Delay(16);
 			}

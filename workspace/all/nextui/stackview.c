@@ -418,7 +418,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 	if (n <= 0 || screen->h - 2 * barPx() <= 0) {
 		slide_tw.active = false;
 		pos_from = pos_to = 0;
-		UI_renderCenteredMessage(screen, "Empty folder");
+		UI_renderCenteredMessage(screen, GameList_emptyText());
 		return;
 	}
 

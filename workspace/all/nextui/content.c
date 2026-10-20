@@ -428,6 +428,12 @@ static void Directory_index(Directory* self) {
 ///////////////////////////////////////
 // Directory construction
 
+static char search_query[256]; // the query FAUX_SEARCH_PATH lists (Content_setSearchQuery)
+
+void Content_setSearchQuery(const char* query) {
+	snprintf(search_query, sizeof(search_query), "%s", query ? query : "");
+}
+
 Directory* Directory_new(char* path, int selected) {
 	char display_name[MAX_PATH];
 	getDisplayName(path, display_name);
@@ -443,6 +449,12 @@ Directory* Directory_new(char* path, int selected) {
 		self->entries = getPinned();
 	} else if (exactMatch(path, FAUX_RECENT_PATH)) {
 		self->entries = Recents_getEntries();
+	} else if (exactMatch(path, FAUX_SEARCH_PATH)) {
+		self->entries = Content_searchRoms(search_query);
+		free(self->name);
+		char title[MAX_PATH];
+		snprintf(title, sizeof(title), "Search: %s", search_query); // as nx-mobile's
+		self->name = strdup(title);
 	} else if (exactMatch(path, ROMS_PATH)) {
 		self->entries = getRoms();
 	} else if (exactMatch(path, COLLECTIONS_PATH)) {

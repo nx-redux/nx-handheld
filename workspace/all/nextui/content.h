@@ -61,6 +61,8 @@ int Content_forEachCollectionGame(const char* path, bool (*cb)(const char* sd_pa
 
 // Search
 Array* Content_searchRoms(const char* query);
+// The query a FAUX_SEARCH_PATH Directory lists ("Search: <query>").
+void Content_setSearchQuery(const char* query);
 // Byte length of the rom-label part of an indexed search name (before " (TAG)").
 int Content_romLabelLen(const char* indexed_name);
 

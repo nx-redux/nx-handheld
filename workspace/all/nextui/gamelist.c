@@ -2335,23 +2335,31 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			unlink(NETPLAY_LAUNCH_PATH);
 		*dirty = true;
 	}
-	// START to search at root (was Y; pin/unpin lives in the context menu).
+	// START to search at root (was Y; pin/unpin lives in the context menu): the results slide in as a game list.
 	// Use a tap, not a raw release: holding START + volume is the color-temp
 	// combo (BTN_MOD_COLORTEMP), and that release must not open search.
 	else if (stack->count == 1 && tap_start) {
 		if (Search_open()) {
-			result.screen = SCREEN_SEARCH;
 			result.animdir = SLIDE_LEFT;
+			result.folderbgchanged = true;
 			GFX_clearLayers(LAYER_SCROLLTEXT);
 			ScrollText_clear(&list_scroll);
+			if (top->entries->count > 0)
+				readyResume(top->entries->items[top->selected]);
 		}
 		*dirty = true;
+		return result;
+	}
+	// START in the results closes them again, as B (#112)
+	else if (tap_start && GameList_isSearch()) {
+		leaveList(&result, dirty);
 		return result;
 	} else if (total > 0 && PAD_justPressed(BTN_A)) {
 		openSelected(&result, dirty);
 	} else if (PAD_justPressed(BTN_B) && stack->count > 1) {
 		*dirty = true;
-		if (MinView_active()) { // back into a Minimal list: the title drops into its row instead of the slide
+		if (MinView_active() && !GameList_isSearch()) { // back into a Minimal list: the title drops into its row
+			// instead of the slide (Search's title has no row to drop into)
 			MinView_beforeBack();
 			leaveList(&result, dirty);
 			if (MinView_afterBack())
@@ -2466,6 +2474,14 @@ int GameList_textX(void) {
 
 int GameList_rowCount(void) {
 	return listLayout().rows;
+}
+
+bool GameList_isSearch(void) {
+	return top && exactMatch(top->path, FAUX_SEARCH_PATH);
+}
+
+const char* GameList_emptyText(void) {
+	return GameList_isSearch() ? "No results" : "Empty folder";
 }
 
 int GameList_rowCountAt(bool root) {
@@ -3229,7 +3245,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					UI_listItemMarqueeHoldSprite(&list_scroll, list_font, marquee.x, marquee.y, marquee.over);
 		}
 	} else {
-		UI_renderCenteredMessage(screen, "Empty folder");
+		UI_renderCenteredMessage(screen, GameList_emptyText());
 		list_body_clear = false;
 	}
 	ContentDim_end(screen); // before the fade below: it presents frames itself

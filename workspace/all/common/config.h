@@ -45,7 +45,7 @@ enum {
 	SCREEN_GAMELIST,
 	SCREEN_GAMESWITCHER,
 	SCREEN_QUICKMENU_REMOVED, // former quick menu; slot kept so stored defaultView ints don't shift
-	SCREEN_SEARCH,
+	SCREEN_SEARCH_REMOVED,	  // former Search screen (its results are a game list now); slot kept as above
 	// meta
 	SCREEN_GAME,
 	SCREEN_OFF

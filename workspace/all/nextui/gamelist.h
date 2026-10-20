@@ -49,6 +49,10 @@ int GameList_textX(void);
 // Directory built before it reaches the stack (root = a tab's own list at stack[0]).
 int GameList_rowCount(void);
 int GameList_rowCountAt(bool root);
+// The list on top is Search's results (Search_open).
+bool GameList_isSearch(void);
+// What an empty list says: "No results" for Search's, else "Empty folder".
+const char* GameList_emptyText(void);
 // The main menu's List rows with the first row's top at list_top (px): Home's List (under its stats strip).
 int GameList_rowCountFrom(int list_top);
 // Scroll-text (marquee) state, driven by the main loop's idle path.

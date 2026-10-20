@@ -599,7 +599,7 @@ void GridView_render(SDL_Surface* screen, int lastScreen) {
 		lit_sel = lit_prev = -1;
 		lit_tw.active = slide_tw.active = false;
 		off_from = off_to = 0;
-		UI_renderCenteredMessage(screen, "Empty folder");
+		UI_renderCenteredMessage(screen, GameList_emptyText());
 		return;
 	}
 

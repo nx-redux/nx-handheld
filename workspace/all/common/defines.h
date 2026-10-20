@@ -35,6 +35,8 @@
 #define AUTO_RESUME_PATH SHARED_USERDATA_PATH "/.minui/auto_resume.txt"
 #define GAME_SWITCHER_PERSIST_PATH SHARED_USERDATA_PATH "/.minui/game_switcher.txt"
 #define FAUX_RECENT_PATH SDCARD_PATH "/Recently Played"
+// Search's results, a game list over the root (Search_open); Directory_new runs the query again (a refresh)
+#define FAUX_SEARCH_PATH SDCARD_PATH "/.search"
 #define COLLECTIONS_PATH SDCARD_PATH "/Collections"
 #define EMULIST_CACHE_PATH USERDATA_PATH "/emulist_cache.txt"
 #define ROMINDEX_CACHE_PATH USERDATA_PATH "/romindex_cache.txt"
