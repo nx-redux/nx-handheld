@@ -53,4 +53,33 @@ typedef struct {
 } HomeListTag;
 HomeListTag HomeList_tag(int th, int text_w);
 
+// Home's Minimal (Layouts > Home layout: Minimal; nx-mobile's HomeMinimalScreen) draws the same rows as big names. A
+// name's opacity `distance` names from the shown position (negative above it), in steps: below 0.6, 0.4, 0.28, then
+// 0.2 on to the screen's edge; above fainter, 0.3, 0.22, then 0.2; the selection 1. Linear between the steps, so it
+// stays smooth while the names slide.
+float HomeMin_alpha(float distance);
+
+// The Minimal's glide (Home's and the tabs' and game lists'): a held UP/DOWN, from its first repeat, moves the names
+// at a speed rising from the repeat's (MIN_GLIDE_V0 names/s) to MIN_GLIDE_MAX over MIN_GLIDE_RAMP_MS; let go, they ease
+// out (HomeMin_easeOut) into the next name the glide was heading for, never coasting past it, the ease starting at the
+// glide's speed (MIN_SETTLE_MIN_MS to MIN_SETTLE_MAX_MS long).
+#define MIN_GLIDE_V0 10.0f // PAD_REPEAT_INTERVAL's rate
+#define MIN_GLIDE_MAX 24.0f
+#define MIN_GLIDE_RAMP_MS 1200
+#define MIN_SETTLE_MIN_MS 60
+#define MIN_SETTLE_MAX_MS 300 // a one-name slide's
+typedef struct {
+	int dir;   // +1 down, -1 up; 0 not gliding
+	float pos; // the shown position (a name's index)
+	float v;   // names/s
+	unsigned start, last;
+} HomeMinGlide;
+void HomeMin_glideStart(HomeMinGlide* g, int dir, float pos, unsigned now);
+// A frame at `now`: on at the speed reached, clamped to the n names. Returns the position.
+float HomeMin_glideStep(HomeMinGlide* g, unsigned now, int n);
+// Let go: the name it settles on (the next whole one ahead, within the n) and the ease's length (*ms); the glide ends.
+int HomeMin_glideSettle(HomeMinGlide* g, int n, unsigned* ms);
+// Cubic ease out (its start speed 3 x the distance / its length).
+float HomeMin_easeOut(float t);
+
 #endif

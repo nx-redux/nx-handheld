@@ -38,6 +38,7 @@
 #include "gameinfo.h"
 #include "gameinfo_text.h"
 #include "gridview.h"
+#include "minview.h"
 #include "rowview.h"
 #include "stackview.h"
 #include "home.h"
@@ -144,7 +145,8 @@ bool GameList_pillAnimating(void) {
 }
 
 bool GameList_artWaiting(void) {
-	return list_art_waiting && !GridView_active() && !RowView_active() && (!Home_active() || Home_isList());
+	return list_art_waiting && !GridView_active() && !RowView_active() && !MinView_active() &&
+		   (!Home_active() || Home_isList());
 }
 
 bool GameList_scrollIsScrolling(void) {
@@ -260,6 +262,8 @@ bool GameList_prefetchIdle(Uint32 deadline) {
 		return GridView_prefetchStep(deadline);
 	if (RowView_active())
 		return RowView_prefetchStep(deadline);
+	if (MinView_active()) // its names are composed as they come on screen
+		return false;
 	bool info = prefetchListInfo();
 	bool pics = prefetchListPictures();
 	return prefetchListArt(deadline) || info || pics;
@@ -1982,11 +1986,31 @@ static void contentToBottom(void) {
 		StackView_focusBottom();
 	} else if (GridView_active()) {
 		GridView_focusBottom();
+	} else if (MinView_active()) {
+		MinView_focusBottom();
 	} else { // List: the last row, windowed as the List's own wrap to the bottom
 		top->selected = total - 1;
 		ListWindow_toBottom(total, GameList_rowCount(), &top->start, &top->end);
 	}
 	readyResume(top->entries->items[top->selected]);
+}
+
+// A on the selection: opens it (a folder slides in, a game starts).
+static void openSelected(GameListResult* result, bool* dirty) {
+	Entry* entry = top->entries->items[top->selected];
+	if (settingsPinAllows(entry)) {
+		// snapshot before Entry_open: its directory fall-through can rebuild
+		// the stack and free entry (same defect the Y / case-35 sites guard)
+		bool was_dir = entry->type == ENTRY_DIR;
+		Entry_open(entry);
+		if (was_dir && !startgame) {
+			result->animdir = SLIDE_LEFT;
+		}
+	}
+	*dirty = true;
+
+	if (top->entries->count > 0)
+		readyResume(top->entries->items[top->selected]);
 }
 
 // L1/R1 at the root, a fresh press: -1 / +1 to step the tab, else 0. Not while the other shoulder is held (both together
@@ -2140,6 +2164,25 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 			if (MenuTabs_generation() != gen)
 				result.folderbgchanged = true; // switchTab already reset the resume state for the new tab
 			else if (top->selected != was && top->entries->count > 0)
+				readySelectedResume(top->entries->items[top->selected]);
+			return result;
+		}
+	}
+
+	// Minimal owns UP/DOWN and A (its open band first); LEFT/RIGHT and the shoulders fall through, as the List's
+	if (!home && MinView_active()) {
+		int was = top->selected;
+		MinViewInput r = MinView_handleInput(now, dirty);
+		if (r == MINVIEW_OPEN && top->entries->count > 0) {
+			int depth = stack->count;
+			openSelected(&result, dirty);
+			// a folder opened into another Minimal list: its name flies into the title instead of the slide
+			if (MinView_afterOpen(!startgame && stack->count > depth))
+				result.animdir = ANIM_NONE;
+			return result;
+		}
+		if (r == MINVIEW_HANDLED) {
+			if (top->selected != was && top->entries->count > 0)
 				readySelectedResume(top->entries->items[top->selected]);
 			return result;
 		}
@@ -2305,22 +2348,15 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		*dirty = true;
 		return result;
 	} else if (total > 0 && PAD_justPressed(BTN_A)) {
-		if (settingsPinAllows(entry)) {
-			// snapshot before Entry_open: its directory fall-through can rebuild
-			// the stack and free entry (same defect the Y / case-35 sites guard)
-			bool was_dir = entry->type == ENTRY_DIR;
-			Entry_open(entry);
-			if (was_dir && !startgame) {
-				result.animdir = SLIDE_LEFT;
-			}
-		}
-		*dirty = true;
-
-		if (top->entries->count > 0)
-			readyResume(top->entries->items[top->selected]);
+		openSelected(&result, dirty);
 	} else if (PAD_justPressed(BTN_B) && stack->count > 1) {
 		*dirty = true;
-		if (!RowView_beginExit()) // a Backdrop list with a picture closes when its fade-out ends
+		if (MinView_active()) { // back into a Minimal list: the title drops into its row instead of the slide
+			MinView_beforeBack();
+			leaveList(&result, dirty);
+			if (MinView_afterBack())
+				result.animdir = ANIM_NONE;
+		} else if (!RowView_beginExit()) // a Backdrop list with a picture closes when its fade-out ends
 			leaveList(&result, dirty);
 	}
 
@@ -2476,6 +2512,7 @@ int GameList_currentStyle(void) {
 	case MENU_STYLE_GRID:
 	case MENU_STYLE_CAROUSEL:
 	case MENU_STYLE_BACKDROP:
+	case MENU_STYLE_MINIMAL:
 		return style;
 	default:
 		return MENU_STYLE_LIST;
@@ -2497,7 +2534,8 @@ static struct {
 static void renderInfoBand(void) {
 	// Home, Grid, Carousel and Backdrop have no info band (Grid's game info sits in the lit tile, the rows'
 	// in the caption under the row)
-	if (ContextMenu_isOpen() || (Home_active() && !Home_isList()) || GridView_active() || RowView_active()) {
+	if (ContextMenu_isOpen() || (Home_active() && !Home_isList()) || GridView_active() || RowView_active() ||
+		MinView_active()) {
 		overlay.valid = false;
 		return;
 	}
@@ -2586,7 +2624,8 @@ bool GameList_listBodyClear(SDL_Rect* row) {
 }
 
 bool GameList_keepsOverlay(void) {
-	return !ContextMenu_isOpen() && (!Home_active() || Home_isList()) && !GridView_active() && !RowView_active();
+	return !ContextMenu_isOpen() && (!Home_active() || Home_isList()) && !GridView_active() && !RowView_active() &&
+		   !MinView_active();
 }
 
 // nextui.c's re-add after a slide, outside GameList_render's content layer. While the content is dimmed the band is
@@ -2781,8 +2820,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// Grid and rows: the body between the tab row and the hint bar (a List's reaches into the bar with its band)
 	SDL_Rect content = {0, bar_h, screen->w, screen->h - 2 * bar_h};
 
-	bool grid = GridView_active();
-	if (grid || RowView_active()) {
+	bool grid = GridView_active(), minimal = MinView_active();
+	if (grid || minimal || RowView_active()) {
 		clearArtForGrid(screen, lastScreen);
 		// a Grid or a row with items, outside a context menu, draws them as GPU sprites at the dim's opacity
 		// (MenuTabs_contentAlpha) over a body it leaves as it was: the layer would change nothing, so it is skipped
@@ -2791,6 +2830,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			ContentDim_begin(screen, content);
 		if (grid)
 			GridView_render(screen, lastScreen);
+		else if (minimal)
+			MinView_render(screen, lastScreen);
 		else
 			RowView_render(screen, lastScreen);
 		if (!sprites)

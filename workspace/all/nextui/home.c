@@ -50,6 +50,7 @@
 #include "list_window.h"
 #include "menuart.h"
 #include "menutabs.h"
+#include "minimal_draw.h"
 #include "placeholder_art.h"
 #include "row_model.h"
 #include "ui_accent.h"
@@ -66,7 +67,7 @@
 #define SEL_MS 120		// selection crossfade
 #define SCROLL_MS 320	// page scroll, UI_easeStandard
 #define SLIDE_MS 300	// the Carousel row's slide, UI_easeStandard (as the game lists' Carousel)
-#define LINE_MAX 256
+#define LINE_MAX MIN_LINE_MAX
 
 // The B2 type (Brick px; docs/home-b2.md)
 #define STRIP_PX 27.0f
@@ -142,6 +143,9 @@ static HomeTile car_tile;												   // the focused item as a tile (focusedTi
 static int car_full_w = 0, car_full_h = 0, car_side_w = 0, car_side_h = 0; // the centre tile and a neighbour (px)
 static float pos_from = 0, pos_to = 0;									   // the row's position: the selection's index, tweened between
 static Tween slide_tw;
+static unsigned slide_ms = SLIDE_MS; // the slide's length: SLIDE_MS, or the Minimal's settle (minGlideRelease)
+static bool slide_decel = false;	 // the slide eases out (the Minimal's settle) rather than UI_easeStandard
+static HomeMinGlide min_glide;		 // the Minimal's held glide (minGlideStep)
 static bool focus_can_resume = false;
 
 // The List (Layouts > Home layout: List, with a Continue): its rows as a Directory of Home's own for gamelist.c's List
@@ -154,6 +158,39 @@ static HomeListGeom hl_geom;
 static HomeTile hl_tile;						// the selected row as a tile (focusedTile)
 static SDL_Surface* tag_surf[2] = {NULL, NULL}; // the Continue tag, plain and lit (listTag)
 static Uint32 tag_key[2] = {0, 0};
+
+// The Minimal (Layouts > Home layout: Minimal; nx-mobile's HomeMinimalScreen): the List's rows (Continue or Pick a
+// game, the pinned games, the pinned tools) as big names, the selection one row under the strip, solid in the accent,
+// the others its outline fading with their distance (HomeMin_alpha). Each name is rendered once, solid and outlined,
+// into its own surface (minBuild); a frame only blits them. The row's slide is the Carousel's (pos_from / pos_to).
+// The look itself (the font, the outline, the fade steps, the open band) is minimal_draw's, shared with the tabs' and
+// game lists' Minimal (minview.c).
+#define MIN_UNDER_STRIP 0.3f // a name above the body's top (behind the strip) keeps this share of its fade
+#define MIN_TAG_K 1.25f		 // the tag pill's text: a step (x 1.25) over the List's Continue tag
+#define MIN_ROWS (1 + 2 * HOME_MAX_PINS)
+typedef struct {
+	SDL_Surface* solid;	  // the name's lines in the accent (straight alpha), its outline offset included
+	SDL_Surface* outline; // the same lines as outlines
+	int h;				  // its rows' height: lines x the pitch, and the gap to the next name
+	int tag;			  // its tag (0 none, 1 Continue, 2 Tool) at the end of its name
+	int tag_x, tag_line;  // where the tag sits: px from the name's left, on which line
+} MinRow;
+static int min_sel = 0; // the selected row, in HomeList order
+static int min_n = 0;	// rows built (0: build on the next draw)
+static MinRow min_rows[MIN_ROWS];
+static int min_tops[MIN_ROWS]; // each row's top in the stacked names (px from the first's)
+static MinMetrics min_m;
+static int min_area_top = 0;
+static SDL_Surface* min_tags[3] = {NULL, NULL, NULL}; // the tag pills by kind (minTag)
+static MinOpen min_open;
+static bool min_sprites = false; // this frame draws the names as GPU sprites (not under a context menu: as the Carousel)
+// With Page title or Button hints hidden the names run on to the screen's top or bottom edge under a fade to black
+// (MinFade), instead of stopping at the bar's room.
+static MinFade min_fade[2]; // top, bottom
+// The top bar's own pixels (the status icons nextui drew there), copied for a sprite over the top fade
+static SDL_Surface* min_bar = NULL;
+static Uint32 min_bar_key = 0;
+static void minFree(void);
 
 static int prev_id = -1; // the tile the selection crossfades from (tileId)
 static Tween sel_tw;
@@ -222,10 +259,18 @@ static bool listMode(void) {
 	return built_style == HOME_STYLE_LIST && cont;
 }
 
+static bool minimalMode(void) {
+	return built_style == HOME_STYLE_MINIMAL;
+}
+
 static float currentPos(void) {
+	if (min_glide.dir)
+		return min_glide.pos;
 	if (!slide_tw.active)
 		return pos_to;
-	return pos_from + (pos_to - pos_from) * UI_easeStandard(tweenProgress(&slide_tw, SLIDE_MS));
+	float t = tweenProgress(&slide_tw, slide_ms);
+	float e = slide_decel ? HomeMin_easeOut(t) : UI_easeStandard(t);
+	return pos_from + (pos_to - pos_from) * e;
 }
 
 static float currentScroll(void) {
@@ -389,10 +434,7 @@ static void maskCorners(SDL_Surface* s, int w, int h, int r) {
 // Text
 
 static int textW(TTF_Font* f, const char* text) {
-	int w = 0;
-	if (f && text && text[0])
-		GFX_measureText(f, text, &w, NULL);
-	return w;
+	return MinDraw_textW(f, text);
 }
 
 // Text with its top-left at (x, y), at alpha. Rendered fresh, not through GFX_getCachedText: cards are composed
@@ -415,67 +457,15 @@ static void drawTextBaseline(SDL_Surface* dst, TTF_Font* f, const char* text, SD
 		drawText(dst, f, text, c, x, baseline - TTF_FontAscent(f), alpha);
 }
 
-// `in` cut to max_w with "..." (GFX_truncateText's, as the game lists' cut text) (out: LINE_MAX). Empty when nothing
-// fits.
+// `in` cut to max_w with "..." (out: LINE_MAX); empty when nothing fits (MinDraw_ellipsize)
 static void ellipsize(TTF_Font* f, const char* in, char* out, int max_w) {
-	char src[LINE_MAX];
-	snprintf(src, sizeof(src), "%s", in ? in : "");
-	out[0] = '\0';
-	if (!f || max_w <= 0 || !src[0])
-		return;
-	if (textW(f, src) <= max_w) {
-		snprintf(out, LINE_MAX, "%s", src);
-		return;
-	}
-	char cut[LINE_MAX + 8];
-	int w = GFX_truncateText(f, src, cut, max_w, 0);
-	if (w <= max_w && strcmp(cut, "...") != 0)
-		snprintf(out, LINE_MAX, "%s", cut);
+	MinDraw_ellipsize(f, in, out, max_w);
 }
 
-// Greedy word wrap into at most max_lines lines; the last line takes the rest, ellipsized. Returns the count.
+// Greedy word wrap into at most max_lines lines, the last ellipsized (MinDraw_wrap). Returns the count.
 static int wrapLines(TTF_Font* f, const char* text, int max_w, int max_lines, char lines[][LINE_MAX]) {
-	char work[LINE_MAX];
-	snprintf(work, sizeof(work), "%s", text ? text : "");
-	int n = 0;
-	const char* p = work;
-	while (*p == ' ')
-		p++;
-	while (*p && n < max_lines) {
-		if (n == max_lines - 1) { // the rest, cut to fit
-			ellipsize(f, p, lines[n], max_w);
-			if (lines[n][0])
-				n++;
-			break;
-		}
-		// take words while they fit; a single word too wide is cut on its own line
-		char line[LINE_MAX] = "";
-		const char* q = p;
-		const char* taken_end = p;
-		while (*q) {
-			const char* word_end = strchr(q, ' ');
-			if (!word_end)
-				word_end = q + strlen(q);
-			char cand[LINE_MAX];
-			snprintf(cand, sizeof(cand), "%.*s", (int)(word_end - p), p);
-			if (line[0] && textW(f, cand) > max_w)
-				break;
-			snprintf(line, sizeof(line), "%s", cand);
-			taken_end = word_end;
-			q = word_end;
-			while (*q == ' ')
-				q++;
-		}
-		ellipsize(f, line, lines[n], max_w);
-		if (lines[n][0])
-			n++;
-		p = taken_end;
-		while (*p == ' ')
-			p++;
-	}
-	return n;
+	return MinDraw_wrap(f, text, max_w, max_lines, lines);
 }
-
 
 ///////////////////////////////////////
 // Data
@@ -498,8 +488,8 @@ bool Home_active(void) {
 static void ensureBuilt(void);
 
 static const HomeTile* focusedTile(void) {
-	if (listMode()) { // the selected row: Continue, a game or a tool
-		HomeListItem it = HomeList_item(hl_dir.selected, ngames, ntools);
+	if (listMode() || minimalMode()) { // the selected row: Continue (or Pick a game), a game or a tool
+		HomeListItem it = HomeList_item(minimalMode() ? min_sel : hl_dir.selected, ngames, ntools);
 		HomeTileKind kind = it.kind == HOMELIST_GAME ? HOME_TILE_GAME : it.kind == HOMELIST_TOOL ? HOME_TILE_TOOL
 																								 : HOME_TILE_CONTINUE;
 		hl_tile = (HomeTile){kind, it.ref, {0, 0, 0, 0}};
@@ -684,6 +674,19 @@ static void relayout(int lines) {
 	float u = unitPx();
 	built_lines = lines;
 	card_epoch++;
+	if (minimalMode()) { // the List's strip; the names under it (built again on the next draw)
+		TTF_Font* f = UIFont_getPx(statsPx(), false);
+		HomeListOpts o = {barPx(), NX_DP(8), NX_DP(12), barPx() + NX_DP(12), f ? TTF_FontAscent(f) : 0,
+						  f ? -TTF_FontDescent(f) : 0, px(36.0f * stripK() * statsTextK())};
+		HomeList_compute(lines, &o, &hl_geom);
+		min_area_top = hl_geom.list_top;
+		min_sel = HomeList_clampSel(min_sel, ngames, ntools);
+		pos_from = pos_to = (float)min_sel;
+		min_glide.dir = 0;
+		slide_tw.active = false;
+		minFree();
+		return;
+	}
 	if (listMode()) {
 		listRelayout(lines);
 		return;
@@ -747,6 +750,8 @@ static void rebuild(void) {
 	}
 	if (listMode())
 		listBuild(reset);
+	if (minimalMode()) // Home_reset puts the selection back on Continue; any other rebuild keeps it on its row
+		min_sel = reset ? 0 : HomeList_clampSel(min_sel, ngames, ntools);
 	relayout(stripLines());
 	// the card cache is kept: each card's key carries a stamp of everything it shows (cardStamp), so a changed pin or
 	// Continue recomposes on its own, and a card unchanged since the last visit is blitted without being composed again
@@ -786,6 +791,16 @@ void Home_reset(void) {
 }
 
 void Home_quit(void) {
+	minFree();
+	for (int i = 0; i < 3; i++) {
+		GFX_freeSurfaceAndTexture(min_tags[i]);
+		min_tags[i] = NULL;
+	}
+	MinOpen_free(&min_open);
+	MinFade_free(&min_fade[0]);
+	MinFade_free(&min_fade[1]);
+	GFX_freeSurfaceAndTexture(min_bar);
+	min_bar = NULL;
 	if (cont)
 		Entry_free(cont);
 	cont = NULL;
@@ -803,8 +818,7 @@ void Home_quit(void) {
 		SDL_FreeSurface(hint_bar);
 	hint_bar = NULL;
 	hint_key[0] = '\0';
-	if (strip_surf)
-		SDL_FreeSurface(strip_surf);
+	GFX_freeSurfaceAndTexture(strip_surf);
 	strip_surf = NULL;
 	strip_key = 0;
 	pickArtFree();
@@ -1269,8 +1283,8 @@ static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int 
 // Carousel's: its own baselines (lower), each line centred. The List's: its own baselines, left-aligned at the rows'
 // text start (the tab row's gutter).
 static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
-	int mode = listMode() ? 2 : carousel() ? 1
-										   : 0;
+	int mode = listMode() || minimalMode() ? 2 : carousel() ? 1
+															: 0;
 	bool centre = mode == 1;
 	int lines, base[2], x, right;
 	if (mode == 2) {
@@ -1314,13 +1328,14 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	int h = base[last] - TTF_FontDescent(f) - top + 1;
 	if (!strip_surf || strip_key != key || strip_surf->w != dst->w || strip_surf->h != h) {
 		if (strip_surf && (strip_surf->w != dst->w || strip_surf->h != h)) {
-			SDL_FreeSurface(strip_surf);
+			GFX_freeSurfaceAndTexture(strip_surf);
 			strip_surf = NULL;
 		}
 		if (!strip_surf)
 			strip_surf = SDL_CreateRGBSurfaceWithFormat(0, dst->w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 		if (!strip_surf)
 			return;
+		PLAT_freeSurfaceTexture(strip_surf); // Minimal's sprite of it (minRender) is made again from the new pixels
 		SDL_FillRect(strip_surf, NULL, 0);
 		drawStripLine(strip_surf, f, &l1, x, right, base[0] - top, centre);
 		if (l2.n > 0)
@@ -2048,6 +2063,322 @@ static void renderHints(SDL_Surface* dst) {
 	SDL_SetSurfaceBlendMode(hint_bar, SDL_BLENDMODE_NONE);
 	SDL_BlitSurface(hint_bar, NULL, dst, &(SDL_Rect){0, dst->h - bar_h});
 }
+///////////////////////////////////////
+// The Minimal
+
+// A tag's pill (as the List's Continue tag, unlit: the list text at 14% behind its word), made once per kind.
+static SDL_Surface* minTag(int kind) {
+	if (kind < 1 || kind > 2)
+		return NULL;
+	if (min_tags[kind])
+		return min_tags[kind];
+	// a step over the List's Continue tag (TEXT_HOME_CONT_BADGE), beside the Minimal's big names
+	int tag_px = (int)(TextPx_for(TEXT_HOME_CONT_BADGE, UIScale_deviceIndex(UI_DEVICE_NAME)) * MIN_TAG_K + 0.5f);
+	TTF_Font* f = tag_px > 0 ? UIFont_getPx(tag_px, false) : NULL;
+	if (!f)
+		return NULL;
+	const char* word = kind == 1 ? "Continue" : "Tool";
+	// solid in the accent with its ink, as a lit card (cardBg / cardInk)
+	SDL_Color fill = cardBg(true), ink = cardInk(true);
+	HomeListTag t = HomeList_tag(TTF_FontHeight(f), textW(f, word));
+	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, t.w, t.h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!s)
+		return NULL;
+	float r = t.h / 2.0f;
+	Uint32 rgb = (Uint32)fill.r << 16 | (Uint32)fill.g << 8 | fill.b;
+	for (int y = 0; y < t.h; y++) {
+		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < t.w; x++) {
+			float cx = x + 0.5f < r ? r : x + 0.5f > t.w - r ? t.w - r
+															 : x + 0.5f;
+			float dx = x + 0.5f - cx, dy = y + 0.5f - r;
+			float cov = clamp01(r - sqrtf(dx * dx + dy * dy) + 0.5f);
+			row[x] = (Uint32)(cov * 255.0f + 0.5f) << 24 | rgb;
+		}
+	}
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	drawText(s, f, word, ink, t.pad_x, t.pad_y, 255);
+	min_tags[kind] = s;
+	return s;
+}
+
+static void minFree(void) {
+	for (int i = 0; i < min_n; i++) {
+		GFX_freeSurfaceAndTexture(min_rows[i].solid);
+		GFX_freeSurfaceAndTexture(min_rows[i].outline);
+		min_rows[i] = (MinRow){0};
+	}
+	min_n = 0;
+}
+
+// Row i's name and tag kind: Continue's game (Pick a game with none), a pinned game, a pinned tool.
+static const char* minLabel(int i, int* tag) {
+	HomeListItem it = HomeList_item(i, ngames, ntools);
+	*tag = 0;
+	if (it.kind == HOMELIST_CONTINUE) {
+		if (!cont)
+			return "Pick a game";
+		*tag = 1;
+		return View_displayName(cont);
+	}
+	if (it.kind == HOMELIST_GAME)
+		return games[it.ref] ? View_displayName(games[it.ref]) : "";
+	*tag = 2;
+	return tools[it.ref] ? View_displayName(tools[it.ref]) : "";
+}
+
+// Every row's surfaces and place: wrapped at the gutters onto up to MIN_MAX_LINES lines, the tag after the last word
+// (on the last line when it fits there, else on the next line with the name's last word, else on a line of its own,
+// else that line cut to make room).
+static void minBuild(SDL_Surface* dst) {
+	if (min_n > 0 || !MinDraw_metrics(&min_m))
+		return;
+	TTF_Font* f = min_m.font;
+	int gutter = NX_DP(NX_MENU_GUTTER_DP), max_w = dst->w - 2 * gutter;
+	int space = textW(f, "a a") - textW(f, "aa");
+	SDL_Color acc = opaque(UI_accent());
+	int n = HomeList_count(ngames, ntools);
+	if (n > MIN_ROWS)
+		n = MIN_ROWS;
+	for (int i = 0; i < n; i++) {
+		MinRow* r = &min_rows[i];
+		const char* label = minLabel(i, &r->tag);
+		char lines[MIN_MAX_LINES + 1][LINE_MAX];
+		int c = wrapLines(f, label, max_w, MIN_MAX_LINES, lines);
+		if (c < 1) {
+			lines[0][0] = '\0';
+			c = 1;
+		}
+		SDL_Surface* ts = minTag(r->tag);
+		if (ts) {
+			int lw = textW(f, lines[c - 1]);
+			char* last_sp = strrchr(lines[c - 1], ' ');
+			if (lw + space + ts->w <= max_w) {
+				r->tag_line = c - 1;
+				r->tag_x = lw + space;
+			} else if (c < MIN_MAX_LINES && last_sp && last_sp != lines[c - 1] &&
+					   textW(f, last_sp + 1) + space + ts->w <= max_w) {
+				// the tag keeps the name's last word: that word goes down with it ("Metroid - Zero" / "Mission [tag]")
+				snprintf(lines[c], LINE_MAX, "%s", last_sp + 1);
+				*last_sp = '\0';
+				r->tag_line = c;
+				r->tag_x = textW(f, lines[c]) + space;
+				c++;
+			} else if (c < MIN_MAX_LINES) { // a one-word line: the tag on a line of its own
+				lines[c][0] = '\0';
+				r->tag_line = c++;
+				r->tag_x = 0;
+			} else {
+				ellipsize(f, lines[c - 1], lines[c - 1], max_w - space - ts->w);
+				r->tag_line = c - 1;
+				r->tag_x = textW(f, lines[c - 1]) + space;
+			}
+		}
+		r->h = c * min_m.pitch + min_m.gap; // its lines, and the gap to the next name
+		r->solid = MinDraw_lines(&min_m, lines, c, max_w, acc, false);
+		r->outline = MinDraw_lines(&min_m, lines, c, max_w, acc, true);
+		min_tops[i] = i == 0 ? 0 : min_tops[i - 1] + min_rows[i - 1].h;
+	}
+	min_n = n;
+}
+
+// The stacked names' offset at the shown position p (between two rows' tops; past the ends, a pitch a step).
+static float minTopAt(float p) {
+	int f = (int)floorf(p);
+	if (f < 0)
+		return min_tops[0] + p * min_m.pitch;
+	if (f >= min_n - 1)
+		return min_tops[min_n - 1] + (p - (min_n - 1)) * min_m.pitch;
+	return min_tops[f] + (min_tops[f + 1] - min_tops[f]) * (p - f);
+}
+
+// Row i's top on the screen: the shown position one row under the body's top.
+static int minRowY(int i, float p) {
+	return (int)lroundf(min_area_top + min_m.pitch + min_tops[i] - minTopAt(p));
+}
+
+// s into r at alpha and shade: a GPU sprite in sprite mode (MinDraw_blit)
+static void minBlitAt(SDL_Surface* s, SDL_Rect r, float alpha, const SDL_Rect* clip, Uint8 shade, SDL_Surface* dst) {
+	MinDraw_blit(s, r, alpha, clip, shade, min_sprites, dst);
+}
+
+static void minBlit(SDL_Surface* s, int x, int y, float alpha, const SDL_Rect* clip, SDL_Surface* dst) {
+	minBlitAt(s, (SDL_Rect){x, y, 0, 0}, alpha, clip, 255, dst);
+}
+
+// The names: each at its fade step (fainter behind the strip), the outline giving way to the solid name as the shown
+// position nears it, its tag fading in with the solid.
+static void minDraw(SDL_Surface* dst) {
+	minBuild(dst);
+	if (min_n <= 0)
+		return;
+	float p = currentPos();
+	int gutter = NX_DP(NX_MENU_GUTTER_DP);
+	// the names from the strip's bottom to the hint bar (a sprite draws over the screen, the strip's text included);
+	// with the page title hidden from the screen's top (under the top fade, the strip over it), with the hints hidden
+	// to its bottom
+	int top = CFG_getPageTitle() ? min_area_top : 0, bottom = CFG_getButtonHints() ? dst->h - barPx() : dst->h;
+	SDL_Rect clip = {0, top, dst->w, bottom - top};
+	for (int i = 0; i < min_n; i++) {
+		MinRow* r = &min_rows[i];
+		int y = minRowY(i, p);
+		if (y > dst->h || y + r->h + min_m.font_h < 0)
+			continue;
+		float d = i - p;
+		float under = clamp01((min_area_top - y - min_m.pitch / 2.0f) / min_m.pitch);
+		float a = HomeMin_alpha(d) * (1.0f - (1.0f - MIN_UNDER_STRIP) * under);
+		if (i != min_sel) // A: the others fade out before the band
+			a *= MinOpen_othersAlpha(&min_open);
+		float fill = clamp01(1.0f - fabsf(d));
+		minBlit(r->outline, gutter - min_m.outline, y - min_m.outline, a * (1.0f - fill) * MIN_OUTLINE_ALPHA, &clip, dst);
+		minBlit(r->solid, gutter - min_m.outline, y - min_m.outline, a * fill, &clip, dst);
+		SDL_Surface* ts = minTag(r->tag);
+		if (ts && fill > 0)
+			minBlit(ts, gutter + r->tag_x, y + r->tag_line * min_m.pitch + (min_m.font_h - ts->h) / 2, a * fill, &clip, dst);
+	}
+}
+
+// Fade i (0 top, 1 bottom) h tall: black at the screen's edge, clear at its inner end.
+static SDL_Surface* minFade(int i, int w, int h) {
+	return MinFade_get(&min_fade[i], i == 0, w, h);
+}
+
+// The fades over the names where a bar is hidden: from the top edge down to the strip's bottom (the page title
+// hidden), from the bottom edge up a bar and a little more (the hints hidden).
+static void minDrawFades(SDL_Surface* dst) {
+	SDL_Rect whole = {0, 0, dst->w, dst->h};
+	if (!CFG_getPageTitle()) {
+		int h = min_area_top > barPx() ? min_area_top : barPx();
+		SDL_Surface* f = minFade(0, dst->w, h);
+		if (min_sprites)
+			minBlit(f, 0, 0, 1.0f, &whole, dst);
+		else if (f)
+			UI_blitFade(f, NULL, dst, 0, 0);
+	}
+	if (!CFG_getButtonHints()) {
+		int h = barPx() + NX_DP(24);
+		SDL_Surface* f = minFade(1, dst->w, h);
+		if (min_sprites)
+			minBlit(f, 0, dst->h - h, 1.0f, &whole, dst);
+		else if (f)
+			UI_blitFade(f, NULL, dst, 0, dst->h - h);
+	}
+}
+
+// The status icons over the top fade (sprite mode, the page title hidden): the screen's top bar as nextui drew it (the
+// icons on clear pixels), copied into a surface of its own, made again only when those pixels change.
+static void minBarOverFade(SDL_Surface* dst) {
+	int h = barPx();
+	if (h <= 0 || h > dst->h || dst->format->BytesPerPixel != 4)
+		return;
+	Uint32 key = 2166136261u;
+	for (int y = 0; y < h; y++)
+		key = View_fnv(key, (Uint8*)dst->pixels + y * dst->pitch, dst->w * 4);
+	if (!min_bar || min_bar_key != key || min_bar->w != dst->w || min_bar->h != h) {
+		GFX_freeSurfaceAndTexture(min_bar);
+		min_bar = SDL_CreateRGBSurfaceWithFormat(0, dst->w, h, 32, dst->format->format);
+		if (!min_bar)
+			return;
+		for (int y = 0; y < h; y++)
+			memcpy((Uint8*)min_bar->pixels + y * min_bar->pitch, (Uint8*)dst->pixels + y * dst->pitch, dst->w * 4);
+		SDL_SetSurfaceBlendMode(min_bar, SDL_BLENDMODE_BLEND);
+		min_bar_key = key;
+	}
+	minBlit(min_bar, 0, 0, 1.0f, &(SDL_Rect){0, 0, dst->w, h}, dst);
+}
+
+static void minRender(SDL_Surface* dst) {
+	int bar_h = barPx();
+	int top = CFG_getPageTitle() ? bar_h : 0, bottom = CFG_getButtonHints() ? dst->h - bar_h : dst->h;
+	if (bottom <= top)
+		return;
+	SDL_Rect body = {0, top, dst->w, bottom - top};
+	SDL_SetClipRect(dst, &body);
+	min_sprites = !ContextMenu_isOpen(); // a context menu draws on the screen, which sprites would cover
+	ContentDim_beginClear(dst, body);	 // the page as one layer for the tab-focus dim
+	HomeStats st;
+	currentStats(&st);
+	if (min_sprites) {
+		drawStrip(dst, &st, 0); // on the screen, under the names (they stop at its bottom with the page title shown)
+		minDraw(dst);
+		minDrawFades(dst);
+		if (!CFG_getPageTitle()) { // the strip and the status icons over the names and the top fade
+			if (strip_surf && built_lines > 0)
+				minBlit(strip_surf, 0, strip_top, 1.0f, &(SDL_Rect){0, 0, dst->w, dst->h}, dst);
+			minBarOverFade(dst);
+		}
+	} else {
+		minDraw(dst);
+		minDrawFades(dst);
+		drawStrip(dst, &st, 0); // over the names that run on behind it
+	}
+	ContentDim_end(dst);
+	SDL_SetClipRect(dst, NULL);
+}
+
+// A on a name: its band starts on its rows; false with Menu animations off (the item opens straight away).
+static bool minOpenStart(SDL_Surface* dst) {
+	if (min_n <= 0 || min_sel >= min_n)
+		return false;
+	int tag;
+	char lines[MIN_MAX_LINES][MIN_LINE_MAX];
+	int gutter = NX_DP(NX_MENU_GUTTER_DP);
+	int c = MinDraw_wrap(min_m.font, minLabel(min_sel, &tag), dst->w - 2 * gutter, MIN_MAX_LINES, lines);
+	SDL_Rect from = {gutter, minRowY(min_sel, currentPos()), dst->w - 2 * gutter, min_rows[min_sel].h - min_m.gap};
+	return MinOpen_start(&min_open, &min_m, lines, c, from);
+}
+
+// A new selection: the names slide there from wherever they are (a held D-pad retargets the slide).
+static void minSetSel(int sel) {
+	pos_from = currentPos();
+	pos_to = (float)sel;
+	slide_ms = SLIDE_MS;
+	slide_decel = false;
+	tweenStart(&slide_tw);
+	if (!slide_tw.active)
+		pos_from = pos_to;
+	min_sel = sel;
+	readyFocus();
+}
+
+// The held glide begins (on UP/DOWN's first repeat), from wherever the names are.
+static void minGlideStart(int dir) {
+	HomeMin_glideStart(&min_glide, dir, currentPos(), SDL_GetTicks());
+	slide_tw.active = false;
+}
+
+// Let go: the names ease out into the next name the glide was heading for, from its speed.
+static void minGlideRelease(void) {
+	pos_from = min_glide.pos;
+	pos_to = (float)HomeMin_glideSettle(&min_glide, HomeList_count(ngames, ntools), &slide_ms);
+	slide_decel = true;
+	tweenStart(&slide_tw);
+	if (!slide_tw.active || pos_from == pos_to)
+		slide_tw.active = false, pos_from = pos_to;
+	if ((int)pos_to != min_sel) {
+		min_sel = (int)pos_to;
+		readyFocus();
+	}
+}
+
+// A frame of the held glide; the selection the name nearest. Let go (or the other way pressed), minGlideRelease.
+static void minGlideStep(bool* dirty) {
+	if (!min_glide.dir)
+		return;
+	if (min_open.active || PAD_justPressed(BTN_A) || !PAD_isPressed(min_glide.dir > 0 ? BTN_DOWN : BTN_UP) || PAD_isPressed(min_glide.dir > 0 ? BTN_UP : BTN_DOWN)) {
+		minGlideRelease();
+		*dirty = true;
+		return;
+	}
+	HomeMin_glideStep(&min_glide, SDL_GetTicks(), HomeList_count(ngames, ntools));
+	int sel = (int)roundf(min_glide.pos);
+	if (sel != min_sel) {
+		min_sel = sel;
+		readyFocus();
+	}
+	*dirty = true;
+}
+
 void Home_render(SDL_Surface* dst, int lastScreen) {
 	(void)lastScreen;
 	if (!dst || !Home_active())
@@ -2055,6 +2386,12 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 	ensureBuilt();
 	if (listMode()) // gamelist.c draws the List (Home_isList)
 		return;
+	if (minimalMode()) {
+		minRender(dst);
+		renderHints(dst);
+		MinOpen_draw(&min_open, &min_m, min_sprites, dst); // over everything, the bars included
+		return;
+	}
 	int bar_h = barPx();
 	int body_h = dst->h - 2 * bar_h;
 	if (body_h > 0) {
@@ -2218,17 +2555,19 @@ bool Home_animating(void) {
 	if (!Home_active()) {
 		scroll_tw.active = sel_tw.active = slide_tw.active = false;
 		scroll_from = scroll_to;
+		if (min_glide.dir) // left Home mid-glide: settled on its name
+			pos_to = (float)min_sel, min_glide.dir = 0;
 		pos_from = pos_to;
 		return false;
 	}
 	bool a = tweenTick(&scroll_tw, SCROLL_MS);
 	bool b = tweenTick(&sel_tw, SEL_MS);
-	bool c = tweenTick(&slide_tw, SLIDE_MS);
+	bool c = tweenTick(&slide_tw, slide_ms);
 	if (a && !scroll_tw.active)
 		scroll_from = scroll_to;
 	if (c && !slide_tw.active)
 		pos_from = pos_to;
-	return a || b || c || (carousel() && car_warming);
+	return a || b || c || (carousel() && car_warming) || min_open.active || min_glide.dir;
 }
 
 bool Home_scrolled(void) {
@@ -2265,6 +2604,8 @@ static void setCarFocus(HomeCarFocus f) {
 	if (f.sel != car_focus.sel) {
 		pos_from = currentPos();
 		pos_to = (float)f.sel;
+		slide_ms = SLIDE_MS;
+		slide_decel = false;
 		tweenStart(&slide_tw);
 		if (!slide_tw.active)
 			pos_from = pos_to;
@@ -2319,6 +2660,10 @@ void Home_focusBottom(void) {
 	if (!screen || !Home_active())
 		return;
 	ensureBuilt();
+	if (minimalMode()) { // the last name
+		minSetSel(HomeList_count(ngames, ntools) - 1);
+		return;
+	}
 	if (listMode()) { // the last row, windowed as the List's own wrap to the bottom
 		int n = hl_entries ? hl_entries->count : 0;
 		if (n > 0) {
@@ -2346,6 +2691,17 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 	if (!screen || !Home_active())
 		return false;
 	ensureBuilt();
+	if (min_glide.dir && !minimalMode())
+		min_glide.dir = 0;
+	minGlideStep(dirty);
+	if (min_open.active) { // the Minimal's open band: the item opens once it has gone dark; nothing else meanwhile
+		if (MinOpen_done(&min_open)) {
+			min_open.active = false;
+			activate(dirty);
+		}
+		*dirty = true;
+		return true;
+	}
 
 	if (PAD_tappedMenu(now)) {
 		const HomeTile* t = focusedTile();
@@ -2364,6 +2720,30 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 	for (size_t i = 0; i < sizeof(dpad) / sizeof(dpad[0]); i++) {
 		if (!PAD_justRepeated(dpad[i].btn))
 			continue;
+		if (minimalMode()) { // UP/DOWN one name, a fresh press at either end wrapping to the other (as the List);
+			// LEFT/RIGHT tab
+			bool fresh = PAD_justPressed(dpad[i].btn);
+			int n = HomeList_count(ngames, ntools);
+			if (dpad[i].dir == HOME_DIR_LEFT || dpad[i].dir == HOME_DIR_RIGHT) {
+				if (fresh)
+					GameList_switchTab(dpad[i].dir == HOME_DIR_LEFT ? -1 : 1, dirty);
+			} else if (!fresh && animationsOn()) { // held: glide (from the first repeat on)
+				int dir = dpad[i].dir == HOME_DIR_UP ? -1 : 1;
+				if (min_glide.dir != dir)
+					minGlideStart(dir);
+			} else if (dpad[i].dir == HOME_DIR_UP) {
+				if (min_sel > 0)
+					minSetSel(min_sel - 1);
+				else if (fresh && n > 1)
+					minSetSel(n - 1);
+			} else if (min_sel < n - 1) {
+				minSetSel(min_sel + 1);
+			} else if (fresh && n > 1) {
+				minSetSel(0);
+			}
+			*dirty = true;
+			return true;
+		}
 		if (listMode()) { // as the main menu's List: UP/DOWN one row (a fresh press wraps), LEFT/RIGHT switch tab
 			bool fresh = PAD_justPressed(dpad[i].btn);
 			if (dpad[i].dir == HOME_DIR_LEFT || dpad[i].dir == HOME_DIR_RIGHT) {
@@ -2416,6 +2796,10 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 	}
 
 	if (PAD_justPressed(BTN_A)) {
+		if (minimalMode() && minOpenStart(screen)) { // the band first; activate() once it has gone dark
+			*dirty = true;
+			return true;
+		}
 		activate(dirty);
 		return true;
 	}

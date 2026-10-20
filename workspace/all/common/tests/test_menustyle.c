@@ -36,6 +36,8 @@ static void stored_values_win(void) {
 	assert(loadGameList(MENU_STYLE_LIST) == MENU_STYLE_LIST);
 	assert(loadGameList(MENU_STYLE_GRID) == MENU_STYLE_GRID);
 	assert(loadGameList(MENU_STYLE_CAROUSEL) == MENU_STYLE_CAROUSEL);
+	assert(loadMain(MENU_STYLE_MINIMAL) == MENU_STYLE_MINIMAL);
+	assert(loadGameList(MENU_STYLE_MINIMAL) == MENU_STYLE_MINIMAL);
 }
 
 static void main_menu_backdrop_reads_as_carousel(void) {
@@ -63,8 +65,9 @@ static void out_of_range_is_the_default(void) {
 }
 
 static void choice_counts(void) {
-	assert(MENUSTYLE_MAIN_COUNT == 3);
-	assert(MENUSTYLE_GAMELIST_COUNT == 4);
+	assert(MENUSTYLE_MAIN_COUNT == 4); // List, Grid, Carousel, Minimal
+	assert(MENUSTYLE_GAMELIST_COUNT == 5);
+	assert(MENU_STYLE_MINIMAL == 4); // stored: never renumbered
 }
 
 // Orientation (Horizontal / Vertical). Only a Carousel main-menu tab, or a Carousel or Backdrop game list, has one;
@@ -94,6 +97,9 @@ static void orientation_store_and_out_of_range(void) {
 static void main_menu_orientation_by_style(void) {
 	assert(!MenuStyle_mainMenuHasOrient(MENU_STYLE_LIST));
 	assert(!MenuStyle_mainMenuHasOrient(MENU_STYLE_GRID));
+	assert(!MenuStyle_mainMenuHasOrient(MENU_STYLE_MINIMAL));
+	assert(!MenuStyle_gameListHasOrient(MENU_STYLE_MINIMAL));
+	assert(MenuStyle_gameListOrient(MENU_STYLE_MINIMAL, MENU_ORIENT_VERTICAL) == MENU_ORIENT_HORIZONTAL);
 	assert(MenuStyle_mainMenuHasOrient(MENU_STYLE_CAROUSEL));
 	assert(MenuStyle_mainMenuHasOrient(MENU_STYLE_BACKDROP)); // a stored main-menu Backdrop reads as Carousel
 	assert(MenuStyle_mainMenuHasOrient(99));				  // out of range reads as Carousel (the default)
@@ -145,12 +151,14 @@ static void valign_store_and_out_of_range(void) {
 
 // Home layout: Grid by default and for anything out of range; the stored values are fixed.
 static void home_style_store_and_out_of_range(void) {
-	assert(HOME_STYLE_GRID == 0 && HOME_STYLE_CAROUSEL == 1 && HOME_STYLE_LIST == 2 && HOME_STYLE_COUNT == 3);
+	assert(HOME_STYLE_GRID == 0 && HOME_STYLE_CAROUSEL == 1 && HOME_STYLE_LIST == 2 && HOME_STYLE_MINIMAL == 3 &&
+		   HOME_STYLE_COUNT == 4);
 	assert(CFG_DEFAULT_HOMESTYLE == HOME_STYLE_GRID);
 	assert(MenuStyle_storeHome(HOME_STYLE_GRID) == HOME_STYLE_GRID);
 	assert(MenuStyle_storeHome(HOME_STYLE_CAROUSEL) == HOME_STYLE_CAROUSEL);
 	assert(MenuStyle_storeHome(HOME_STYLE_LIST) == HOME_STYLE_LIST);
-	int bad[] = {-1, 3, 99, -99};
+	assert(MenuStyle_storeHome(HOME_STYLE_MINIMAL) == HOME_STYLE_MINIMAL);
+	int bad[] = {-1, 4, 99, -99};
 	for (int i = 0; i < 4; i++)
 		assert(MenuStyle_storeHome(bad[i]) == HOME_STYLE_GRID);
 }

@@ -20,6 +20,7 @@
 #include "home_stats.h"
 #include "gamelist.h"
 #include "gridview.h"
+#include "minview.h"
 #include "home.h"
 #include "homeart.h"
 #include "infoband.h"
@@ -441,7 +442,7 @@ int main(int argc, char* argv[]) {
 		// dims for (or lights up from) tab-row focus. Settled, nothing redraws.
 		if (drawScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
 			(GameList_pillAnimating() || GameList_artWaiting() || MenuTabs_animating() || Home_animating() || GridView_animating() ||
-			 RowView_animating() || MenuTabs_dimAnimating()))
+			 RowView_animating() || MinView_animating() || MenuTabs_dimAnimating()))
 			dirty = true;
 
 		// Search's dirty signal comes entirely from sr.dirty above
@@ -490,7 +491,7 @@ int main(int argc, char* argv[]) {
 			if (!(drawScreen == SCREEN_GAMELIST && !startgame && RowView_paintsScreen())) {
 				bool body_kept = sprites_last && GFX_flipCount() == last_frame_flip && drawScreen == SCREEN_GAMELIST &&
 								 !startgame &&
-								 (GridView_active() || RowView_active());
+								 (GridView_active() || RowView_active() || MinView_active());
 				if (body_kept && screen->h > 2 * BAR_HEIGHT) {
 					SDL_FillRect(screen, &(SDL_Rect){0, 0, screen->w, BAR_HEIGHT}, 0);
 					SDL_FillRect(screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT, screen->w, BAR_HEIGHT}, 0);
@@ -548,7 +549,7 @@ int main(int argc, char* argv[]) {
 				// Carousel and Backdrop: their body is plain black, or the picture with no fade (over_art), or a sprite
 				// frame's body that must hold nothing but what the row left there.
 				bool strip_only =
-					home || (drawScreen == SCREEN_GAMELIST && (GridView_active() || RowView_active()));
+					home || (drawScreen == SCREEN_GAMELIST && (GridView_active() || RowView_active() || MinView_active()));
 				if (fade && screen_clear && !over_art) // nothing drawn under it yet: the fade's own pixels
 					UI_fillFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
 				else if (fade)
@@ -845,6 +846,7 @@ int main(int argc, char* argv[]) {
 	Home_quit();
 	ContentDim_quit();
 	GridView_quit();
+	MinView_quit();
 	RowView_quit();
 	Tiles_quit();
 	UIFont_quit(); // before GFX_quit: TTF fonts close while the TTF state is intact

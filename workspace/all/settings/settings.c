@@ -273,10 +273,13 @@ static int exposure_values[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5};
 static int on_off_values[] = {0, 1};
 
 
-/* Main menu tab and game list styles for the Layouts page: the main-menu tabs offer the first
-   MENUSTYLE_MAIN_COUNT (List, Grid, Carousel), game lists all MENUSTYLE_GAMELIST_COUNT (+ Backdrop) */
-static const char* menu_style_labels[] = {"List", "Grid", "Carousel", "Backdrop"};
-static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_BACKDROP};
+/* Main menu tab and game list styles for the Layouts page: the main-menu tabs offer List, Grid, Carousel and
+   Minimal (MENUSTYLE_MAIN_COUNT), game lists those and Backdrop (MENUSTYLE_GAMELIST_COUNT) */
+static const char* menu_style_labels[] = {"List", "Grid", "Carousel", "Minimal"};
+static int menu_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_MINIMAL};
+static const char* game_list_style_labels[] = {"List", "Grid", "Carousel", "Backdrop", "Minimal"};
+static int game_list_style_values[] = {MENU_STYLE_LIST, MENU_STYLE_GRID, MENU_STYLE_CAROUSEL, MENU_STYLE_BACKDROP,
+									   MENU_STYLE_MINIMAL};
 /* Carousel / Backdrop orientation rows: each sits directly under its style row and shows only while that style
    has an orientation (sync_layouts_rows) */
 static const char* orient_labels[] = {"Horizontal", "Vertical"};
@@ -301,9 +304,10 @@ static int backdrop_art_values[] = {BACKDROP_ART_BOXART3D, BACKDROP_ART_BOXART2D
 static SettingItem* backdrop_art_item = NULL;
 static const char* hide_show_labels[] = {"Hide", "Show"};
 /* The Home tab's layout: under the "Home tab" row, shown only while the tab is */
-// in the display order of the other tabs' rows (List, Grid, Carousel); the stored values stay as they are
-static const char* home_style_labels[] = {"List", "Grid", "Carousel"};
-static int home_style_values[] = {HOME_STYLE_LIST, HOME_STYLE_GRID, HOME_STYLE_CAROUSEL};
+// in the display order of the other tabs' rows (List, Grid, Carousel), then Home's own Minimal; the stored values stay
+// as they are
+static const char* home_style_labels[] = {"List", "Grid", "Carousel", "Minimal"};
+static int home_style_values[] = {HOME_STYLE_LIST, HOME_STYLE_GRID, HOME_STYLE_CAROUSEL, HOME_STYLE_MINIMAL};
 static SettingItem* home_style_item = NULL;
 
 // "Vibration strength": values are libmsettings rumble_strength levels
@@ -1917,7 +1921,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	home_style_item = &layouts_items[idx];
 	LAYOUTS_CYCLE_ROW(
 		"Home layout",
-		"List: Continue, games and tools in one list. Grid: Continue beside tools, games below. Carousel: games in a row, tools below.",
+		"List: Continue, games and tools in one list. Grid: Continue beside tools, games below. Carousel: games in a row, tools below. Minimal: big names, the selected one lit.",
 		home_style_labels, HOME_STYLE_COUNT, home_style_values, get_home_style, set_home_style, reset_home_style);
 
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
@@ -1961,7 +1965,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 
 	layouts_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"Game lists layout", "How a console's or collection's games draw.",
-		menu_style_labels, MENUSTYLE_GAMELIST_COUNT, menu_style_values, get_game_list_style, set_game_list_style, reset_game_list_style);
+		game_list_style_labels, MENUSTYLE_GAMELIST_COUNT, game_list_style_values, get_game_list_style, set_game_list_style, reset_game_list_style);
 	LAYOUTS_ORIENT_ROW(game_list_orient_item, "Game lists orientation",
 					   "Whether a game list's carousel or backdrop runs across or down.",
 					   get_game_list_orient, set_game_list_orient, reset_game_list_orient);

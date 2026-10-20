@@ -60,11 +60,58 @@ static void tag(void) {
 	assert(t.pad_y == 3 && t.pad_x == 12 && t.gap == 15 && t.w == 94 && t.h == 30);
 }
 
+// Minimal's fade: the selection 1; below 0.6, 0.4, 0.28, then 0.2 on; above 0.3, 0.22, then 0.2; linear between.
+static int near(float a, float b) {
+	return a - b < 0.0001f && b - a < 0.0001f;
+}
+static void minimal_fade(void) {
+	assert(near(HomeMin_alpha(0), 1.0f));
+	assert(near(HomeMin_alpha(1), 0.5f) && near(HomeMin_alpha(2), 0.4f) && near(HomeMin_alpha(3), 0.28f));
+	assert(near(HomeMin_alpha(4), 0.2f) && near(HomeMin_alpha(9), 0.2f));
+	assert(near(HomeMin_alpha(-1), 0.3f) && near(HomeMin_alpha(-2), 0.22f) && near(HomeMin_alpha(-9), 0.2f));
+	assert(near(HomeMin_alpha(0.5f), 0.75f) && near(HomeMin_alpha(-0.5f), 0.65f));
+}
+
+static void minimal_glide(void) {
+	HomeMinGlide g;
+	HomeMin_glideStart(&g, 1, 2.0f, 1000);
+	// a stalled frame (100 ms) moves at most 0.05 s worth, at the speed reached
+	float v = MIN_GLIDE_V0 + (MIN_GLIDE_MAX - MIN_GLIDE_V0) * 100.0f / MIN_GLIDE_RAMP_MS;
+	assert(near(HomeMin_glideStep(&g, 1100, 10), 2.0f + v * 0.05f));
+	HomeMin_glideStart(&g, 1, 2.0f, 1000);
+	HomeMin_glideStep(&g, 1016, 10);
+	assert(g.v < MIN_GLIDE_MAX && g.pos > 2.0f);
+	for (unsigned t = 1032; t < 1000 + MIN_GLIDE_RAMP_MS + 100; t += 16)
+		HomeMin_glideStep(&g, t, 100);
+	assert(near(g.v, MIN_GLIDE_MAX));
+	// clamped at the ends
+	HomeMin_glideStart(&g, -1, 0.2f, 0);
+	HomeMin_glideStep(&g, 50, 10);
+	assert(near(g.pos, 0.0f));
+	HomeMin_glideStart(&g, 1, 8.9f, 0);
+	HomeMin_glideStep(&g, 50, 10);
+	assert(near(g.pos, 9.0f));
+	// let go: the next whole name ahead, never back
+	unsigned ms;
+	g = (HomeMinGlide){1, 6.2f, 20.0f, 0, 0};
+	assert(HomeMin_glideSettle(&g, 10, &ms) == 7 && g.dir == 0);
+	assert(ms == 120); // 3 x 0.8 / 20 s
+	g = (HomeMinGlide){-1, 6.58f, 12.0f, 0, 0};
+	assert(HomeMin_glideSettle(&g, 10, &ms) == 6 && ms >= MIN_SETTLE_MIN_MS && ms <= MIN_SETTLE_MAX_MS);
+	g = (HomeMinGlide){1, 4.0f, 12.0f, 0, 0};
+	assert(HomeMin_glideSettle(&g, 10, &ms) == 4 && ms == MIN_SETTLE_MIN_MS);
+	g = (HomeMinGlide){1, 9.0f, 24.0f, 0, 0};
+	assert(HomeMin_glideSettle(&g, 10, &ms) == 9);
+	assert(near(HomeMin_easeOut(0), 0.0f) && near(HomeMin_easeOut(1), 1.0f) && HomeMin_easeOut(0.5f) > 0.5f);
+}
+
 int main(void) {
 	row_order();
 	clamp();
 	geometry();
 	tag();
+	minimal_fade();
+	minimal_glide();
 	printf("test_home_list_layout: all passed\n");
 	return 0;
 }

@@ -10,12 +10,13 @@ enum { MENU_STYLE_LIST = 0,
 	   MENU_STYLE_GRID,
 	   MENU_STYLE_CAROUSEL,
 	   MENU_STYLE_BACKDROP, // game lists only; a stored main-menu Backdrop reads as Carousel
+	   MENU_STYLE_MINIMAL,	// just the names (Home's Minimal, minview.c)
 	   MENU_STYLE_COUNT };
 
-// Main-menu tabs (Consoles, Collections, Tools) choose List, Grid or Carousel.
-#define MENUSTYLE_MAIN_COUNT 3
+// Main-menu tabs (Consoles, Collections, Tools) choose List, Grid, Carousel or Minimal (the Layouts row's options).
+#define MENUSTYLE_MAIN_COUNT 4
 #define MENUSTYLE_MAIN_DEFAULT MENU_STYLE_CAROUSEL
-// Game lists choose List, Grid, Carousel or Backdrop.
+// Game lists choose List, Grid, Carousel, Backdrop or Minimal.
 #define MENUSTYLE_GAMELIST_COUNT MENU_STYLE_COUNT
 #define MENUSTYLE_GAMELIST_DEFAULT MENU_STYLE_CAROUSEL
 
@@ -29,7 +30,7 @@ static inline int MenuStyle_storeMainMenu(int style) {
 
 // How a stored main-menu tab value reads: Backdrop and out-of-range values read as Carousel (the default).
 static inline int MenuStyle_mainMenu(int stored) {
-	if (stored < MENU_STYLE_LIST || stored >= MENUSTYLE_MAIN_COUNT)
+	if (stored < MENU_STYLE_LIST || stored >= MENU_STYLE_COUNT || stored == MENU_STYLE_BACKDROP)
 		return MENUSTYLE_MAIN_DEFAULT;
 	return stored;
 }
@@ -41,7 +42,7 @@ static inline int MenuStyle_storeGameList(int style) {
 	return style;
 }
 
-// How a stored game list value reads: all four styles stay, an out-of-range value reads as the default.
+// How a stored game list value reads: all five styles stay, an out-of-range value reads as the default.
 static inline int MenuStyle_gameList(int stored) {
 	return MenuStyle_storeGameList(stored);
 }
@@ -77,11 +78,13 @@ static inline int MenuStyle_storeVAlign(int valign) {
 }
 
 // The Home tab's layout (Layouts > Home layout): Grid, Continue beside the tool squares with the pinned games below;
-// Carousel, Continue first in a row of the pinned games, the tools in a dock under it; or List, one pill list of
-// Continue, the pinned games and the pinned tools. Stored values (minuisettings.txt): never renumber.
+// Carousel, Continue first in a row of the pinned games, the tools in a dock under it; List, one pill list of
+// Continue, the pinned games and the pinned tools; or Minimal, the List's items as big names, the selected one solid
+// in the accent and the rest outlined. Stored values (minuisettings.txt): never renumber.
 enum { HOME_STYLE_GRID = 0,
 	   HOME_STYLE_CAROUSEL,
 	   HOME_STYLE_LIST,
+	   HOME_STYLE_MINIMAL,
 	   HOME_STYLE_COUNT };
 #define HOMESTYLE_DEFAULT HOME_STYLE_GRID
 
