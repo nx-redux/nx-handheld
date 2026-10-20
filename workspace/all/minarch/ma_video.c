@@ -6,6 +6,7 @@
 #include "ma_present.h"
 #include "ma_core_progress.h"
 #include "ma_menu.h"
+#include "ma_ffshow.h"
 
 static const char* bitmap_font[] = {
 	['0'] =
@@ -743,16 +744,11 @@ static void drawDebugHud(const void* data, unsigned width, unsigned height, size
 // fast-forward throttle can drop frames *before* the pixel conversion
 static uint32_t last_flip_time = 0;
 
-// Shortest gap between presented frames while fast-forwarding. Each present
-// waits for vblank (tg5040 can't turn the swap interval off), so a 10 ms gap
-// let fceumm (~5.4 ms a frame) run only two frames per vblank: 2x at any Max FF
-// Speed. 30 ms shows FF at ~30 fps and leaves the rest of the time to the core.
-#define FF_FRAME_INTERVAL_MS 30
-
-// Whether the next fast-forward frame would be shown. The frames in between are
-// dropped, so cores that honor GET_AUDIO_VIDEO_ENABLE are told not to draw them.
+// Whether the next fast-forward frame would be shown (ma_ffshow.h). The frames
+// in between are dropped, so cores that honor GET_AUDIO_VIDEO_ENABLE are told
+// not to draw them.
 int Video_ffFrameDue(void) {
-	return SDL_GetTicks() - last_flip_time >= FF_FRAME_INTERVAL_MS;
+	return FF_showFrame(max_ff_speed, ff_last_of_pass, SDL_GetTicks() - last_flip_time);
 }
 
 static void video_refresh_callback_main(const void* data, unsigned width, unsigned height, size_t pitch) {
@@ -760,7 +756,7 @@ static void video_refresh_callback_main(const void* data, unsigned width, unsign
 
 	Special_render();
 
-	if (fast_forward && SDL_GetTicks() - last_flip_time < FF_FRAME_INTERVAL_MS)
+	if (fast_forward && !Video_ffFrameDue())
 		return;
 
 	// FFVII menus
@@ -1076,7 +1072,7 @@ void video_refresh_callback(const void* data, unsigned width, unsigned height, s
 	// During fast-forward most frames are dropped by the throttle in
 	// video_refresh_callback_main; bail out here so we skip the full-frame
 	// pixel conversion and ambient scan for frames that will never be shown
-	if (fast_forward && SDL_GetTicks() - last_flip_time < FF_FRAME_INTERVAL_MS)
+	if (fast_forward && !Video_ffFrameDue())
 		return;
 
 	// A core reporting progress (a hi-res texture pack converted on first

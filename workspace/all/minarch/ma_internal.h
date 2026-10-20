@@ -96,6 +96,7 @@ extern int show_menu;
 extern int newScreenshot;
 extern int simple_mode;
 extern int fast_forward;
+extern int ff_last_of_pass; // the frame core.run() makes now ends a fast-forward pass (ma_ffshow.h)
 extern int rewinding;
 extern int ff_audio;
 extern int use_core_fps;

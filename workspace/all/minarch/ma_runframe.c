@@ -87,6 +87,8 @@ static void limitFF(void) {
 	last_time = now;
 }
 
+int ff_last_of_pass = 1;
+
 void run_frame(void) {
 	syncFFQuality();
 	// if rewind is toggled, fast-forward toggle must stay off; fast-forward hold pauses rewind
@@ -147,6 +149,7 @@ void run_frame(void) {
 		}
 
 		for (int ff_step = 0; ff_step < ff_runs; ff_step++) {
+			ff_last_of_pass = ff_step == ff_runs - 1;
 			core.run();
 			Rewind_push(0);
 		}

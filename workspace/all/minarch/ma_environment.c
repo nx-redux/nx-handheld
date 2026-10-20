@@ -260,7 +260,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		int* out_p = (int*)data;
 		if (out_p) {
 			int out = 0;
-			// fast-forward shows one frame per FF_FRAME_INTERVAL_MS; skipping the
+			// fast-forward shows only some frames (ma_ffshow.h); skipping the
 			// drawing of the rest lifts snes9x (SFC), Supafaust (SUPA, patched),
 			// GPGX (MD) and fbneo toward Max FF Speed. GPU cores keep drawing: the
 			// HW present path expects it.
