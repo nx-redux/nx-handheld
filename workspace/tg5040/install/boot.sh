@@ -105,6 +105,16 @@ for pakz in $PAKZ_PATH; do
 done
 
 # install/update
+# Some firmwares (Smart Pro S for sure) mount the card through FUSE, which
+# hides a replaced file that is still open (the running updater and this
+# script) as .tmp_update/.fuse_hidden<node><n> instead of deleting it. On a
+# kernel exFAT mount (Brick) there are none and this is a no-op. The poweroff at
+# the end means nothing ever removes them, and FUSE tries only 10 names per
+# boot: once those exist, replacing either file fails with "Device or
+# resource busy" and unzip reports the whole update as failed. They are
+# leftovers of earlier boots, so clear them before unzipping.
+rm -f "$SDCARD_PATH"/.tmp_update/.fuse_hidden*
+
 # Test the whole zip before the clean replacement below wipes the running
 # system: a truncated MinUI.zip (card pulled mid-copy, an interrupted OTA
 # unpack) used to wipe .system first and then fail to extract, so every boot

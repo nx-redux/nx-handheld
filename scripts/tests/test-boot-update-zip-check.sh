@@ -30,7 +30,7 @@ card() { # dir [with-system]
 
 for PLAT in tg5040 tg5050; do
 	BOOT="$ROOT/workspace/$PLAT/install/boot.sh"
-	BLOCK="$(sed -n '/^# install\/update$/,/^#kill \$SHOW_PID/p' "$BOOT" \
+	BLOCK="$(sed -n '/^# install\/update$/,/^LAUNCH_PATH=/{/^LAUNCH_PATH=/!p;}' "$BOOT" \
 		| sed -e 's#cd \$(dirname "\$0")/\$PLATFORM#cd "$TOOLS"#' \
 		      -e "s#/tmp/show2.fifo#$TMP/fifo#g" -e 's#sleep [0-9]*#true#')"
 	[ -n "$BLOCK" ] || { fail "$PLAT: install/update block not found"; continue; }
@@ -51,6 +51,13 @@ for PLAT in tg5040 tg5050; do
 	[ "$(cat "$C/.system/paks/MinUI.pak/launch.sh" 2>/dev/null)" = new ] || fail "$PLAT: good zip not installed"
 	[ ! -e "$C/MinUI.zip" ] || fail "$PLAT: good zip not consumed"
 	[ -f "$C/install-ran" ] || fail "$PLAT: install.sh not run"
+
+	# FUSE leftovers from earlier boots are cleared before unzip
+	C="$TMP/$PLAT-hidden"; card "$C" sys; cp "$TMP/good.zip" "$C/MinUI.zip"
+	mkdir -p "$C/.tmp_update"
+	for n in 1 2 3 4 5 6 7 8 9 a; do : > "$C/.tmp_update/.fuse_hidden000000040000000$n"; done
+	run "$C"
+	[ -z "$(ls -A "$C/.tmp_update")" ] || fail "$PLAT: .fuse_hidden leftovers not cleared"
 
 	# corrupt zip on a fresh card: nothing to keep, zip kept for the retry
 	C="$TMP/$PLAT-fresh"; card "$C"; cp "$TMP/bad.zip" "$C/MinUI.zip"
