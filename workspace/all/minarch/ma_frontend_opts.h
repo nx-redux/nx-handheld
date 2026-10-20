@@ -62,4 +62,5 @@ int OptionEmulator_openMenu(MenuList* list, int i);
 int OptionShaders_openMenu(MenuList* list, int i);
 int OptionCheats_openMenu(MenuList* list, int i);
 int OptionControls_openMenu(MenuList* list, int i);
+int OptionShortcuts_openMenu(MenuList* list, int i);
 int OptionSaveChanges_openMenu(MenuList* list, int i);

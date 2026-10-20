@@ -122,6 +122,27 @@ int main(void) {
 	// unwritable dir fails cleanly
 	assert(!EmuShortcuts_write(DIR_ "/missing/x.cfg", want));
 
+	// merge: overrides win, NONE keeps the global, a global on an overridden button is dropped
+	int global[SHORTCUT_COUNT] = {0}, over[SHORTCUT_COUNT] = {0}, out[SHORTCUT_COUNT];
+	int menu_x = EmuShortcuts_labelIndex("MENU+X"), menu_y = EmuShortcuts_labelIndex("MENU+Y");
+	int l2 = EmuShortcuts_labelIndex("L2");
+	global[SHORTCUT_SAVE_STATE] = menu_x;
+	global[SHORTCUT_LOAD_STATE] = menu_y;
+	global[SHORTCUT_TOGGLE_FF] = l2;
+	EmuShortcuts_merge(global, over, out);
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		assert(out[i] == global[i]);	// no overrides: the global file as is
+	over[SHORTCUT_LOAD_STATE] = menu_x; // Load State moves to Save State's button
+	over[SHORTCUT_SCREENSHOT] = EmuShortcuts_labelIndex("R2");
+	EmuShortcuts_merge(global, over, out);
+	assert(out[SHORTCUT_LOAD_STATE] == menu_x);
+	assert(out[SHORTCUT_SAVE_STATE] == 0); // its global button is taken here
+	assert(out[SHORTCUT_SCREENSHOT] == over[SHORTCUT_SCREENSHOT]);
+	assert(out[SHORTCUT_TOGGLE_FF] == l2); // untouched global
+	over[SHORTCUT_SAVE_STATE] = menu_y;	   // swap: both overridden
+	EmuShortcuts_merge(global, over, out);
+	assert(out[SHORTCUT_SAVE_STATE] == menu_y && out[SHORTCUT_LOAD_STATE] == menu_x);
+
 	system("rm -rf " DIR_);
 	printf("test_emu_shortcuts: all passed\n");
 	return 0;

@@ -5,7 +5,8 @@
 
 // Emulator shortcuts (save state, toggle FF, turbo, ...) are global: one file
 // per device, edited in the Settings app and read by minarch at every launch.
-// Console/game cfgs no longer carry them (minarch ignores any it finds there).
+// A console or game cfg (in-game Options > Shortcuts, then Save Changes) may
+// override some of them: EmuShortcuts_merge.
 //
 //   <userdata>/minarch-shortcuts-<DEVICE>.cfg   (no "-<DEVICE>" when DEVICE is unset)
 //
@@ -101,5 +102,11 @@ void EmuShortcuts_parse(const char* text, int labels[SHORTCUT_COUNT]);
 int EmuShortcuts_read(const char* path, int labels[SHORTCUT_COUNT]);
 // Writes every shortcut (NONE included) and syncs. Returns 1 on success.
 int EmuShortcuts_write(const char* path, const int labels[SHORTCUT_COUNT]);
+
+// The shortcuts a game runs with. A console/game override (label > 0) wins
+// over the global binding; an override of 0 (NONE, or no line in the cfg)
+// keeps the global one. A global binding on a button an override uses is
+// dropped, so one press never fires two shortcuts.
+void EmuShortcuts_merge(const int global[SHORTCUT_COUNT], const int over[SHORTCUT_COUNT], int out[SHORTCUT_COUNT]);
 
 #endif

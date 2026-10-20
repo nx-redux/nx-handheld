@@ -916,7 +916,7 @@ static void initFrontendVersionDesc(void) {
 
 // options_menu index of Achievements (Save Changes follows it, or takes its
 // place while RA is off)
-#define OPTIONS_RA_INDEX 5
+#define OPTIONS_RA_INDEX 6
 static MenuList options_menu = {
 	.type = MENU_LIST,
 	.title = "Options",
@@ -928,6 +928,7 @@ static MenuList options_menu = {
 		{"Shaders", .on_confirm = OptionShaders_openMenu},
 		{"Cheats", .on_confirm = OptionCheats_openMenu},
 		{"Controls", .on_confirm = OptionControls_openMenu},
+		{"Shortcuts", .on_confirm = OptionShortcuts_openMenu},
 		{"Achievements", .on_confirm = OptionAchievements_openMenu},
 		{"Save Changes", .on_confirm = OptionSaveChanges_openMenu},
 		{NULL},

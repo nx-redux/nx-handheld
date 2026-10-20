@@ -167,3 +167,16 @@ int EmuShortcuts_write(const char* path, const int labels[SHORTCUT_COUNT]) {
 	sync();
 	return 1;
 }
+
+void EmuShortcuts_merge(const int global[SHORTCUT_COUNT], const int over[SHORTCUT_COUNT], int out[SHORTCUT_COUNT]) {
+	for (int i = 0; i < SHORTCUT_COUNT; i++) {
+		if (over[i] > 0) {
+			out[i] = over[i];
+			continue;
+		}
+		out[i] = global[i];
+		for (int j = 0; j < SHORTCUT_COUNT && out[i] > 0; j++)
+			if (over[j] == global[i])
+				out[i] = 0;
+	}
+}

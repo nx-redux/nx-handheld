@@ -398,6 +398,69 @@ int OptionControls_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
+// Shortcuts set here are this console's or game's own (Save Changes keeps
+// them) and win over Settings > Emulator Shortcuts; cleared ones follow the
+// global binding again (Config_applyShortcuts).
+static MenuList OptionShortcuts_menu;
+static void OptionShortcuts_refresh(void) {
+	int labels[SHORTCUT_COUNT];
+	EmuShortcuts_merge(shortcut_global, shortcut_override, labels);
+	for (MenuItem* item = OptionShortcuts_menu.items; item && item->name; item++) {
+		int id = item->id;
+		item->value = labels[id];
+		if (shortcut_override[id] > 0)
+			item->desc = "Set for this console/game. X: use Settings' shortcut.";
+		else if (labels[id] > 0)
+			item->desc = "From Settings > Emulator Shortcuts.";
+		else if (shortcut_global[id] > 0)
+			item->desc = "Settings' button for it is used by another shortcut here.";
+		else
+			item->desc = NULL;
+	}
+}
+int OptionShortcuts_bind(MenuList* list, int i) {
+	MenuItem* item = &list->items[i];
+	ButtonMapping button = {0};
+	int result = OptionBind_pollLoop(item, &button);
+	int label = EmuShortcuts_toLabel(button.local, button.mod);
+	// MENU+SELECT stays the Game Switcher combo (ma_input.c)
+	if (!EmuShortcuts_isReserved(label))
+		shortcut_override[item->id] = label;
+	Config_applyShortcuts();
+	OptionShortcuts_refresh();
+	return result;
+}
+int OptionShortcuts_unbind(MenuList* list, int i) {
+	shortcut_override[list->items[i].id] = 0;
+	Config_applyShortcuts();
+	OptionShortcuts_refresh();
+	return MENU_CALLBACK_NOP;
+}
+static MenuList OptionShortcuts_menu = {
+	.type = MENU_INPUT,
+	.title = "Shortcuts",
+	.desc = "Press A to set and X to clear."
+			"\nOverrides Settings > Emulator Shortcuts.",
+	.on_confirm = OptionShortcuts_bind,
+	.on_change = OptionShortcuts_unbind,
+	.items = NULL};
+int OptionShortcuts_openMenu(MenuList* list, int i) {
+	if (OptionShortcuts_menu.items == NULL) {
+		OptionShortcuts_menu.items = calloc(SHORTCUT_COUNT + 1, sizeof(MenuItem));
+		int k = 0;
+		for (int j = 0; j < SHORTCUT_COUNT; j++) {
+			if (j >= SHORTCUT_TOGGLE_TURBO_A && j <= SHORTCUT_TOGGLE_TURBO_R2 && !PLAT_canTurbo())
+				continue;
+			MenuItem* item = &OptionShortcuts_menu.items[k++];
+			item->id = j;
+			item->name = (char*)shortcut_names[j];
+			item->values = button_labels;
+		}
+	}
+	OptionShortcuts_refresh();
+	Menu_options(&OptionShortcuts_menu);
+	return MENU_CALLBACK_NOP;
+}
 char* getSaveDesc(void) {
 	switch (config.loaded) {
 	case CONFIG_NONE:

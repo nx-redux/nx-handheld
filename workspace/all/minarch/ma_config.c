@@ -1108,7 +1108,7 @@ void Config_init(void) {
 
 		tmp += 3;
 		if (EmuShortcuts_find(button_name) >= 0)
-			continue; // a shortcut, not a core button (shortcuts are global now)
+			continue; // a shortcut, not a core button (Config_readShortcuts)
 		strncpy(button_id, tmp, sizeof(button_id) - 1);
 		button_id[sizeof(button_id) - 1] = '\0';
 		tmp2 = strchr(button_id, '\n');
@@ -1428,17 +1428,27 @@ void Config_reapplyOptions(void) {
 		Config_readOptions();
 	}
 }
-// Emulator shortcuts come only from the global file the Settings app writes
-// (common/emu_shortcuts.h); binds for them in default.cfg or a console/game cfg
-// are ignored.
-static void Config_readShortcuts(void) {
-	char path[MAX_PATH];
+// Emulator shortcuts: the global file the Settings app writes
+// (common/emu_shortcuts.h), with the console/game cfg's own binds (in-game
+// Options > Shortcuts, Save Changes) on top. default.cfg binds are ignored.
+int shortcut_global[SHORTCUT_COUNT];
+int shortcut_override[SHORTCUT_COUNT];
+void Config_applyShortcuts(void) {
 	int labels[SHORTCUT_COUNT];
-	if (!EmuShortcuts_getPath(path, sizeof(path), USERDATA_PATH, getenv("DEVICE")))
-		return;
-	EmuShortcuts_read(path, labels);
+	EmuShortcuts_merge(shortcut_global, shortcut_override, labels);
 	for (int i = 0; i < SHORTCUT_COUNT; i++)
 		EmuShortcuts_fromLabel(labels[i], &config.shortcuts[i].local, &config.shortcuts[i].mod);
+}
+static void Config_readShortcuts(void) {
+	char path[MAX_PATH];
+	for (int i = 0; i < SHORTCUT_COUNT; i++) {
+		shortcut_global[i] = 0;
+		shortcut_override[i] = 0;
+	}
+	if (EmuShortcuts_getPath(path, sizeof(path), USERDATA_PATH, getenv("DEVICE")))
+		EmuShortcuts_read(path, shortcut_global);
+	EmuShortcuts_parse(config.user_cfg, shortcut_override);
+	Config_applyShortcuts();
 }
 void Config_readControls(void) {
 	Config_readControlsString(config.default_cfg);
@@ -1494,7 +1504,10 @@ void Config_write(int override) {
 			j += LOCAL_BUTTON_COUNT;
 		fprintf(file, "bind %s = %s\n", mapping->name, button_labels[j]);
 	}
-	// shortcuts are global (Config_readShortcuts), never saved per console/game
+	// only the shortcuts set for this console/game; the rest follow the global file
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		if (shortcut_override[i] > 0 && shortcut_override[i] < SHORTCUT_LABEL_COUNT)
+			fprintf(file, "bind %s = %s\n", shortcut_names[i], button_labels[shortcut_override[i]]);
 
 	fclose(file);
 	sync();

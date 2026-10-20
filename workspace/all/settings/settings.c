@@ -2251,7 +2251,8 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	init_page(&fn_keys_page, "Settings | F1 / F2 Keys", fnkey_items, idx, 0);
 
 	// ============================
-	// Emulator shortcuts page (global, read by minarch at every launch)
+	// Emulator shortcuts page (global, read by minarch at every launch; a
+	// console/game cfg can override single shortcuts, in-game Options > Shortcuts)
 	// ============================
 	idx = 0;
 	shortcuts_load();
@@ -2261,7 +2262,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		const ShortcutRow* row = &shortcut_rows[i];
 		const char* desc = i == SHORTCUT_TOGGLE_DPAD_JOYSTICK
 							   ? "D-pad moves the left stick until pressed again.\nA: press the button (or MENU+button) to use. X: clear."
-							   : "In-game shortcut for every console.\nA: press the button (or MENU+button) to use. X: clear.";
+							   : "Every console's shortcut (in-game Options can override it).\nA: press the button (or MENU+button) to use. X: clear.";
 		shortcut_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
 			shortcut_names[i], desc,
 			(const char**)button_labels, SHORTCUT_LABEL_COUNT, NULL, row->get, row->set, row->clear);
