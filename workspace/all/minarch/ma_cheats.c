@@ -95,6 +95,33 @@ static int parse_bool(const char* ptr, int* out) {
 	return 0;
 }
 
+// The entities the libretro database uses, each decoding to no more bytes than
+// it takes up. Advances *ptr past the entity and appends it; 0 if not one.
+static int decode_entity(const char** ptr, char* buf, int* index) {
+	static const struct {
+		const char* entity;
+		const char* text;
+	} entities[] = {
+		{"&quot;", "\""},
+		{"&amp;", "&"},
+		{"&apos;", "'"},
+		{"&lt;", "<"},
+		{"&gt;", ">"},
+		{"&nbsp;", " "},
+		{"&eacute;", "\xC3\xA9"}, // é
+	};
+	for (size_t i = 0; i < sizeof(entities) / sizeof(entities[0]); i++) {
+		size_t n = strlen(entities[i].entity);
+		if (strncmp(*ptr, entities[i].entity, n))
+			continue;
+		for (const char* t = entities[i].text; *t; t++)
+			buf[(*index)++] = *t;
+		*ptr += n;
+		return 1;
+	}
+	return 0;
+}
+
 static int parse_string(const char* ptr, char* buf, size_t len) {
 	int index = 0;
 	size_t input_len = strlen(ptr);
@@ -108,9 +135,8 @@ static int parse_string(const char* ptr, char* buf, size_t len) {
 		if (*ptr == '\\' && *(ptr + 1) != '\0') {
 			ptr++;
 			buf[index++] = *ptr++;
-		} else if (*ptr == '&' && !strncmp(ptr, "&quot;", 6)) {
-			buf[index++] = '"';
-			ptr += 6;
+		} else if (*ptr == '&' && decode_entity(&ptr, buf, &index)) {
+			// HTML entities in database descriptions ("P1 &amp; P2")
 		} else {
 			buf[index++] = *ptr++;
 		}
@@ -430,6 +456,21 @@ static int load_one_file(const char* path, struct Cheats* out) {
 		return 0;
 	}
 
+	// Some database entries have no (or an empty) description, and the Cheats
+	// menu needs a name for every entry: "Cheat 60" instead of a NULL it would crash on.
+	for (size_t i = 0; i < out->count; i++) {
+		struct Cheat* c = &out->cheats[i];
+		if (c->name)
+			continue;
+		char label[32];
+		snprintf(label, sizeof(label), "Cheat %zu", i + 1);
+		c->name = strdup(label);
+		if (!c->name) {
+			fclose(file);
+			return 0;
+		}
+	}
+
 	fclose(file);
 	return 1;
 }
@@ -582,10 +623,12 @@ static struct {
 static int mem_map_count;
 static CheatMem cheat_mem;
 static int cheat_mem_ready;
+static int cheat_mem_logged;
 
 void Cheats_setMemoryMap(const struct retro_memory_map* mmap) {
 	mem_map_count = 0;
 	cheat_mem_ready = 0;
+	cheat_mem_logged = 0;
 	if (!mmap)
 		return;
 	for (unsigned i = 0; i < mmap->num_descriptors && mem_map_count < CHEAT_MEM_MAX_REGIONS; i++) {
@@ -605,12 +648,17 @@ static void init_cheat_mem(void) {
 	if (!cheat_mem.count && core.get_memory_data && core.get_memory_size)
 		CheatMem_addRegion(&cheat_mem, core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM),
 						   core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
-	if (!cheat_mem.count)
-		LOG_warn("Cheats: the core exposes no system RAM, RAM cheats can't apply\n");
-	else
-		LOG_info("Cheats: RAM cheats apply to %d region(s), %zu bytes (%s)\n", cheat_mem.count, cheat_mem.total,
-				 mem_map_count ? "memory map" : "RETRO_MEMORY_SYSTEM_RAM");
-	cheat_mem_ready = 1;
+	if (!cheat_mem_logged) {
+		if (!cheat_mem.count)
+			LOG_warn("Cheats: the core exposes no system RAM, RAM cheats can't apply\n");
+		else
+			LOG_info("Cheats: RAM cheats apply to %d region(s), %zu bytes (%s)\n", cheat_mem.count, cheat_mem.total,
+					 mem_map_count ? "memory map" : "RETRO_MEMORY_SYSTEM_RAM");
+		cheat_mem_logged = 1;
+	}
+	// A memory map's regions stay put; the RETRO_MEMORY_SYSTEM_RAM pointer is
+	// asked for again every frame, in case the core moves its RAM.
+	cheat_mem_ready = mem_map_count > 0;
 }
 
 void Cheats_applyMemory(void) {

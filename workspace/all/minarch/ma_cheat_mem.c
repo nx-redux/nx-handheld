@@ -2,9 +2,11 @@
 #include <string.h>
 
 // Mirrors RetroArch's cheat_manager_apply_retro_cheats (cheat_manager.c), with
-// two deliberate differences: reads use the cheat's own byte order (RetroArch
-// reads with its search setting, writes with the cheat's), and repeated values
-// wrap with & instead of RetroArch's % (which turned a repeated 0xFF into 0).
+// three deliberate differences: reads use the cheat's own byte order (RetroArch
+// reads with its search setting, writes with the cheat's), repeated values wrap
+// with & instead of RetroArch's % (which turned a repeated 0xFF into 0), and a
+// sub-byte repeat moves the bit mask by the bit width (RetroArch shifts it by
+// the mask value, 3 for 2-bit and 15 for 4-bit items).
 
 void CheatMem_reset(CheatMem* mem) {
 	memset(mem, 0, sizeof(*mem));
