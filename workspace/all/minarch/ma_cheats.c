@@ -82,12 +82,17 @@ static int parse_string(const char* ptr, char* buf, size_t len) {
 
 static int parse_cheats(struct Cheats* cheats, FILE* file) {
 	int ret = -1;
-	char line[512];
-	char buf[512];
+	// Lines have no fixed limit: database codes run to 15,000 chars (PSP), and
+	// a 512-byte line buffer dropped every longer cheat. buf grows with line.
+	char* line = NULL;
+	size_t line_cap = 0;
+	char* buf = NULL;
+	size_t buf_cap = 0;
 	const char* ptr;
 
 	do {
-		if (!fgets(line, sizeof(line), file)) {
+		ssize_t got = getline(&line, &line_cap, file);
+		if (got < 0) {
 			ret = 0;
 			break;
 		}
@@ -96,9 +101,12 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 		if (line_len == 0)
 			continue; // line starting with NUL (binary garbage)
 
-		if (line[line_len - 1] != '\n' && !feof(file)) {
-			LOG_warn("Cheat line too long\n");
-			continue;
+		if (buf_cap < line_len + 1) {
+			char* grown = realloc(buf, line_len + 1);
+			if (!grown)
+				goto finish;
+			buf = grown;
+			buf_cap = line_len + 1;
 		}
 
 		if ((ptr = strstr(line, "cheat"))) {
@@ -113,7 +121,7 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 
 			if (strstr(ptr, "_desc")) {
 				ptr = find_val(ptr);
-				if (!ptr || parse_string(ptr, buf, sizeof(buf))) {
+				if (!ptr || parse_string(ptr, buf, buf_cap)) {
 					LOG_warn("Couldn't parse cheat %d description\n", index);
 					continue;
 				}
@@ -143,7 +151,7 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 				}
 			} else if (strstr(ptr, "_code")) {
 				ptr = find_val(ptr);
-				if (!ptr || parse_string(ptr, buf, sizeof(buf))) {
+				if (!ptr || parse_string(ptr, buf, buf_cap)) {
 					LOG_warn("Couldn't parse cheat %d code\n", index);
 					continue;
 				}
@@ -169,6 +177,8 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 	} while (1);
 
 finish:
+	free(line);
+	free(buf);
 	return ret;
 }
 
