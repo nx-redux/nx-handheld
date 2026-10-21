@@ -13,8 +13,11 @@
 struct Cheats cheatcodes;
 
 static size_t parse_count(FILE* file) {
-	size_t count = 0;
-	fscanf(file, " cheats = %lu\n", (unsigned long*)&count);
+	// The count may be quoted: every libretro PSP .cht (and many DC, SNES, MSX,
+	// ...) starts with `cheats = "15"`, which the unquoted form read as 0 (#257).
+	unsigned long count = 0;
+	if (fscanf(file, " cheats = \"%lu\"", &count) != 1)
+		fscanf(file, "%lu", &count);
 	return count;
 }
 
@@ -169,6 +172,29 @@ finish:
 	return ret;
 }
 
+// Glob pattern for `name` that ignores case ("Of" -> "[oO][fF]") and matches
+// glob metacharacters literally: ROM and cheat names differ in title case
+// ("Skies of Deception" vs "Skies Of Deception") and glob compares exactly.
+static void caseFoldPattern(const char* name, char* out, size_t out_len) {
+	size_t o = 0;
+	for (const char* s = name; *s; s++) {
+		unsigned char c = (unsigned char)*s;
+		char piece[8];
+		if (isalpha(c))
+			snprintf(piece, sizeof(piece), "[%c%c]", tolower(c), toupper(c));
+		else if (c == '[' || c == ']' || c == '*' || c == '?' || c == '\\')
+			snprintf(piece, sizeof(piece), "\\%c", c);
+		else
+			snprintf(piece, sizeof(piece), "%c", c);
+		size_t len = strlen(piece);
+		if (o + len >= out_len)
+			break;
+		memcpy(out + o, piece, len);
+		o += len;
+	}
+	out[o] = '\0';
+}
+
 // return variations with/without extensions and other cruft
 void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 	// Generate possible paths, ordered by most likely to be used (pre v6.2.3 style first)
@@ -230,8 +256,13 @@ void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 	// This is a wildcard that may match something unexpected, but also may find something when nothing else does.
 	getDisplayName(game.alt_name, rom_name);
 	getAlias(game.path, rom_name);
-	if (*count < CHEAT_MAX_PATHS)
-		snprintf(paths[(*count)++], MAX_PATH, "%s/%s*.cht", core.cheats_dir, rom_name); // /mnt/SDCARD/Cheats/GB/Super Example World*.cht
+	if (*count < CHEAT_MAX_PATHS) {
+		char folded[MAX_PATH];
+		// leave room for the folder and "*.cht" so the wildcard isn't cut off
+		size_t room = sizeof(folded) - strlen(core.cheats_dir) - 8;
+		caseFoldPattern(rom_name, folded, room < sizeof(folded) ? room : 1);
+		snprintf(paths[(*count)++], MAX_PATH, "%s/%s*.cht", core.cheats_dir, folded); // /mnt/SDCARD/Cheats/GB/[sS][uU][pP]...*.cht
+	}
 }
 
 void Cheats_free() {
