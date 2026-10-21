@@ -1,0 +1,73 @@
+# license: modifies PPSSPP (https://github.com/hrydgard/ppsspp), GPL-2.0-or-later (LICENSE.TXT); this patch is distributed under the same license.
+# Cheats set through retro_cheat_set never ran: PPSSPP's cheat engine only starts with
+# bEnableCheats, which only the "Internal Cheats Support" option (off by default) set.
+# Cheats the frontend sends now turn it on; retro_cheat_reset hands it back to the option.
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -99,6 +99,8 @@
+ static bool show_ip_address_options = true;
+ static bool show_upnp_port_option = true;
+ static bool show_detect_frame_rate_option = true;
++// Cheats the frontend sent through retro_cheat_set (its own cheat menu)
++static bool frontend_cheats = false;
+ static std::string changeProAdhocServer;
+ 
+ void* unserialize_data = NULL;
+@@ -496,6 +498,18 @@
+    }
+ }
+ 
++// The cheat engine only runs with bEnableCheats, which "Internal Cheats Support"
++// (off by default) sets, so cheats the frontend sent never applied. Run them
++// whatever the option says; the option still turns the engine on by itself.
++static void update_cheats_enabled(void)
++{
++   struct retro_variable var = { "ppsspp_cheats", NULL };
++   bool option = false;
++   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
++      option = strcmp(var.value, "disabled") != 0;
++   g_Config.bEnableCheats = option || frontend_cheats;
++}
++
+ static void check_variables(CoreParameter &coreParam)
+ {
+    check_dynamic_variables(coreParam);
+@@ -614,14 +628,7 @@
+          g_Config.bCacheFullIsoInRam = true;
+    }
+ 
+-   var.key = "ppsspp_cheats";
+-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+-   {
+-      if (!strcmp(var.value, "disabled"))
+-         g_Config.bEnableCheats = false;
+-      else
+-         g_Config.bEnableCheats = true;
+-   }
++   update_cheats_enabled();
+ 
+    var.key = "ppsspp_psp_model";
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+@@ -1845,6 +1852,9 @@
+ }
+ 
+ void retro_cheat_reset(void) {
++   frontend_cheats = false;
++   update_cheats_enabled();
++
+    // Init Cheat Engine
+    CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());
+    Path file=cheatEngine->CheatFilename();
+@@ -1867,6 +1877,11 @@
+ }
+ 
+ void retro_cheat_set(unsigned index, bool enabled, const char *code) {
++   if (enabled) {
++      frontend_cheats = true;
++      update_cheats_enabled();
++   }
++
+    // Initialize Cheat Engine
+    CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());
+    cheatEngine->CreateCheatFile();
