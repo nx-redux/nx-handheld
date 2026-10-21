@@ -55,7 +55,14 @@ int main(void) {
 		fclose(f);
 
 	// mapping sanity
-	CHECK(CHEATDB_MAP_COUNT == 35, "35 tag mappings");
+	CHECK(CHEATDB_MAP_COUNT == 36, "36 tag mappings");
+	int msx = 0, msx2 = 0;
+	for (int i = 0; i < CHEATDB_MAP_COUNT; i++)
+		if (strcmp(CHEATDB_MAP[i].tag, "MSX") == 0) {
+			msx |= strcmp(CHEATDB_MAP[i].folder, "Microsoft - MSX") == 0;
+			msx2 |= strcmp(CHEATDB_MAP[i].folder, "Microsoft - MSX2") == 0;
+		}
+	CHECK(msx && msx2, "MSX -> Microsoft - MSX and Microsoft - MSX2 (the folders cheats.zip has)");
 	const char* psp = NULL;
 	for (int i = 0; i < CHEATDB_MAP_COUNT; i++)
 		if (strcmp(CHEATDB_MAP[i].tag, "PSP") == 0)

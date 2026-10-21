@@ -39,7 +39,9 @@ const CheatdbMap CHEATDB_MAP[] = {
 	{"WS", "Bandai - WonderSwan"},
 	{"WSC", "Bandai - WonderSwan Color"},
 	{"FBN", "FBNeo - Arcade Games"},
-	{"MSX", "Microsoft - MSX - MSX2 - MSX2P - MSX Turbo R"},
+	// libretro's cheats.zip splits MSX into two folders; both go to Cheats/MSX
+	{"MSX", "Microsoft - MSX"},
+	{"MSX", "Microsoft - MSX2"},
 	{"PRBOOM", "PrBoom"},
 };
 const int CHEATDB_MAP_COUNT = (int)(sizeof(CHEATDB_MAP) / sizeof(CHEATDB_MAP[0]));
