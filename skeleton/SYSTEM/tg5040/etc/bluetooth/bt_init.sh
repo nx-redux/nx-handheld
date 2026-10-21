@@ -17,7 +17,22 @@ start_hci_attach() {
 		killall "$bt_hciattach"
 	}
 
+	# Raising the BT wake line makes the xradio bluesleep driver stall ~300 ms
+	# ("can't wakeup bt device!"), and i2c3 transfers time out meanwhile. On
+	# the Brick Pro that bus carries the sticks (polled by trimui_inputd every
+	# 16 ms), and a timeout can panic the stock sunxi_i2c_handler, so the
+	# device rebooted when Bluetooth came back after a wake. Pause inputd's
+	# input threads with its suspend flag (see bin/suspend) around the write,
+	# unless the flag is already up.
+	paused_input=
+	if [ ! -e /tmp/system_suspend ]; then
+		touch /tmp/system_suspend
+		paused_input=1
+		# inputd re-checks the flag every ~16 ms; let an in-flight read finish
+		usleep 100000
+	fi
 	echo 1 > /proc/bluetooth/sleep/btwrite
+	[ -n "$paused_input" ] && rm -f /tmp/system_suspend
 	reset_bluetooth_power
 
 	"$bt_hciattach" -n ttyS1 xradio >/dev/null 2>&1 &
