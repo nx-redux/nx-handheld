@@ -1,0 +1,56 @@
+# license: modifies PicoDrive (https://github.com/irixxxx/picodrive), non-commercial PicoDrive license (COPYING); this patch is distributed under the same license.
+# retro_cheat_set strcpy'd each code into a 256-byte stack buffer (database codes reach
+# 479 chars) and each part into the 12-byte PicoPatches code field (parts reach 15).
+diff --git a/platform/libretro/libretro.c b/platform/libretro/libretro.c
+--- a/platform/libretro/libretro.c
++++ b/platform/libretro/libretro.c
+@@ -869,12 +869,16 @@
+ {
+ 	patch pt;
+ 	int array_len = PicoPatchCount;
+-	char codeCopy[256];
++	char *codeCopy;
+ 	char *buff;
+ 
+ 	if (*code == '\0')
+       return;
+-	strcpy(codeCopy, code);
++	/* nx-redux: heap copy; the 256-byte stack buffer overflowed on the
++	 * libretro database's longer codes (up to 479 chars) */
++	codeCopy = strdup(code);
++	if (codeCopy == NULL)
++		return;
+ 	buff = strtok(codeCopy,"+");
+ 
+ 	while (buff != NULL)
+@@ -883,6 +887,7 @@
+ 		if (pt.addr == (uint32_t) -1 || pt.data == (uint16_t) -1)
+ 		{
+ 			log_cb(RETRO_LOG_ERROR,"CHEATS: Invalid code: %s\n",buff);
++			free(codeCopy);
+ 			return;
+ 		}
+ 
+@@ -895,11 +900,13 @@
+ 			ptr = realloc(PicoPatches, array_len * sizeof(PicoPatches[0]));
+ 			if (ptr == NULL) {
+ 				log_cb(RETRO_LOG_ERROR,"CHEATS: Failed to allocate memory for: %s\n",buff);
++				free(codeCopy);
+ 				return;
+ 			}
+ 			PicoPatches = ptr;
+ 		}
+-		strcpy(PicoPatches[PicoPatchCount].code, buff);
++		/* nx-redux: code[] holds 11 chars; parts like "FFBF02:000004FF" are longer */
++		snprintf(PicoPatches[PicoPatchCount].code, sizeof(PicoPatches[0].code), "%s", buff);
+ 
+ 		PicoPatches[PicoPatchCount].active = enabled;
+ 		PicoPatches[PicoPatchCount].addr = pt.addr;
+@@ -913,6 +920,7 @@
+ 
+ 		buff = strtok(NULL,"+");
+ 	}
++	free(codeCopy);
+ }
+ 
+ /* multidisk support */

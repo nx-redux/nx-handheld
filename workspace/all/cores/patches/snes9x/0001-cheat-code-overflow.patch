@@ -1,0 +1,32 @@
+# license: modifies snes9x (https://github.com/libretro/snes9x), non-commercial snes9x license (LICENSE); this patch is distributed under the same license.
+# retro_cheat_set strcpy'd each code into a 256-byte stack buffer; the libretro database
+# has SNES codes up to 602 chars, which overflowed it. Copy to the heap instead.
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1238,12 +1238,15 @@
+ 
+ void retro_cheat_set(unsigned index, bool enabled, const char *codeline)
+ {
+-    char codeCopy[256];
++    char* codeCopy;
+     char* code;
+ 
+     if (codeline == (char *)'\0') return;
+ 
+-    strcpy(codeCopy,codeline);
++    /* nx-redux: heap copy; the 256-byte stack buffer overflowed on the
++     * libretro database's longer codes (up to 602 chars) */
++    codeCopy = strdup(codeline);
++    if (!codeCopy) return;
+     code=strtok(codeCopy,"+,.; ");
+     while (code != NULL) {
+         //Convert GH RAW to PAR
+@@ -1268,6 +1271,7 @@
+         code=strtok(NULL,"+,.; "); // bad code, ignore
+     }
+ 
++    free(codeCopy);
+     S9xCheatsEnable();
+ }
+ 

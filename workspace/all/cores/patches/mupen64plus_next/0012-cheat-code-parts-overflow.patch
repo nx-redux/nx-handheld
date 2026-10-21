@@ -1,0 +1,37 @@
+# retro_cheat_set split a code into fixed 256-entry stack arrays without a bound; the
+# libretro database's longest N64 codes have up to 364 parts. Size them to the code.
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -2420,11 +2420,20 @@
+ void retro_cheat_set(unsigned index, bool enabled, const char* codeLine)
+ {
+     char name[256];
+-    m64p_cheat_code mupenCode[256];
++    /* nx-redux: sized to the code; fixed 256-entry arrays overflowed on the
++     * libretro database's longest N64 codes (up to 364 parts) */
++    size_t maxParts = strlen(codeLine) / 2 + 1;
++    m64p_cheat_code *mupenCode = malloc((maxParts / 2 + 1) * sizeof(*mupenCode));
+     int matchLength=0,partCount=0;
+-    uint32_t codeParts[256];
++    uint32_t *codeParts = malloc(maxParts * sizeof(*codeParts));
+     int cursor;
+ 
++    if (!mupenCode || !codeParts) {
++        free(mupenCode);
++        free(codeParts);
++        return;
++    }
++
+     //Generate a name
+     sprintf(name, "cheat_%u",index);
+ 
+@@ -2457,6 +2466,8 @@
+     //Assign to mupenCode
+     cheat_add_new(&g_cheat_ctx, name, mupenCode, partCount / 2);
+     cheat_set_enabled(&g_cheat_ctx, name, enabled);
++    free(mupenCode);
++    free(codeParts);
+ }
+ 
+ void retro_return(void)
