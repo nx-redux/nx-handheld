@@ -4,12 +4,14 @@
 #include <stdbool.h>
 
 #include "defines.h"
+#include "ma_cheat_mem.h"
 
 struct Cheat {
 	const char* name;
 	const char* info;
 	int enabled;
 	const char* code;
+	struct CheatMemPatch mem; // a RAM patch instead of a code (mem.memory)
 };
 
 struct Cheats {
@@ -31,3 +33,9 @@ extern struct Cheats cheatcodes;
 void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count);
 void Cheats_free();
 bool Cheats_load();
+
+struct retro_memory_map;
+// The core's memory map (RETRO_ENVIRONMENT_SET_MEMORY_MAPS), NULL on unload.
+void Cheats_setMemoryMap(const struct retro_memory_map* mmap);
+// Apply the enabled RAM-patch cheats; once per frame, before core.run().
+void Cheats_applyMemory(void);

@@ -8,6 +8,7 @@
 #include "ma_config.h"
 #include "ma_options.h"
 #include "ma_runframe.h"
+#include "ma_cheats.h"
 #include "ma_opts_dump.h"
 #include "ra_integration.h"
 #include "ma_core_progress.h"
@@ -244,6 +245,7 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		// Core is providing its memory map for achievement checking
 		const struct retro_memory_map* mmap = (const struct retro_memory_map*)data;
 		RA_setMemoryMap(mmap);
+		Cheats_setMemoryMap(mmap); // RAM-patch cheats write to its SYSTEM_RAM regions
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_LANGUAGE: { /* 39 */

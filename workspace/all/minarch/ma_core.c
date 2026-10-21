@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "ma_core.h"
 #include "ma_cheats.h"
+#include "ra_integration.h"
 #include "ma_saves.h"
 #include "ma_input.h"
 #include "ma_video.h"
@@ -189,8 +190,8 @@ void Core_applyCheats(struct Cheats* cheats) {
 	unsigned idx = 0;
 	for (int i = 0; i < cheats->count; i++) {
 		struct Cheat* cheat = &cheats->cheats[i];
-		if (!cheat->enabled || !cheat->code)
-			continue;
+		if (!cheat->enabled || !cheat->code || cheat->mem.memory)
+			continue; // RAM-patch cheats are the frontend's (Cheats_applyMemory)
 		core.cheat_set(idx++, true, cheat->code);
 	}
 }
@@ -287,7 +288,7 @@ void Core_load(void) {
 		}
 	}
 
-	if (Cheats_load())
+	if (Cheats_load() && !RA_isHardcoreModeActive())
 		Core_applyCheats(&cheatcodes);
 
 	SRAM_read();
@@ -316,6 +317,7 @@ void Core_quit(void) {
 	if (core.initialized) {
 		SRAM_write();
 		Cheats_free();
+		Cheats_setMemoryMap(NULL);
 		RTC_write();
 		HWR_makeCurrent();
 		// Destroy the hw context BEFORE unloading, as RetroArch does: PPSSPP frees the

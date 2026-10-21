@@ -8,17 +8,62 @@
 #include <string.h>
 #include <errno.h>
 #include "ma_menu.h"
+#include "ra_integration.h"
+#include <stddef.h>
 
 // cheat types live in ma_cheats.h
 struct Cheats cheatcodes;
 
 static size_t parse_count(FILE* file) {
 	// The count may be quoted: every libretro PSP .cht (and many DC, SNES, MSX,
-	// ...) starts with `cheats = "15"`, which the unquoted form read as 0 (#257).
+	// ...) has `cheats = "15"`, which the unquoted form read as 0 (#257). Files
+	// saved by RetroArch's cheat search put the line last, not first.
 	unsigned long count = 0;
-	if (fscanf(file, " cheats = \"%lu\"", &count) != 1)
-		fscanf(file, "%lu", &count);
+	char* line = NULL;
+	size_t cap = 0;
+	while (getline(&line, &cap, file) >= 0) {
+		const char* s = line;
+		while (isspace((unsigned char)*s))
+			s++;
+		if (strncmp(s, "cheats", 6) || !(isspace((unsigned char)s[6]) || s[6] == '='))
+			continue;
+		if (sscanf(s, "cheats = \"%lu\"", &count) != 1)
+			sscanf(s, "cheats = %lu", &count);
+		break;
+	}
+	free(line);
+	rewind(file);
 	return count;
+}
+
+// A number value, quoted or not (RetroArch writes `cheat0_value = "7"`); 0x hex
+// is accepted as RetroArch's strtoul(.., 0) does.
+static int parse_uint(const char* ptr, unsigned* out) {
+	char* end;
+	if (*ptr == '"')
+		ptr++;
+	if (!isdigit((unsigned char)*ptr))
+		return -1;
+	*out = (unsigned)strtoul(ptr, &end, 0);
+	return 0;
+}
+
+// RetroArch writes `true`/`false` quoted and also accepts 1/0.
+static int parse_flag(const char* ptr) {
+	if (*ptr == '"')
+		ptr++;
+	return !strncasecmp(ptr, "true", 4) || *ptr == '1';
+}
+
+// "cheat12_address_bit_position = ..." -> does the key after "cheat12_" equal `key`?
+static int key_is(const char* line, const char* key) {
+	const char* s = line + 5; // past "cheat"
+	while (isdigit((unsigned char)*s))
+		s++;
+	if (*s++ != '_')
+		return 0;
+	size_t n = strlen(key);
+	return !strncmp(s, key, n) && (isspace((unsigned char)s[n]) || s[n] == '=');
 }
 
 static const char* find_val(const char* start) {
@@ -119,7 +164,9 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 				continue;
 			cheat = &cheats->cheats[index];
 
-			if (strstr(ptr, "_desc")) {
+			unsigned num;
+			struct CheatMemPatch* mem = &cheat->mem;
+			if (key_is(ptr, "desc")) {
 				ptr = find_val(ptr);
 				if (!ptr || parse_string(ptr, buf, buf_cap)) {
 					LOG_warn("Couldn't parse cheat %d description\n", index);
@@ -149,7 +196,7 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 					strncpy((char*)cheat->info, buf, len);
 					wrapString((char*)cheat->info, CHEAT_MAX_LINE_LEN, CHEAT_MAX_LINES);
 				}
-			} else if (strstr(ptr, "_code")) {
+			} else if (key_is(ptr, "code")) {
 				ptr = find_val(ptr);
 				if (!ptr || parse_string(ptr, buf, buf_cap)) {
 					LOG_warn("Couldn't parse cheat %d code\n", index);
@@ -166,11 +213,47 @@ static int parse_cheats(struct Cheats* cheats, FILE* file) {
 					goto finish;
 
 				strncpy((char*)cheat->code, buf, len);
-			} else if (strstr(ptr, "_enable")) {
+			} else if (key_is(ptr, "enable")) {
 				ptr = find_val(ptr);
+				// A quoted value is RetroArch's own format, which the database
+				// ships with "true" on many cheats: ignored, so downloading the
+				// database never turns cheats on by itself.
+				if (ptr && *ptr == '"')
+					continue;
 				if (!ptr || parse_bool(ptr, &cheat->enabled)) {
 					LOG_warn("Couldn't parse cheat %d enabled\n", index);
 					continue;
+				}
+			} else if (key_is(ptr, "big_endian")) {
+				if ((ptr = find_val(ptr)))
+					mem->big_endian = parse_flag(ptr);
+			} else {
+				// the RAM-patch fields (handler 1, see ma_cheat_mem.h)
+				static const struct {
+					const char* key;
+					size_t offset;
+				} fields[] = {
+					{"handler", offsetof(struct CheatMemPatch, memory)},
+					{"address", offsetof(struct CheatMemPatch, address)},
+					{"value", offsetof(struct CheatMemPatch, value)},
+					{"memory_search_size", offsetof(struct CheatMemPatch, size)},
+					{"cheat_type", offsetof(struct CheatMemPatch, type)},
+					{"address_bit_position", offsetof(struct CheatMemPatch, bit_mask)},
+					{"repeat_count", offsetof(struct CheatMemPatch, repeat_count)},
+					{"repeat_add_to_value", offsetof(struct CheatMemPatch, repeat_add_to_value)},
+					{"repeat_add_to_address", offsetof(struct CheatMemPatch, repeat_add_to_address)},
+				};
+				for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); f++) {
+					if (!key_is(ptr, fields[f].key))
+						continue;
+					const char* val = find_val(ptr);
+					if (val && !parse_uint(val, &num)) {
+						if (fields[f].offset == offsetof(struct CheatMemPatch, memory))
+							mem->memory = num == 1;
+						else
+							*(unsigned*)((char*)mem + fields[f].offset) = num;
+					}
+					break;
 				}
 			}
 		}
@@ -338,6 +421,8 @@ static int load_one_file(const char* path, struct Cheats* out) {
 		fclose(file);
 		return 0;
 	}
+	for (size_t i = 0; i < out->count; i++)
+		CheatMemPatch_init(&out->cheats[i].mem);
 
 	if (parse_cheats(out, file)) {
 		LOG_error("Error parsing cheat file: %s\n", path);
@@ -482,4 +567,76 @@ bool Cheats_load() {
 	if (!success)
 		Cheats_free();
 	return success;
+}
+
+///////////////////////////////
+// RAM-patch cheats (handler 1): applied by the frontend every frame, like
+// RetroArch, to the core's system RAM. That is the SYSTEM_RAM regions of the
+// core's memory map in order, or else RETRO_MEMORY_SYSTEM_RAM; the database's
+// addresses are offsets into that.
+
+static struct {
+	void* ptr;
+	size_t len;
+} mem_map[CHEAT_MEM_MAX_REGIONS];
+static int mem_map_count;
+static CheatMem cheat_mem;
+static int cheat_mem_ready;
+
+void Cheats_setMemoryMap(const struct retro_memory_map* mmap) {
+	mem_map_count = 0;
+	cheat_mem_ready = 0;
+	if (!mmap)
+		return;
+	for (unsigned i = 0; i < mmap->num_descriptors && mem_map_count < CHEAT_MEM_MAX_REGIONS; i++) {
+		const struct retro_memory_descriptor* d = &mmap->descriptors[i];
+		if ((d->flags & RETRO_MEMDESC_SYSTEM_RAM) && d->ptr && d->len) {
+			mem_map[mem_map_count].ptr = d->ptr;
+			mem_map[mem_map_count].len = d->len;
+			mem_map_count++;
+		}
+	}
+}
+
+static void init_cheat_mem(void) {
+	CheatMem_reset(&cheat_mem);
+	for (int i = 0; i < mem_map_count; i++)
+		CheatMem_addRegion(&cheat_mem, mem_map[i].ptr, mem_map[i].len);
+	if (!cheat_mem.count && core.get_memory_data && core.get_memory_size)
+		CheatMem_addRegion(&cheat_mem, core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM),
+						   core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
+	if (!cheat_mem.count)
+		LOG_warn("Cheats: the core exposes no system RAM, RAM cheats can't apply\n");
+	else
+		LOG_info("Cheats: RAM cheats apply to %d region(s), %zu bytes (%s)\n", cheat_mem.count, cheat_mem.total,
+				 mem_map_count ? "memory map" : "RETRO_MEMORY_SYSTEM_RAM");
+	cheat_mem_ready = 1;
+}
+
+void Cheats_applyMemory(void) {
+	static const struct CheatMemPatch** list;
+	static size_t list_cap;
+	int n = 0;
+
+	if (!cheatcodes.count || RA_isHardcoreModeActive())
+		return;
+	for (size_t i = 0; i < cheatcodes.count; i++) {
+		struct Cheat* c = &cheatcodes.cheats[i];
+		if (!c->enabled || !c->mem.memory)
+			continue;
+		if ((size_t)n >= list_cap) {
+			size_t cap = list_cap ? list_cap * 2 : 16;
+			const struct CheatMemPatch** grown = realloc(list, cap * sizeof(*list));
+			if (!grown)
+				return;
+			list = grown;
+			list_cap = cap;
+		}
+		list[n++] = &c->mem;
+	}
+	if (!n)
+		return;
+	if (!cheat_mem_ready)
+		init_cheat_mem();
+	CheatMem_apply(&cheat_mem, list, n);
 }

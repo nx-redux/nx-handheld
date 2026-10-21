@@ -20,6 +20,7 @@
 #include "notification.h"
 #include "config.h"
 #include "ra_integration.h"
+#include "ma_cheats.h"
 #include "ma_internal.h"
 #include "ma_game.h"
 #include "ma_saves.h"
@@ -377,6 +378,7 @@ int main(int argc, char* argv[]) {
 		if (Multiplayer_isActive()) {
 			core.run(); // link/netplay drives timing; rewind & FF are disabled
 		} else {
+			Cheats_applyMemory(); // never in netplay/link: the peer's RAM would differ
 			run_frame();
 		}
 		Input_runDeferredShortcut(); // save/load/reset shortcuts: never from inside core.run()
