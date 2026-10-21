@@ -74,14 +74,55 @@ static void cm_add_token(CmParsed* p, const char* raw) {
 		snprintf(p->quals[p->nquals++], CM_TOK_LEN, "%s", lc);
 }
 
+// Short region codes in "[..]" groups (the libretro PSP set: "Name [US] [ULUS-10041]")
+// mapped to the No-Intro words ROM names use ("Name (USA)"), so they compare.
+static const char* const CM_REGION_CODES[][2] = {
+	{"us", "usa"}, {"usa", "usa"}, {"eu", "europe"}, {"jp", "japan"}, {"kr", "korea"}, {"as", "asia"}, {"cn", "china"}, {"hk", "hong kong"}, {"de", "germany"}, {"fr", "france"}, {"it", "italy"}, {"es", "spain"}, {"spa", "spain"}, {"nl", "netherlands"}, {"ru", "russia"}, {"pl", "poland"}, {"pt", "portugal"}, {"no", "norway"}, {NULL, NULL}};
+
+static const char* cm_region_word(const char* lc) {
+	for (int i = 0; CM_REGION_CODES[i][0]; i++)
+		if (strcmp(lc, CM_REGION_CODES[i][0]) == 0)
+			return CM_REGION_CODES[i][1];
+	return NULL;
+}
+
+// Add the contents of one "[..]" group: a region code ("US", or "US-EU" for
+// several) becomes its No-Intro word; anything else (a serial like
+// "ULUS-10041", "HB") is kept as a plain qualifier.
+static void cm_add_bracket(CmParsed* p, const char* raw) {
+	char lc[CM_TOK_LEN];
+	snprintf(lc, sizeof(lc), "%s", raw);
+	cm_trim(lc);
+	cm_lower(lc);
+	if (lc[0] == '\0')
+		return;
+
+	const char* parts[CM_MAX_TOKENS];
+	int nparts = 0;
+	char split[CM_TOK_LEN];
+	snprintf(split, sizeof(split), "%s", lc);
+	for (char* s = strtok(split, "-"); s && nparts < CM_MAX_TOKENS; s = strtok(NULL, "-"))
+		parts[nparts++] = s;
+	for (int i = 0; i < nparts; i++)
+		if (!cm_region_word(parts[i])) {
+			cm_add_token(p, lc);
+			return;
+		}
+	for (int i = 0; i < nparts; i++)
+		cm_add_token(p, cm_region_word(parts[i]));
+}
+
 static void cm_parse(const char* basename, CmParsed* p) {
 	memset(p, 0, sizeof(*p));
 	char work[CM_STEM_LEN * 2];
 	snprintf(work, sizeof(work), "%s", basename);
 	cm_strip_cht(work);
 
-	// stem = up to the first " (" ; if none, the whole string
+	// stem = up to the first " (" or " [" ; if neither, the whole string
 	char* paren = strstr(work, " (");
+	char* bracket = strstr(work, " [");
+	if (bracket && (!paren || bracket < paren))
+		paren = bracket;
 	if (paren) {
 		size_t len = (size_t)(paren - work);
 		if (len >= sizeof(p->stem))
@@ -116,6 +157,22 @@ static void cm_parse(const char* basename, CmParsed* p) {
 		cm_add_token(p, save);
 		s = end + 1;
 	}
+
+	// then each "[ ... ]" group
+	s = work;
+	while ((s = strchr(s, '[')) != NULL) {
+		const char* end = strchr(s, ']');
+		if (!end)
+			break;
+		char group[CM_TOK_LEN];
+		size_t glen = (size_t)(end - s - 1);
+		if (glen >= sizeof(group))
+			glen = sizeof(group) - 1;
+		memcpy(group, s + 1, glen);
+		group[glen] = '\0';
+		cm_add_bracket(p, group);
+		s = end + 1;
+	}
 }
 
 // Count qualifier tokens of `a` that also appear in `b`.
@@ -128,6 +185,23 @@ static int cm_qual_overlap(const CmParsed* a, const CmParsed* b) {
 				break;
 			}
 	return c;
+}
+
+// 1 when a qualifier is a retail disc serial ("ulus-10041"), so a tie prefers
+// it over a homebrew ID ("hb4b12d3bc") of the same region.
+static int cm_has_serial(const CmParsed* p) {
+	for (int i = 0; i < p->nquals; i++) {
+		const char* q = p->quals[i];
+		int ok = strlen(q) == 10 && q[4] == '-';
+		for (int j = 0; ok && j < 10; j++)
+			if (j < 4)
+				ok = islower((unsigned char)q[j]) != 0;
+			else if (j > 4)
+				ok = isdigit((unsigned char)q[j]) != 0;
+		if (ok)
+			return 1;
+	}
+	return 0;
 }
 
 // Stable sorted join of qualifier tokens, for a group key.
@@ -191,16 +265,17 @@ int CheatMatch_select(const char* rom_display, const char* rom_fullname,
 	}
 
 	// Choose the winning group: max region overlap, then min extra qualifier
-	// tokens (those the candidate has but the ROM lacks), then lexically
-	// smallest group key for determinism.
+	// tokens (those the candidate has but the ROM lacks), then a retail disc
+	// serial, then lexically smallest group key for determinism.
 	char best_key[CM_STEM_LEN + CM_MAX_TOKENS * (CM_TOK_LEN + 1)] = {0};
-	int best_overlap = -1, best_extra = 0, have_best = 0;
+	int best_overlap = -1, best_extra = 0, best_serial = 0, have_best = 0;
 
 	for (int i = 0; i < n; i++) {
 		if (!qualified[i])
 			continue;
 		int overlap = cm_qual_overlap(&rom, &cp[i]);
 		int extra = cp[i].nquals - overlap; // qualifier tokens not in the ROM
+		int serial = cm_has_serial(&cp[i]);
 		char key[sizeof(best_key)];
 		cm_group_key(&cp[i], key, sizeof(key));
 
@@ -211,6 +286,8 @@ int CheatMatch_select(const char* rom_display, const char* rom_fullname,
 			better = (overlap > best_overlap);
 		else if (extra != best_extra)
 			better = (extra < best_extra);
+		else if (serial != best_serial)
+			better = serial;
 		else
 			better = (strcmp(key, best_key) < 0);
 
@@ -218,6 +295,7 @@ int CheatMatch_select(const char* rom_display, const char* rom_fullname,
 			have_best = 1;
 			best_overlap = overlap;
 			best_extra = extra;
+			best_serial = serial;
 			snprintf(best_key, sizeof(best_key), "%s", key);
 		}
 	}
