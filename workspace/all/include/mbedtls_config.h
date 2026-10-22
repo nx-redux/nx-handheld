@@ -8,6 +8,8 @@
 /* System support */
 #define MBEDTLS_HAVE_ASM
 #define MBEDTLS_HAVE_TIME
+/* check certificate validity dates: without it an expired certificate verifies */
+#define MBEDTLS_HAVE_TIME_DATE
 
 /* mbed TLS feature support */
 #define MBEDTLS_CIPHER_MODE_CBC
