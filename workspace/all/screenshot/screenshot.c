@@ -380,10 +380,16 @@ static int capture_screenshot(const char* output_arg, int notify) {
 	} else {
 		time_t now = time(NULL);
 		struct tm* t = localtime(&now);
-		snprintf(output, sizeof(output),
-				 SCREENSHOT_DIR "/SCR_%04d%02d%02d_%02d%02d%02d.jpg",
+		char stamp[32];
+		snprintf(stamp, sizeof(stamp), "SCR_%04d%02d%02d_%02d%02d%02d",
 				 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 				 t->tm_hour, t->tm_min, t->tm_sec);
+		// A capture can take over a second (source retries, the disp dump),
+		// so the next shot may land in the same second: number it instead of
+		// letting ffmpeg -y replace the first (SCR_..._2.jpg, _3, ...).
+		snprintf(output, sizeof(output), SCREENSHOT_DIR "/%s.jpg", stamp);
+		for (int n = 2; access(output, F_OK) == 0 && n < 1000; n++)
+			snprintf(output, sizeof(output), SCREENSHOT_DIR "/%s_%d.jpg", stamp, n);
 	}
 	mkdir_parent(output);
 	const char* codec = has_suffix(output, ".bmp") ? "bmp" : "mjpeg";

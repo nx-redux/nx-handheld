@@ -50,6 +50,10 @@ sqlite3* play_activity_db_open(void) {
 		play_activity_db_close(game_log_db);
 		return NULL;
 	}
+	// gametimectl runs overlap (stop_all in the background while the next
+	// launch starts its row): wait for the other writer instead of failing
+	// with SQLITE_BUSY and silently dropping the write
+	sqlite3_busy_timeout(game_log_db, 2000);
 
 	if (!db_exists) {
 		sqlite3_exec(game_log_db,
@@ -192,8 +196,11 @@ PlayActivities* play_activity_find_all(void) {
 		entry->last_played_at = NULL;
 
 		rom->id = sqlite3_column_int(stmt, 0);
-		rom->type = strdup((const char*)sqlite3_column_text(stmt, 1));
-		rom->name = strdup((const char*)sqlite3_column_text(stmt, 2));
+		// rows imported from other trackers or edited by hand can hold NULLs
+		const char* type = (const char*)sqlite3_column_text(stmt, 1);
+		const char* name = (const char*)sqlite3_column_text(stmt, 2);
+		rom->type = strdup(type ? type : "");
+		rom->name = strdup(name ? name : "");
 		if (sqlite3_column_text(stmt, 3) != NULL) {
 			rom->file_path = strdup((const char*)sqlite3_column_text(stmt, 3));
 			rom->image_path = malloc(STR_MAX * sizeof(char));
@@ -340,21 +347,19 @@ int play_activity_transaction_rom_find_by_file_path(const char* rom_path, bool c
 	return retval;
 }
 
+// rom_path_out must be MAX_PATH bytes
 bool _get_active_rom_path(char* rom_path_out) {
-	char cmd[STR_MAX];
-	getFile(CMD_TO_RUN, cmd, STR_MAX);
-	trimTrailingNewlines(cmd);
-
 	// The ROM is the last single-quoted word of the launch command; parse it
 	// like the shell does so an escaped apostrophe ('\'') in the title comes
-	// back as a plain ' instead of truncating the path (see next_cmd.h).
-	return NextCmd_lastWord(cmd, rom_path_out, STR_MAX) == 1;
+	// back as a plain ' instead of truncating the path (see next_cmd.h). The
+	// command is read whole: it can be far longer than STR_MAX.
+	return NextCmd_readRomPath(CMD_TO_RUN, rom_path_out, MAX_PATH) == 1;
 }
 
 int __db_get_active_closed_activity(sqlite3* game_log_db) {
 	int rom_id = ROM_NOT_FOUND;
 
-	char rom_path[STR_MAX];
+	char rom_path[MAX_PATH];
 	if (!_get_active_rom_path(rom_path)) {
 		return ROM_NOT_FOUND;
 	}

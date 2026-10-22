@@ -13,7 +13,14 @@
 // Header-only so the host test (common/tests/test_next_cmd.c) needs no sqlite.
 
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+// The launcher's command buffer (launcher.c: char cmd[MAX_PATH * 8]). /tmp/next
+// can be this long, so it must never be read into a STR_MAX buffer: a cut
+// command loses the end of the ROM path and the tracker can't find the game.
+#define NEXT_CMD_MAX (512 * 8)
 
 // Copies the last word of cmd into out (out_size bytes). Returns 1 when a
 // word was found, 0 for an empty or whitespace-only command.
@@ -64,6 +71,35 @@ static int NextCmd_lastWord(const char* cmd, char* out, size_t out_size) {
 		found = 1;
 	}
 	return found;
+}
+
+
+// Reads the launch command in cmd_path and copies its ROM path (last word)
+// into out. Returns 1 on success, 0 when the file is missing or empty, longer
+// than NEXT_CMD_MAX, or the path does not fit out_size (a cut path would name
+// another file).
+static int NextCmd_readRomPath(const char* cmd_path, char* out, size_t out_size) {
+	if (!out || out_size == 0)
+		return 0;
+	out[0] = '\0';
+	FILE* f = fopen(cmd_path, "r");
+	if (!f)
+		return 0;
+	char* cmd = malloc(NEXT_CMD_MAX + 2);
+	char* word = malloc(NEXT_CMD_MAX + 1);
+	int ok = 0;
+	if (cmd && word) {
+		size_t n = fread(cmd, 1, NEXT_CMD_MAX + 1, f);
+		cmd[n] = '\0';
+		if (n <= NEXT_CMD_MAX && NextCmd_lastWord(cmd, word, NEXT_CMD_MAX + 1) && strlen(word) < out_size) {
+			memcpy(out, word, strlen(word) + 1);
+			ok = 1;
+		}
+	}
+	free(cmd);
+	free(word);
+	fclose(f);
+	return ok;
 }
 
 #endif

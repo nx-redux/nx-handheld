@@ -383,6 +383,11 @@ int Podcast_findFeedIndex(const char* feed_url);
 // Parse RSS feed (simple - just feed metadata)
 int podcast_rss_parse(const char* xml_data, int xml_len, PodcastFeed* feed);
 
+// True when xml holds a whole feed: its root element (<rss>, Atom <feed> or
+// RSS 1.0 <rdf:RDF>) is closed near the end. A cut-off download parses fine up
+// to the cut, and saving that parse would silently drop the older episodes.
+bool podcast_rss_is_complete(const char* xml_data, int xml_len);
+
 // Parse RSS feed with episodes output
 int podcast_rss_parse_with_episodes(const char* xml_data, int xml_len, PodcastFeed* feed,
 									PodcastEpisode* episodes_out, int max_episodes,

@@ -55,3 +55,13 @@ int SavePaths_autoResumeIsGame(const char* marker, const char* game_path, const 
 		return 0;
 	return strcmp(marker, game_path + sd_len) == 0;
 }
+
+int SavePaths_discIndex(char* const* disc_paths, int total_discs, const char* game_path) {
+	if (!disc_paths || !game_path)
+		return -1;
+	for (int i = 0; i < total_discs; i++) {
+		if (disc_paths[i] && strcmp(disc_paths[i], game_path) == 0)
+			return i;
+	}
+	return -1;
+}

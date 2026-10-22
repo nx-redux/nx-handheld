@@ -57,11 +57,13 @@ static EmuOvlItem* find_schema_item(EmuOvlConfig* cfg, const char* key, int* out
 // (Config_getValue's contract in minarch's ma_config.c: key anchored at line start,
 // optionally behind a '-' lock marker, immediately followed by " = ").
 // Leading whitespace is deliberately NOT skipped — minarch would not match
-// such a line either. Returns false for non-matching lines ("bind Up = UP"
-// parses fine but fails the schema-key lookup downstream).
+// such a line either. Like Config_getValue, only the line ending ("\n",
+// "\r\n") is cut from the value; other trailing whitespace is part of it.
+// Returns false for non-matching lines ("bind Up = UP" parses fine but fails
+// the schema-key lookup downstream).
 static bool parse_cfg_line(char* line, char** key, char** val, bool* locked) {
 	size_t len = strlen(line);
-	while (len > 0 && isspace((unsigned char)line[len - 1]))
+	while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
 		line[--len] = '\0';
 	char* p = line;
 	bool lock = false;
@@ -93,22 +95,31 @@ static size_t peek_line(const char* cursor, char* buf, size_t buf_size) {
 	return raw_len;
 }
 
+// A key can occur more than once in one cfg (hand edits, old tools).
+// minarch's Config_getValue reads the FIRST line for a key in each layer (its
+// lock marker included) and ignores the rest, so both passes below do too.
+
 // One pass over one layer's content marking locked schema keys. Indices are
 // pre-prune: only prune_locked below consumes this map.
 static void apply_locks(EmuOvlConfig* cfg, const char* content,
 						bool locked[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS]) {
 	if (!content)
 		return;
+	bool seen[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS];
+	memset(seen, 0, sizeof(seen));
 	const char* cursor = content;
 	char buf[LINE_MAX_LEN];
 	while (*cursor) {
 		size_t raw_len = peek_line(cursor, buf, sizeof(buf));
 		char *key, *val;
 		bool lock;
-		if (parse_cfg_line(buf, &key, &val, &lock) && lock) {
+		if (parse_cfg_line(buf, &key, &val, &lock)) {
 			int s, i;
-			if (find_schema_item(cfg, key, &s, &i))
-				locked[s][i] = true;
+			if (find_schema_item(cfg, key, &s, &i) && !seen[s][i]) {
+				seen[s][i] = true;
+				if (lock)
+					locked[s][i] = true;
+			}
 		}
 		cursor += raw_len;
 	}
@@ -122,6 +133,8 @@ static void apply_values(EmuOvlConfig* cfg, const char* content,
 						 int vals[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS]) {
 	if (!content)
 		return;
+	bool seen[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS];
+	memset(seen, 0, sizeof(seen));
 	const char* cursor = content;
 	char buf[LINE_MAX_LEN];
 	while (*cursor) {
@@ -129,11 +142,14 @@ static void apply_values(EmuOvlConfig* cfg, const char* content,
 		cursor += raw_len;
 		char *key, *val;
 		bool lock;
-		if (!parse_cfg_line(buf, &key, &val, &lock) || lock)
+		if (!parse_cfg_line(buf, &key, &val, &lock))
 			continue;
 		int s, i;
 		EmuOvlItem* item = find_schema_item(cfg, key, &s, &i);
-		if (!item)
+		if (!item || seen[s][i])
+			continue; // a later duplicate: minarch never reads it
+		seen[s][i] = true;
+		if (lock)
 			continue;
 		int value;
 		if (emu_ovl_cfg_parse_value(item, val, &value)) {

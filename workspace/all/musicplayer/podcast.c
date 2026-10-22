@@ -877,6 +877,29 @@ PodcastFeed* Podcast_getSubscription(int index) {
 	return &subscriptions[index];
 }
 
+// Largest accepted feed. Big back catalogues run to several MB; one over this
+// is refused whole, never cut (a cut feed parses up to the cut and the older
+// episodes would vanish from the saved list).
+#define PODCAST_FEED_MAX_SIZE (16 * 1024 * 1024)
+
+// Fetches a whole feed into a new buffer (caller frees). Returns its length,
+// or -1 on a network error, -2 when over PODCAST_FEED_MAX_SIZE, -3 when the
+// body is cut off (no closing root tag).
+static int fetch_feed(const char* feed_url, uint8_t** out) {
+	int bytes = wget_fetch_alloc(feed_url, PODCAST_FEED_MAX_SIZE, out);
+	if (bytes == -2)
+		return -2;
+	if (bytes <= 0)
+		return -1;
+	if (!podcast_rss_is_complete((const char*)*out, bytes)) {
+		LOG_error("[Podcast] Feed cut off (%d bytes): %s\n", bytes, feed_url);
+		free(*out);
+		*out = NULL;
+		return -3;
+	}
+	return bytes;
+}
+
 int Podcast_subscribe(const char* feed_url) {
 	if (!feed_url || subscription_count >= PODCAST_MAX_SUBSCRIPTIONS) {
 		return -1;
@@ -888,17 +911,14 @@ int Podcast_subscribe(const char* feed_url) {
 	}
 
 	// Fetch the feed
-	uint8_t* buffer = (uint8_t*)malloc(5 * 1024 * 1024); // 5MB buffer for large RSS feeds
-	if (!buffer) {
-		snprintf(error_message, sizeof(error_message), "Out of memory");
-		return -1;
-	}
-
-	int bytes = wget_fetch(feed_url, buffer, 5 * 1024 * 1024);
+	uint8_t* buffer = NULL;
+	int bytes = fetch_feed(feed_url, &buffer);
 	if (bytes <= 0) {
 		LOG_error("[Podcast] Failed to fetch feed: %s\n", feed_url);
 		free(buffer);
-		snprintf(error_message, sizeof(error_message), "Failed to fetch feed");
+		snprintf(error_message, sizeof(error_message),
+				 bytes == -2 ? "Feed too large" : bytes == -3 ? "Feed download incomplete"
+															  : "Failed to fetch feed");
 		return -1;
 	}
 
@@ -1153,11 +1173,9 @@ int Podcast_refreshFeed(int index) {
 	snprintf(feed_url, sizeof(feed_url), "%s", subscriptions[index].feed_url);
 	pthread_mutex_unlock(&subscriptions_mutex);
 
-	uint8_t* buffer = (uint8_t*)malloc(5 * 1024 * 1024); // 5MB buffer for large RSS feeds
-	if (!buffer)
-		return -1;
-
-	int bytes = wget_fetch(feed_url, buffer, 5 * 1024 * 1024);
+	// A failed, oversized or cut-off fetch keeps the saved episode list as it is
+	uint8_t* buffer = NULL;
+	int bytes = fetch_feed(feed_url, &buffer);
 	if (bytes <= 0) {
 		free(buffer);
 		return -1;

@@ -10,6 +10,20 @@
 // yxml parser
 #include "yxml.h"
 
+bool podcast_rss_is_complete(const char* xml_data, int xml_len) {
+	if (!xml_data || xml_len <= 0)
+		return false;
+	// the closing root tag sits in the last few bytes (after it: whitespace,
+	// at most a comment)
+	int start = xml_len > 1024 ? xml_len - 1024 : 0;
+	char tail[1025];
+	int n = 0;
+	for (int i = start; i < xml_len; i++)
+		tail[n++] = xml_data[i] ? xml_data[i] : ' ';
+	tail[n] = '\0';
+	return strcasestr(tail, "</rss") || strcasestr(tail, "</feed") || strcasestr(tail, "</rdf:RDF");
+}
+
 // Parse state for RSS feed
 typedef enum {
 	RSS_STATE_NONE = 0,

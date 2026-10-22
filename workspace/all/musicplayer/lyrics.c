@@ -222,6 +222,12 @@ static void publish_lines(const LyricLine* lines, int count, int my_gen) {
 }
 
 // Look the track up on LRCLIB (exact match, then fuzzy search).
+// LRCLIB response buffer. A search returns up to 20 results, each with plain
+// and synced lyrics, which can pass 64 KB. radio_net_fetch fills at most
+// size - 1 bytes, so a full buffer means the JSON was cut: such a response is
+// skipped instead of parsed.
+#define LRCLIB_RESPONSE_MAX (512 * 1024)
+
 // Returns malloc'd synced LRC text, or NULL.
 static char* fetch_online_lrc(const FetchArgs* args, int my_gen) {
 	// URL-encode artist and title separately
@@ -236,7 +242,7 @@ static char* fetch_online_lrc(const FetchArgs* args, int my_gen) {
 			 "https://lrclib.net/api/get?artist_name=%s&track_name=%s&duration=%d",
 			 encoded_artist, encoded_title, args->duration_sec);
 	// Fetch LRCLIB API response
-	uint8_t* response_buf = (uint8_t*)malloc(64 * 1024);
+	uint8_t* response_buf = (uint8_t*)malloc(LRCLIB_RESPONSE_MAX);
 	if (!response_buf)
 		return NULL;
 
@@ -244,7 +250,11 @@ static char* fetch_online_lrc(const FetchArgs* args, int my_gen) {
 	JSON_Value* root = NULL;
 
 	// Try exact match first
-	int bytes = radio_net_fetch(url, response_buf, 64 * 1024, NULL, 0);
+	int bytes = radio_net_fetch(url, response_buf, LRCLIB_RESPONSE_MAX, NULL, 0);
+	if (bytes >= LRCLIB_RESPONSE_MAX - 1) {
+		LOG_warn("[Lyrics] LRCLIB response over %d bytes, skipped\n", LRCLIB_RESPONSE_MAX);
+		bytes = -1;
+	}
 
 	if (bytes > 0) {
 		response_buf[bytes] = '\0';
@@ -279,7 +289,11 @@ static char* fetch_online_lrc(const FetchArgs* args, int my_gen) {
 		urlEncode(query, encoded_query, sizeof(encoded_query));
 		snprintf(url, sizeof(url), "https://lrclib.net/api/search?q=%s", encoded_query);
 
-		bytes = radio_net_fetch(url, response_buf, 64 * 1024, NULL, 0);
+		bytes = radio_net_fetch(url, response_buf, LRCLIB_RESPONSE_MAX, NULL, 0);
+		if (bytes >= LRCLIB_RESPONSE_MAX - 1) {
+			LOG_warn("[Lyrics] LRCLIB search response over %d bytes, skipped\n", LRCLIB_RESPONSE_MAX);
+			bytes = -1;
+		}
 
 		if (bytes > 0) {
 			response_buf[bytes] = '\0';

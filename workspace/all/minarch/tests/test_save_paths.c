@@ -65,6 +65,13 @@ int main(void) {
 	CHECK(!SavePaths_autoResumeIsGame("", "/mnt/SDCARD/Roms/GBA/a.gba", "/mnt/SDCARD"), "empty marker");
 	CHECK(!SavePaths_autoResumeIsGame("/tmp/a.gba", "/tmp/a.gba", "/mnt/SDCARD"), "game outside the card");
 
+	char* discs[] = {"/r/PS/FF7/FF7 (Disc 1).chd", "/r/PS/FF7/FF7 (Disc 2).chd", "/r/PS/FF7/FF7 (Disc 3).chd"};
+	CHECK(SavePaths_discIndex(discs, 3, "/r/PS/FF7/FF7 (Disc 2).chd") == 1, "disc index follows the running disc");
+	CHECK(SavePaths_discIndex(discs, 3, "/r/PS/FF7/FF7 (Disc 3).chd") == 2, "disc index of the last disc");
+	CHECK(SavePaths_discIndex(discs, 3, "/r/PS/FF7/FF7 (Disc 4).chd") == -1, "unknown disc");
+	CHECK(SavePaths_discIndex(discs, 2, "/r/PS/FF7/FF7 (Disc 3).chd") == -1, "disc past the count");
+	CHECK(SavePaths_discIndex(NULL, 0, "/r/a.chd") == -1, "no disc list");
+
 	printf(fails ? "%d FAILED\n" : "all passed\n", fails);
 	return fails ? 1 : 0;
 }

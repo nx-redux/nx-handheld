@@ -23,4 +23,9 @@ NetplaySavesMode SavePaths_netplayMode(const char* netplay_role, const char* net
 // Whether the auto-resume marker (AUTO_RESUME_PATH: the game path below the
 // SD card root) names game_path.
 int SavePaths_autoResumeIsGame(const char* marker, const char* game_path, const char* sdcard_path);
+
+// Index of game_path in a multi-disc game's disc list, or -1. After a disc
+// swap the menu's disc index must follow the running disc, or the next save
+// records the wrong disc marker.
+int SavePaths_discIndex(char* const* disc_paths, int total_discs, const char* game_path);
 #endif

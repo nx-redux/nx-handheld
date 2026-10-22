@@ -91,6 +91,15 @@ static bool menuDiscCb(const char* disc_path, int index, void* ctx) {
 	return true;
 }
 
+// Point menu.disc at the disc that is actually running. Called after every
+// Game_changeDisc (success or not) so the disc markers written by the next
+// save name the loaded disc.
+static void Menu_syncDiscIndex(void) {
+	int idx = SavePaths_discIndex(menu.disc_paths, menu.total_discs, game.path);
+	if (idx >= 0)
+		menu.disc = idx;
+}
+
 static void initFrontendVersionDesc(void);
 
 void Menu_init(void) {
@@ -1539,7 +1548,9 @@ void Menu_loadState(void) {
 
 			char* disc_path = menu.disc_paths[menu.disc];
 			if (!exactMatch(slot_disc_path, disc_path)) {
-				if (!Game_changeDisc(slot_disc_path)) {
+				int changed = Game_changeDisc(slot_disc_path);
+				Menu_syncDiscIndex();
+				if (!changed) {
 					// wrong disc and no way to swap it - loading the state
 					// anyway would silently mix disc and save
 					Notification_push(NOTIFICATION_LOAD_STATE, "Load Failed - Wrong Disc", NULL);
@@ -1829,6 +1840,7 @@ void Menu_loop(void) {
 				if (menu.total_discs && menu.disc >= 0 && rom_disc != menu.disc) {
 					char* disc_path = menu.disc_paths[menu.disc];
 					Game_changeDisc(disc_path);
+					Menu_syncDiscIndex();
 				}
 				show_menu = 0;
 				break;

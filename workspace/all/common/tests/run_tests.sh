@@ -8,6 +8,8 @@ cc -std=gnu99 -Wall -Werror -o /tmp/nx_test_xtras_compat ../../extras/xtras_comp
 /tmp/nx_test_xtras_compat
 cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_art_path ../utils.c test_art_path.c
 /tmp/nx_test_art_path
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_cfg_sync ../config.c ../utils.c test_cfg_sync.c
+/tmp/nx_test_cfg_sync
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_text_wrap test_text_wrap.c
 /tmp/nx_test_text_wrap
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_title_fit test_title_fit.c
@@ -20,6 +22,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_scan .
 /tmp/nx_test_scraper_scan
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scraper_systems ../../scraper/scraper_systems.c test_scraper_systems.c
 /tmp/nx_test_scraper_systems
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scrape_queue ../../scraper/scrape_queue.c test_scrape_queue.c
+/tmp/nx_test_scrape_queue
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_arcade_names ../arcade_names.c test_arcade_names.c
 /tmp/nx_test_arcade_names
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_png_palette ../png_palette.c test_png_palette.c -lz
@@ -96,6 +100,8 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I../ui -o /tmp/nx_test_menu_t
 /tmp/nx_test_menu_transition
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_romkey ../../nextui/romkey.c test_romkey.c
 /tmp/nx_test_romkey
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_line_rewrite ../../nextui/line_rewrite.c test_line_rewrite.c
+/tmp/nx_test_line_rewrite
 cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_ra_offline test_ra_offline.c ../ra_offline.c
 (cd /tmp && mkdir -p build && /tmp/nx_test_ra_offline)
 cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_ra_hash_cache test_ra_hash_cache.c ../ra_hash_cache.c ../cjson/cJSON.c

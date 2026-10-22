@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include "../../libgametimedb/next_cmd.h"
 
 #define STR_MAX 256
@@ -71,6 +72,35 @@ int main(void) {
 	char tiny[8];
 	assert(NextCmd_lastWord("'/x/l.sh' '/r/a-very-long-name.gb'", tiny, sizeof(tiny)) == 1);
 	assert(strlen(tiny) == 7);
+
+	// /tmp/next longer than STR_MAX: a deep folder plus apostrophes (each one
+	// grows by 3 bytes in the command). The tracker used to read 255 bytes
+	// and look up a cut path after every wake.
+	{
+		char rom[512];
+		snprintf(rom, sizeof(rom), "/mnt/SDCARD/Roms/Game Boy Advance (GBA)/Collections/Nintendo/Spin-offs and Side Stories/%s/%s",
+				 "Pokemon - Legends of the Pokemon World - Special Edition Vol. 1 (Japan) (Rev 2)",
+				 "Pokemon's Mystery Dungeon - Red Rescue Team's Ultimate Edition (USA, Europe) (Rev 1).gba");
+		assert(strlen(rom) > 255);
+		char cmd[NEXT_CMD_MAX];
+		size_t n = (size_t)snprintf(cmd, sizeof(cmd), "'/mnt/SDCARD/.system/tg5040/paks/Emus/GBA.pak/launch.sh' '");
+		for (const char* p = rom; *p; p++)
+			n += (size_t)snprintf(cmd + n, sizeof(cmd) - n, *p == '\'' ? "'\\''" : "%c", *p);
+		snprintf(cmd + n, sizeof(cmd) - n, "'\n");
+		char path[] = "/tmp/nx_test_next_cmd_XXXXXX";
+		int fd = mkstemp(path);
+		assert(fd >= 0);
+		assert(write(fd, cmd, strlen(cmd)) == (ssize_t)strlen(cmd));
+		close(fd);
+		char out[512];
+		assert(NextCmd_readRomPath(path, out, sizeof(out)) == 1);
+		assert(strcmp(out, rom) == 0);
+		// a path that does not fit is refused, not cut
+		char small[64];
+		assert(NextCmd_readRomPath(path, small, sizeof(small)) == 0);
+		unlink(path);
+		assert(NextCmd_readRomPath(path, out, sizeof(out)) == 0); // missing file
+	}
 
 	printf("test_next_cmd: all passed\n");
 	return 0;

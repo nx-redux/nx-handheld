@@ -1508,7 +1508,6 @@ static int CFG_lineKeyLen(const char* line, size_t len) {
 	return -1;
 }
 
-#define CFG_MAX_LINES 96
 #define CFG_FILE_MAX 16384
 
 void CFG_sync(void) {
@@ -1573,12 +1572,21 @@ void CFG_sync(void) {
 	static char merged[CFG_FILE_MAX];
 	const char* out = ours;
 	size_t out_len = strlen(ours);
-	if (old_len < sizeof(old_buf) - 1) {
-		const char* olines[CFG_MAX_LINES];
-		size_t olens[CFG_MAX_LINES];
-		bool used[CFG_MAX_LINES] = {false};
+	// The line table is sized from the serialization itself: a fixed cap used
+	// to drop every key past it from the merge, so their changes silently
+	// stopped saving once the settings grew.
+	int oalloc = 1;
+	for (const char* q = ours; *q; q++)
+		if (*q == '\n')
+			oalloc++;
+	const char** olines = malloc((size_t)oalloc * sizeof(*olines));
+	size_t* olens = malloc((size_t)oalloc * sizeof(*olens));
+	bool* used = calloc((size_t)oalloc, sizeof(*used));
+	if (!olines || !olens || !used)
+		printf("[CFG] out of memory merging settings, writing them alone\n");
+	else if (old_len < sizeof(old_buf) - 1) {
 		int ocount = 0;
-		for (const char* q = ours; *q && ocount < CFG_MAX_LINES; q += olens[ocount - 1]) {
+		for (const char* q = ours; *q && ocount < oalloc; q += olens[ocount - 1]) {
 			const char* nl = strchr(q, '\n');
 			olines[ocount] = q;
 			olens[ocount] = nl ? (size_t)(nl - q) + 1 : strlen(q);
@@ -1635,6 +1643,9 @@ void CFG_sync(void) {
 			out_len = moff;
 		}
 	}
+	free(olines);
+	free(olens);
+	free(used);
 
 	// Settings changes are rare; skip the write (and the flash wear) when the
 	// file already holds exactly this content.

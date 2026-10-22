@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <unistd.h>
 
 #include "cjson/cJSON.h"
 
@@ -697,10 +698,19 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		return 0; // nothing to write
 	}
 
-	// Open output file
-	FILE* out = fopen(ini_path, "w");
+	// Write a sibling .tmp and rename it over the INI once it is complete and
+	// synced: a power cut or a full card mid-write must not leave the core's
+	// INI (PPSSPP/DraStic settings) empty or cut short
+	size_t tmp_len = strlen(ini_path) + 5;
+	char* tmp_path = malloc(tmp_len);
+	FILE* out = NULL;
+	if (tmp_path) {
+		snprintf(tmp_path, tmp_len, "%s.tmp", ini_path);
+		out = fopen(tmp_path, "w");
+	}
 	if (!out) {
 		printf("[emu_ovl_cfg] failed to open INI %s for writing\n", ini_path);
+		free(tmp_path);
 		free(original);
 		return -1;
 	}
@@ -870,8 +880,17 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		}
 	}
 
-	fclose(out);
 	free(original);
+	int ok = !ferror(out) && fflush(out) == 0 && fsync(fileno(out)) == 0;
+	if (fclose(out) != 0)
+		ok = 0;
+	if (!ok || rename(tmp_path, ini_path) != 0) {
+		printf("[emu_ovl_cfg] failed to write INI %s, original kept\n", ini_path);
+		remove(tmp_path);
+		free(tmp_path);
+		return -1;
+	}
+	free(tmp_path);
 	return 0;
 }
 

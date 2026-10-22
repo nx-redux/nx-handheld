@@ -16,6 +16,20 @@
 int wget_fetch(const char* url, uint8_t* buffer, int buffer_size);
 
 /**
+ * Fetch URL content into a new malloc'd buffer (NUL-terminated, caller frees).
+ * Unlike wget_fetch, a response larger than max_size is rejected rather than
+ * cut, and a transfer wget did not finish cleanly is a failure (wget_fetch
+ * accepts its partial file), so callers never parse a truncated body as if it
+ * were complete.
+ *
+ * @param url      The URL to fetch
+ * @param max_size Largest accepted response in bytes
+ * @param out      Receives the buffer (NULL on failure)
+ * @return         Bytes read on success, -2 when over max_size, -1 on other failures
+ */
+int wget_fetch_alloc(const char* url, int max_size, uint8_t** out);
+
+/**
  * Fetch only the response headers of a URL WITHOUT following redirects
  * (wget -S --max-redirect=0). Used to read a redirect's Location target,
  * e.g. GitHub's /releases/latest -> /releases/tag/<TAG>, without touching

@@ -32,14 +32,13 @@
 #include "scraper_scan.h"
 #include "scraper_optimize.h"
 #include "scraper_prefs.h"
+#include "scrape_queue.h"
 
 // ============================================
 // Constants
 // ============================================
 
 #define MAX_SYSTEMS 128
-#define MAX_ROMS 4096
-#define MAX_QUEUE 2048
 
 
 // ============================================
@@ -103,34 +102,11 @@ typedef enum {
 	SCREEN_SETTINGS,
 } ScreenState;
 
-typedef enum {
-	SCRAPE_STATUS_IDLE,
-	SCRAPE_STATUS_SEARCHING,
-	SCRAPE_STATUS_DOWNLOADING,
-	SCRAPE_STATUS_SAVING,
-	SCRAPE_STATUS_COMPOSITING,
-	SCRAPE_STATUS_DONE,
-	SCRAPE_STATUS_NOT_FOUND,
-	SCRAPE_STATUS_ERROR,
-} ScrapeStatus;
-
 // ============================================
-// Scrape Queue
+// Scrape Queue (scrape_queue.c; every access holds queue_mutex)
 // ============================================
 
-typedef struct {
-	char filename[256];
-	char rom_path[512];
-	char system_path[512];
-	char system_name[128];
-	char out_png[512];
-	int system_id;
-	volatile ScrapeStatus status;
-} ScrapeQueueItem;
-
-static ScrapeQueueItem scrape_queue[MAX_QUEUE];
-static volatile int queue_count = 0;
-static volatile int queue_current = -1;
+static ScrapeQueue scrape_queue;
 static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t scraper_thread;
 static volatile bool scraper_running = false;
@@ -150,7 +126,9 @@ static ListView systems_view;
 static char systems_badge_buf[64];
 static char systems_label_buf[340]; // "<name> (<tag>)" for the current row
 
-static ROMEntry roms[MAX_ROMS];
+// grows as a system is scanned (no fixed cap: big arcade sets have thousands)
+static ROMEntry* roms = NULL;
+static int roms_cap = 0;
 static int rom_count = 0;
 static int rom_selected = 0;
 static int rom_scroll = 0;
@@ -404,10 +382,20 @@ static void mapKeyForGame(const ScanGame* g, char* dir, size_t dir_size,
 	}
 }
 
+static void refreshRomArt(ROMEntry* rom);
+
 static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	(void)ud;
-	if (rom_count >= MAX_ROMS)
-		return false;
+	if (rom_count >= roms_cap) {
+		int ncap = roms_cap ? roms_cap * 2 : 512;
+		ROMEntry* grown = realloc(roms, (size_t)ncap * sizeof(ROMEntry));
+		if (!grown) {
+			LOG_error("Scraper: out of memory at %d ROMs, the list is cut short\n", rom_count);
+			return false;
+		}
+		roms = grown;
+		roms_cap = ncap;
+	}
 	ROMEntry* rom = &roms[rom_count++];
 	snprintf(rom->filename, sizeof(rom->filename), "%s", g->filename);
 	snprintf(rom->path, sizeof(rom->path), "%s", g->path);
@@ -418,6 +406,11 @@ static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	const char* alias = mapAliasFor(map_dir, map_key);
 	snprintf(rom->label, sizeof(rom->label), "%s", (alias && alias[0]) ? alias : g->label);
 	snprintf(rom->art_png, sizeof(rom->art_png), "%s", g->art_png);
+	refreshRomArt(rom);
+	return true;
+}
+
+static void refreshRomArt(ROMEntry* rom) {
 	// The scraper stores a screenshot and a box art per game, under .media/<variant>/, each only when
 	// ScreenScraper had it. A game with either counts as scraped, and with Generate mix on it also needs the
 	// .media/mix/ mix (an old root .media/<name>.png mix doesn't count, so a re-scrape upgrades it); a mix alone
@@ -431,7 +424,6 @@ static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	Scraper_variantPath(rom->art_png, "mix", variant, sizeof(variant));
 	rom->has_mix = ROM_artExists(variant, sizeof(variant));
 	rom->has_artwork = ScraperPrefs_isComplete(&scraper_prefs, rom->has_screenshot, rom->has_boxart, rom->has_mix);
-	return true;
 }
 
 static void scanROMs(SystemEntry* sys) {
@@ -458,27 +450,17 @@ static int deleteAllArtwork(void) {
 
 static bool isROMQueued(const char* rom_path) {
 	pthread_mutex_lock(&queue_mutex);
-	for (int i = 0; i < queue_count; i++) {
-		if (strcmp(scrape_queue[i].rom_path, rom_path) == 0) {
-			pthread_mutex_unlock(&queue_mutex);
-			return true;
-		}
-	}
+	bool queued = ScrapeQueue_find(&scrape_queue, rom_path) >= 0;
 	pthread_mutex_unlock(&queue_mutex);
-	return false;
+	return queued;
 }
 
 static ScrapeStatus getROMQueueStatus(const char* rom_path) {
 	pthread_mutex_lock(&queue_mutex);
-	for (int i = 0; i < queue_count; i++) {
-		if (strcmp(scrape_queue[i].rom_path, rom_path) == 0) {
-			ScrapeStatus s = scrape_queue[i].status;
-			pthread_mutex_unlock(&queue_mutex);
-			return s;
-		}
-	}
+	int i = ScrapeQueue_find(&scrape_queue, rom_path);
+	ScrapeStatus s = i >= 0 ? scrape_queue.items[i].status : SCRAPE_STATUS_IDLE;
 	pthread_mutex_unlock(&queue_mutex);
-	return SCRAPE_STATUS_IDLE;
+	return s;
 }
 
 static void* scraper_thread_func(void* arg);
@@ -496,26 +478,26 @@ static bool queueAddROM(ROMEntry* rom, SystemEntry* sys, bool force) {
 		return false;
 	if (!force && rom->has_artwork)
 		return false;
-	if (isROMQueued(rom->path))
-		return false;
+
+	ScrapeQueueItem item;
+	memset(&item, 0, sizeof(item));
+	snprintf(item.filename, sizeof(item.filename), "%s", rom->filename);
+	snprintf(item.rom_path, sizeof(item.rom_path), "%s", rom->path);
+	snprintf(item.system_path, sizeof(item.system_path), "%s", sys->path);
+	snprintf(item.system_name, sizeof(item.system_name), "%s", sys->name);
+	snprintf(item.out_png, sizeof(item.out_png), "%s", rom->art_png);
+	// Per ROM, not per system: the MD/GPGX tags cover several Sega systems.
+	item.system_id = ScraperSystems_getIdForRom(sys->tag, rom->path);
 
 	pthread_mutex_lock(&queue_mutex);
-	if (queue_count >= MAX_QUEUE) {
-		pthread_mutex_unlock(&queue_mutex);
-		return false;
-	}
-
-	ScrapeQueueItem* item = &scrape_queue[queue_count];
-	snprintf(item->filename, sizeof(item->filename), "%s", rom->filename);
-	snprintf(item->rom_path, sizeof(item->rom_path), "%s", rom->path);
-	snprintf(item->system_path, sizeof(item->system_path), "%s", sys->path);
-	snprintf(item->system_name, sizeof(item->system_name), "%s", sys->name);
-	snprintf(item->out_png, sizeof(item->out_png), "%s", rom->art_png);
-	// Per ROM, not per system: the MD/GPGX tags cover several Sega systems.
-	item->system_id = ScraperSystems_getIdForRom(sys->tag, rom->path);
-	item->status = SCRAPE_STATUS_IDLE;
-	queue_count++;
+	int added = ScrapeQueue_add(&scrape_queue, &item); // a failed item is retried
+	if (added > 0)
+		queue_dirty = true;
 	pthread_mutex_unlock(&queue_mutex);
+	if (added < 0)
+		LOG_error("Scraper: out of memory queueing %s\n", rom->path);
+	if (added <= 0)
+		return false;
 
 	ensureThreadStarted();
 	return true;
@@ -562,69 +544,27 @@ static int queueAddAllSystems(void) {
 }
 
 static void queueGetStats(int* done, int* total, int* failed) {
-	int d = 0, f = 0;
 	pthread_mutex_lock(&queue_mutex);
-	for (int i = 0; i < queue_count; i++) {
-		ScrapeStatus s = scrape_queue[i].status;
-		if (s == SCRAPE_STATUS_DONE)
-			d++;
-		else if (s == SCRAPE_STATUS_NOT_FOUND || s == SCRAPE_STATUS_ERROR)
-			f++;
-	}
-	if (done)
-		*done = d;
-	if (total)
-		*total = queue_count;
-	if (failed)
-		*failed = f;
+	ScrapeQueue_stats(&scrape_queue, done, total, failed);
 	pthread_mutex_unlock(&queue_mutex);
 }
 
-static bool isTerminalStatus(ScrapeStatus s) {
-	return s == SCRAPE_STATUS_DONE ||
-		   s == SCRAPE_STATUS_NOT_FOUND || s == SCRAPE_STATUS_ERROR;
-}
-
-static void queueClearDone(void) {
+// Forget finished work (failed rows and the done count); used after Reset
+// artwork, when "scraped" no longer describes what is on the card.
+static void queueDropFinished(void) {
 	pthread_mutex_lock(&queue_mutex);
-	int cur = queue_current;
-	int write_idx = 0;
-	int new_current = -1;
-	for (int i = 0; i < queue_count; i++) {
-		ScrapeStatus s = scrape_queue[i].status;
-		// Keep items that are in-progress or idle, skip terminal items
-		// Also always keep the currently-processing item to avoid pointer invalidation
-		if (isTerminalStatus(s) && i != cur) {
-			continue;
-		}
-		if (i == cur)
-			new_current = write_idx;
-		if (write_idx != i)
-			scrape_queue[write_idx] = scrape_queue[i];
-		write_idx++;
-	}
-	queue_count = write_idx;
-	queue_current = new_current;
-	// Clamp progress selection and scroll
-	if (progress_selected >= queue_count)
-		progress_selected = queue_count > 0 ? queue_count - 1 : 0;
-	if (progress_scroll >= queue_count)
-		progress_scroll = queue_count > 0 ? queue_count - 1 : 0;
+	ScrapeQueue_dropFinished(&scrape_queue);
 	queue_dirty = true;
 	pthread_mutex_unlock(&queue_mutex);
 }
 
 // True while any queue item is still idle or in progress (i.e. the scraper
-// thread has work). Used to refuse a destructive reset mid-scrape.
+// thread has work). Used to refuse a destructive reset mid-scrape. The worker
+// marks its item SEARCHING when it claims it and always reports a terminal
+// result by rom_path, so this clears once the queue drains.
 static bool queueIsBusy(void) {
-	bool busy = false;
 	pthread_mutex_lock(&queue_mutex);
-	for (int i = 0; i < queue_count; i++) {
-		if (!isTerminalStatus(scrape_queue[i].status)) {
-			busy = true;
-			break;
-		}
-	}
+	bool busy = ScrapeQueue_isBusy(&scrape_queue);
 	pthread_mutex_unlock(&queue_mutex);
 	return busy;
 }
@@ -633,8 +573,10 @@ static bool queueIsBusy(void) {
 // Background Scraper Thread
 // ============================================
 
+// userdata is the worker's own copy of the item; the queue row is found again
+// by rom_path, since finished rows leave the list and move the ones behind
 static void scrape_status_cb(const char* stage, void* userdata) {
-	ScrapeQueueItem* item = (ScrapeQueueItem*)userdata;
+	const ScrapeQueueItem* item = (const ScrapeQueueItem*)userdata;
 	ScrapeStatus s = SCRAPE_STATUS_SEARCHING;
 	if (strcmp(stage, "downloading") == 0)
 		s = SCRAPE_STATUS_DOWNLOADING;
@@ -643,19 +585,39 @@ static void scrape_status_cb(const char* stage, void* userdata) {
 	else if (strcmp(stage, "compositing") == 0)
 		s = SCRAPE_STATUS_COMPOSITING;
 	pthread_mutex_lock(&queue_mutex);
-	item->status = s;
+	ScrapeQueue_setStatus(&scrape_queue, item->rom_path, s);
 	queue_dirty = true;
 	pthread_mutex_unlock(&queue_mutex);
 }
 
-static void scrapeOneQueueItem(ScrapeQueueItem* item) {
+// Done rows leave the queue, so the ROM list reads a scraped game's state
+// from its art again: re-check the rows the worker finished since last time.
+static void refreshFinishedRoms(void) {
+	for (;;) {
+		pthread_mutex_lock(&queue_mutex);
+		char* path = ScrapeQueue_popFinished(&scrape_queue);
+		pthread_mutex_unlock(&queue_mutex);
+		if (!path)
+			break;
+		for (int i = 0; i < rom_count; i++) {
+			if (strcmp(roms[i].path, path) == 0) {
+				refreshRomArt(&roms[i]);
+				break;
+			}
+		}
+		free(path);
+	}
+}
+
+static void scrapeOneQueueItem(const ScrapeQueueItem* item) {
 	ScrapeResult r = scrapeOne(item->filename, item->rom_path, item->system_id,
-							   item->out_png, scrape_status_cb, item);
+							   item->out_png, scrape_status_cb, (void*)item);
 
 	pthread_mutex_lock(&queue_mutex);
-	item->status = (r == SCRAPE_RESULT_OK)		   ? SCRAPE_STATUS_DONE
-				   : (r == SCRAPE_RESULT_NOTFOUND) ? SCRAPE_STATUS_NOT_FOUND
-												   : SCRAPE_STATUS_ERROR;
+	ScrapeQueue_finish(&scrape_queue, item->rom_path,
+					   (r == SCRAPE_RESULT_OK)		   ? SCRAPE_STATUS_DONE
+					   : (r == SCRAPE_RESULT_NOTFOUND) ? SCRAPE_STATUS_NOT_FOUND
+													   : SCRAPE_STATUS_ERROR);
 	queue_dirty = true;
 	pthread_mutex_unlock(&queue_mutex);
 }
@@ -663,26 +625,21 @@ static void scrapeOneQueueItem(ScrapeQueueItem* item) {
 static void* scraper_thread_func(void* arg) {
 	(void)arg;
 	while (scraper_running) {
-		// Find next IDLE item in queue
+		// Claim the next IDLE item: a copy, so nothing here points into the
+		// queue while the scrape runs unlocked
+		ScrapeQueueItem item;
 		pthread_mutex_lock(&queue_mutex);
-		int next = -1;
-		for (int i = 0; i < queue_count; i++) {
-			if (scrape_queue[i].status == SCRAPE_STATUS_IDLE) {
-				next = i;
-				queue_current = i;
-				break;
-			}
-		}
-		if (next < 0)
-			queue_current = -1;
+		bool got = ScrapeQueue_takeNext(&scrape_queue, &item);
+		if (got)
+			queue_dirty = true;
 		pthread_mutex_unlock(&queue_mutex);
 
-		if (next < 0) {
+		if (!got) {
 			usleep(200000); // 200ms idle polling
 			continue;
 		}
 
-		scrapeOneQueueItem(&scrape_queue[next]);
+		scrapeOneQueueItem(&item);
 	}
 	return NULL;
 }
@@ -837,8 +794,19 @@ static void renderROMList(void) {
 
 	ListLayout layout = UI_calcListLayout(screen);
 
-	// Use static arrays to avoid VLA stack overflow with large ROM lists
-	static UISettingsItem items[MAX_ROMS];
+	// Kept between frames and grown with the list (no VLA: big lists would
+	// overflow the stack)
+	static UISettingsItem* items = NULL;
+	static int items_cap = 0;
+	if (rom_count > items_cap) {
+		UISettingsItem* grown = realloc(items, (size_t)rom_count * sizeof(UISettingsItem));
+		if (!grown) {
+			GFX_flip(screen);
+			return;
+		}
+		items = grown;
+		items_cap = rom_count;
+	}
 
 	for (int i = 0; i < rom_count; i++) {
 		ROMEntry* rom = &roms[i];
@@ -867,64 +835,85 @@ static void renderProgress(void) {
 
 	UI_renderMenuBar(screen, "Artwork Manager | Progress");
 
+	// Done rows leave the queue on their own (only the done count stays), so
+	// the list holds what is waiting, in progress or failed
 	pthread_mutex_lock(&queue_mutex);
-	int count = queue_count;
+	int count = scrape_queue.count;
+	int done = 0, total = 0, failed = 0;
+	ScrapeQueue_stats(&scrape_queue, &done, &total, &failed);
 
 	if (count == 0) {
 		pthread_mutex_unlock(&queue_mutex);
+		progress_selected = 0;
+		progress_scroll = 0;
+		char sub[64];
+		if (done > 0)
+			snprintf(sub, sizeof(sub), "%d scraped", done);
 		UI_renderEmptyState(screen, "Queue is empty",
-							"Add ROMs from Library", NULL);
+							done > 0 ? sub : "Add ROMs from Library", NULL);
 		GFX_flip(screen);
 		return;
 	}
+	// rows vanish as they finish: keep the cursor on the list
+	if (progress_selected >= count)
+		progress_selected = count - 1;
+	if (progress_scroll >= count)
+		progress_scroll = count - 1;
 
 	ListLayout layout = UI_calcListLayout(screen);
 
-	// Use static arrays to avoid VLA stack overflow with large queues
-	static UISettingsItem items[MAX_QUEUE];
-	static char filenames[MAX_QUEUE][256];
-	static char sys_names[MAX_QUEUE][128];
-	static const char* status_texts[MAX_QUEUE];
+	// Kept between frames and grown with the queue (no VLA: a big queue
+	// would overflow the stack)
+	typedef struct {
+		char filename[256];
+		char sys_name[128];
+	} ProgressRow;
+	static UISettingsItem* items = NULL;
+	static ProgressRow* rows = NULL;
+	static int rows_cap = 0;
+	if (count > rows_cap) {
+		UISettingsItem* grown_items = realloc(items, (size_t)count * sizeof(UISettingsItem));
+		if (grown_items)
+			items = grown_items;
+		ProgressRow* grown_rows = realloc(rows, (size_t)count * sizeof(ProgressRow));
+		if (grown_rows)
+			rows = grown_rows;
+		if (!grown_items || !grown_rows) {
+			pthread_mutex_unlock(&queue_mutex);
+			GFX_flip(screen);
+			return;
+		}
+		rows_cap = count;
+	}
 
 	for (int i = 0; i < count; i++) {
-		char* base = removeExtension(scrape_queue[i].filename);
-		snprintf(filenames[i], sizeof(filenames[i]), "%s",
-				 base ? base : scrape_queue[i].filename);
+		const ScrapeQueueItem* q = &scrape_queue.items[i];
+		char* base = removeExtension(q->filename);
+		snprintf(rows[i].filename, sizeof(rows[i].filename), "%s", base ? base : q->filename);
 		if (base)
 			free(base);
 
-		snprintf(sys_names[i], sizeof(sys_names[i]), "%s", scrape_queue[i].system_name);
-		status_texts[i] = scrapeStatusText(scrape_queue[i].status);
+		snprintf(rows[i].sys_name, sizeof(rows[i].sys_name), "%s", q->system_name);
 
 		items[i] = (UISettingsItem){
-			.label = filenames[i],
-			.value = status_texts[i],
+			.label = rows[i].filename,
+			.value = scrapeStatusText(q->status),
 			.swatch = -1,
 			.cycleable = 0,
-			.desc = sys_names[i],
+			.desc = rows[i].sys_name,
 		};
-	}
-
-	// Build status message
-	int done = 0, failed = 0;
-	for (int i = 0; i < count; i++) {
-		ScrapeStatus s = scrape_queue[i].status;
-		if (s == SCRAPE_STATUS_DONE)
-			done++;
-		else if (s == SCRAPE_STATUS_NOT_FOUND || s == SCRAPE_STATUS_ERROR)
-			failed++;
 	}
 	pthread_mutex_unlock(&queue_mutex);
 
 	char status_msg[128];
 	if (failed > 0)
-		snprintf(status_msg, sizeof(status_msg), "%d / %d complete, %d failed", done, count, failed);
+		snprintf(status_msg, sizeof(status_msg), "%d / %d complete, %d failed", done, total, failed);
 	else
-		snprintf(status_msg, sizeof(status_msg), "%d / %d complete", done, count);
+		snprintf(status_msg, sizeof(status_msg), "%d / %d complete", done, total);
 
 	UI_renderSettingsPage(screen, &layout, items, count,
 						  progress_selected, &progress_scroll, status_msg);
-	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", "X", "CLEAR DONE", NULL});
+	UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 	GFX_flip(screen);
 }
 
@@ -1076,8 +1065,8 @@ static void resetArtworkFlow(void) {
 		return;
 
 	int deleted = deleteAllArtwork();
-	queueClearDone(); // stale "Done" rows now point at deleted files
-	scanSystems();	  // refresh scraped_count badges
+	queueDropFinished(); // the done count and failures describe art that is gone
+	scanSystems();		 // refresh scraped_count badges
 	// Reset the loaded ROM list's has_artwork flags too, if one is in memory.
 	if (rom_count > 0 && systems_view.selected < system_count)
 		scanROMs(&systems[systems_view.selected]);
@@ -1322,6 +1311,7 @@ int main(int argc, char* argv[]) {
 		if (queue_dirty) {
 			queue_dirty = false;
 			dirty = true;
+			refreshFinishedRoms();
 		}
 
 		switch (current_screen) {
@@ -1462,15 +1452,11 @@ int main(int argc, char* argv[]) {
 				break;
 			}
 
-			int count = queue_count;
+			pthread_mutex_lock(&queue_mutex);
+			int count = scrape_queue.count;
+			pthread_mutex_unlock(&queue_mutex);
 			if (count > 0 && PAD_navigateMenu(&progress_selected, count))
 				dirty = true;
-
-			if (PAD_justPressed(BTN_X) && count > 0) {
-				queueClearDone();
-				dirty = true;
-				break;
-			}
 
 			break;
 		}
@@ -1595,6 +1581,8 @@ int main(int argc, char* argv[]) {
 		scraper_running = false;
 		pthread_join(scraper_thread, NULL);
 	}
+	ScrapeQueue_free(&scrape_queue);
+	free(roms);
 
 	// Remove temp directory
 	system("rm -rf " TMP_DIR);

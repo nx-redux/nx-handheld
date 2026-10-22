@@ -624,10 +624,11 @@ int writeFileAtomic(const char* path, const char* data, size_t len) {
 	if (!file)
 		return 0;
 	size_t wr = fwrite(data, 1, len, file);
-	fflush(file);
-	fsync(fileno(file));
-	fclose(file);
-	if (wr != len || rename(tmp, path) != 0) {
+	// a full card can surface only at flush or close; never rename a short file
+	int ok = wr == len && fflush(file) == 0 && fsync(fileno(file)) == 0;
+	if (fclose(file) != 0)
+		ok = 0;
+	if (!ok || rename(tmp, path) != 0) {
 		remove(tmp);
 		return 0;
 	}

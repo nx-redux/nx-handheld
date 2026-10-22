@@ -807,11 +807,9 @@ static int Config_getValue(char* cfg, const char* key, char* out_value, int* loc
 
 	strncpy(out_value, tmp, 256);
 	out_value[256 - 1] = '\0';
-	tmp = strchr(out_value, '\n');
-	if (!tmp)
-		tmp = strchr(out_value, '\r');
-	if (tmp)
-		*tmp = '\0';
+	// the value ends at the line ending, "\n" or "\r\n" (a CRLF cfg from a PC
+	// editor must not leave a '\r' on it; emu-options reads it the same way)
+	out_value[strcspn(out_value, "\r\n")] = '\0';
 	return 1;
 }
 

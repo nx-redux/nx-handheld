@@ -31,6 +31,7 @@
 #include "contentdim.h"
 #include "collname.h"
 #include "romkey.h"
+#include "line_rewrite.h"
 #include "content.h"
 #include "gameswitcher.h"
 #include "imgloader.h"
@@ -544,12 +545,66 @@ static void removeRecursive(const char* path) {
 	rmdir(path);
 }
 
+// Line rewrite shared by the collection and map.txt edits below. The whole
+// file is read (no line-length limit), filtered in memory (LineRewrite_filter)
+// and replaced with writeFileAtomic (tmp + fsync + rename), so a full card or a
+// power cut never leaves it empty or cut short, and the original stays on any
+// failure. A missing file reads as empty. Returns 1 if the file was rewritten,
+// 0 if nothing changed, -1 on a read or write error.
+static int rewriteMatchingLines(const char* path, const char* key, bool map_key, const char* replacement, bool append_if_absent) {
+	char* data = NULL;
+	size_t data_len = 0;
+	FILE* in = fopen(path, "rb");
+	if (in) {
+		size_t cap = 0;
+		char chunk[4096];
+		size_t n;
+		while ((n = fread(chunk, 1, sizeof(chunk), in)) > 0) {
+			if (data_len + n > cap) {
+				size_t ncap = cap ? cap * 2 : 8192;
+				char* grown = realloc(data, ncap);
+				if (!grown) {
+					free(data);
+					fclose(in);
+					return -1;
+				}
+				data = grown;
+				cap = ncap;
+			}
+			memcpy(data + data_len, chunk, n);
+			data_len += n;
+		}
+		bool read_failed = ferror(in) != 0;
+		fclose(in);
+		if (read_failed) {
+			free(data);
+			return -1;
+		}
+	} else if (!append_if_absent)
+		return 0; // nothing to prune
+
+	size_t out_len = 0;
+	bool changed = false;
+	char* out = LineRewrite_filter(data ? data : "", data_len, key, map_key, replacement, append_if_absent, &out_len, &changed);
+	free(data);
+	if (!out)
+		return -1;
+	int r = 0;
+	if (changed) {
+		r = writeFileAtomic(path, out, out_len) ? 1 : -1;
+		if (r < 0)
+			LOG_error("rewrite %s failed, original kept\n", path);
+	}
+	free(out);
+	return r;
+}
+
 // Prune one line across every Collections/*.txt. Lines that exactly match
 // old_rel (an SD-relative path in the on-disk format addRomToCollectionFile
 // writes: leading '/', no SDCARD_PATH prefix) are dropped. Only files that
-// actually change are rewritten, via a .tmp + rename so a crash mid-write
-// can't truncate a collection. Used on delete — a missing path would make
-// the game silently drop out (getCollection filters missing paths).
+// actually change are rewritten, atomically (rewriteMatchingLines). Used on
+// delete — a missing path would make the game silently drop out
+// (getCollection filters missing paths).
 static void removeCollectionLines(const char* old_rel) {
 	DIR* d = opendir(COLLECTIONS_PATH);
 	if (!d)
@@ -560,124 +615,33 @@ static void removeCollectionLines(const char* old_rel) {
 			continue;
 		char coll_path[MAX_PATH];
 		snprintf(coll_path, sizeof(coll_path), "%s/%s", COLLECTIONS_PATH, dp->d_name);
-
-		FILE* in = fopen(coll_path, "r");
-		if (!in)
-			continue;
-		char tmp_path[MAX_PATH];
-		snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", coll_path);
-		FILE* out = fopen(tmp_path, "w");
-		if (!out) {
-			fclose(in);
-			continue;
-		}
-
-		bool changed = false;
-		char line[MAX_PATH];
-		while (fgets(line, sizeof(line), in) != NULL) {
-			char trimmed[MAX_PATH];
-			strncpy(trimmed, line, sizeof(trimmed) - 1);
-			trimmed[sizeof(trimmed) - 1] = '\0';
-			normalizeNewline(trimmed);
-			trimTrailingNewlines(trimmed);
-			if (exactMatch(trimmed, old_rel)) {
-				changed = true; // drop the line
-			} else {
-				fputs(line, out); // preserve the original line verbatim
-			}
-		}
-		fclose(in);
-		fclose(out);
-
-		if (changed) {
-			rename(tmp_path, coll_path);
+		if (rewriteMatchingLines(coll_path, old_rel, false, NULL, false) == 1)
 			CollCount_invalidate(coll_path); // its count and cached stamps are stale
-		} else
-			unlink(tmp_path);
 	}
 	closedir(d);
 }
 
 // Upsert a display alias into a map.txt: rewrite `key`'s value to `value`, or
-// append the pair if absent. Atomic via .tmp + rename. Used when renaming an
-// aliased entry — the alias IS the shown name, so we edit it instead of the
-// file. No-op only if the parent dir is unwritable (fopen of .tmp fails).
-static void setMapAlias(const char* map_path, const char* key, const char* value) {
-	char tmp_path[MAX_PATH];
-	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", map_path);
-	FILE* out = fopen(tmp_path, "w");
-	if (!out)
-		return;
-
-	bool replaced = false;
-	FILE* in = fopen(map_path, "r");
-	if (in) {
-		char line[MAX_PATH];
-		while (fgets(line, sizeof(line), in) != NULL) {
-			char work[MAX_PATH];
-			strncpy(work, line, sizeof(work) - 1);
-			work[sizeof(work) - 1] = '\0';
-			normalizeNewline(work);
-			trimTrailingNewlines(work);
-			char* tab = strchr(work, '\t');
-			if (tab) {
-				*tab = '\0';
-				if (exactMatch(work, key)) {
-					fprintf(out, "%s\t%s\n", key, value);
-					replaced = true;
-					continue;
-				}
-			}
-			fputs(line, out);
-		}
-		fclose(in);
-	}
-	if (!replaced)
-		fprintf(out, "%s\t%s\n", key, value);
-	fclose(out);
-	rename(tmp_path, map_path);
+// append the pair if absent. Atomic (rewriteMatchingLines). Used when renaming
+// an aliased entry — the alias IS the shown name, so we edit it instead of the
+// file. Returns false when the map could not be written (unwritable dir, full
+// card); the old map.txt is then left as it was.
+static bool setMapAlias(const char* map_path, const char* key, const char* value) {
+	size_t len = strlen(key) + strlen(value) + 3;
+	char* pair = malloc(len);
+	if (!pair)
+		return false;
+	snprintf(pair, len, "%s\t%s\n", key, value);
+	int r = rewriteMatchingLines(map_path, key, true, pair, true);
+	free(pair);
+	return r == 1;
 }
 
 // Remove a basename-keyed alias line from a map.txt (key<TAB>alias). Used on
 // delete so a later file that reuses the name doesn't inherit the dead entry's
 // alias. No-op if the file or the key is absent.
 static void dropMapKey(const char* map_path, const char* key) {
-	FILE* in = fopen(map_path, "r");
-	if (!in)
-		return;
-	char tmp_path[MAX_PATH];
-	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", map_path);
-	FILE* out = fopen(tmp_path, "w");
-	if (!out) {
-		fclose(in);
-		return;
-	}
-
-	bool changed = false;
-	char line[MAX_PATH];
-	while (fgets(line, sizeof(line), in) != NULL) {
-		char work[MAX_PATH];
-		strncpy(work, line, sizeof(work) - 1);
-		work[sizeof(work) - 1] = '\0';
-		normalizeNewline(work);
-		trimTrailingNewlines(work);
-		char* tab = strchr(work, '\t');
-		if (tab) {
-			*tab = '\0';
-			if (exactMatch(work, key)) {
-				changed = true;
-				continue; // drop the aliased line
-			}
-		}
-		fputs(line, out);
-	}
-	fclose(in);
-	fclose(out);
-
-	if (changed)
-		rename(tmp_path, map_path);
-	else
-		unlink(tmp_path);
+	rewriteMatchingLines(map_path, key, true, NULL, false);
 }
 
 // Full-screen blocking confirm dialog. Returns true on A, false on B.
@@ -873,7 +837,11 @@ static bool doRename(Entry* entry, int sel) {
 	char alias_dir[MAX_PATH], alias_key[MAX_PATH], home_map[MAX_PATH];
 	RomKey_aliasSource(entry->path, ROMS_PATH, alias_dir, sizeof(alias_dir), alias_key, sizeof(alias_key));
 	snprintf(home_map, sizeof(home_map), "%s/map.txt", alias_dir);
-	setMapAlias(home_map, alias_key, newname);
+	if (!setMapAlias(home_map, alias_key, newname)) {
+		// full or read-only card: map.txt is untouched, so the old name stays
+		free(newname);
+		return false;
+	}
 
 	// Older builds also wrote the name to Collections/map.txt, keyed by the bare file name (the folder game's cue/m3u):
 	// collections still honour such an entry when the console map.txt has none, so it goes, or it could outlive

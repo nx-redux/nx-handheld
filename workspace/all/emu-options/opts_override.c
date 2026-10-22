@@ -79,7 +79,13 @@ int opts_write_override(EmuOvlConfig* cfg, const OptsOverrideState* st, const ch
 		unlink(override_path);
 		return 0;
 	}
-	FILE* f = fopen(override_path, "w");
+	// staged in a sibling .tmp and renamed over the override once complete and
+	// synced: a power cut or a full card mid-write keeps the old override
+	// instead of leaving it empty or cut short
+	char tmp[1024 + 8];
+	if (snprintf(tmp, sizeof(tmp), "%s.tmp", override_path) >= (int)sizeof(tmp))
+		return -1;
+	FILE* f = fopen(tmp, "w");
 	if (!f)
 		return -1;
 	// group by resolved ini_section name, first-seen order, no duplicates
@@ -123,7 +129,13 @@ int opts_write_override(EmuOvlConfig* cfg, const OptsOverrideState* st, const ch
 		}
 		fprintf(f, "\n");
 	}
-	fclose(f);
+	int ok = !ferror(f) && fflush(f) == 0 && fsync(fileno(f)) == 0;
+	if (fclose(f) != 0)
+		ok = 0;
+	if (!ok || rename(tmp, override_path) != 0) {
+		unlink(tmp);
+		return -1;
+	}
 	sync();
 	return written;
 }

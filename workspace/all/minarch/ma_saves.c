@@ -6,13 +6,46 @@
 #include "notification.h"
 #include "ra_integration.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 #include "ma_rewind.h"
 #include "ma_emutime.h"
 #ifdef HAS_SRM
 #include "streams/rzip_stream.h"
 #include "streams/file_stream.h"
 #endif
+
+// Saves, RTC data and states are staged to a sibling .tmp, fsynced and renamed
+// over the old file, so a full card, a power cut or a kill mid-write keeps the
+// previous save instead of leaving it empty or cut short. Returns 1 on success.
+static int writeSaveFile(const char* path, const void* data, size_t size, int compressed) {
+	if (!data)
+		return 0;
+#ifdef HAS_SRM
+	if (compressed) {
+		char tmp[MAX_PATH + 16];
+		snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+		int ok = rzipstream_write_file(tmp, data, size);
+		if (ok) {
+			// rzipstream closes without syncing; flush the data before the
+			// rename makes it the live file
+			int fd = open(tmp, O_RDONLY);
+			ok = fd >= 0 && fsync(fd) == 0;
+			if (fd >= 0)
+				close(fd);
+		}
+		if (!ok || rename(tmp, path) != 0) {
+			remove(tmp);
+			return 0;
+		}
+		return 1;
+	}
+#else
+	(void)compressed;
+#endif
+	return writeFileAtomic(path, (const char*)data, size);
+}
 
 // filename must be a MAX_PATH-sized buffer
 static void formatSavePath(char* work_name, char* filename, const char* suffix) {
@@ -84,26 +117,9 @@ void SRAM_write(void) {
 
 	void* sram = core.get_memory_data(RETRO_MEMORY_SAVE_RAM);
 
-#ifdef HAS_SRM
-	// srm, compressed
-	if (CFG_getSaveFormat() == SAVE_FORMAT_SRM) {
-		if (!rzipstream_write_file(filename, sram, sram_size))
-			LOG_error("rzipstream: Error writing SRAM data to file\n");
-	} else {
-		if (!filestream_write_file(filename, sram, sram_size))
-			LOG_error("filestream: Error writing SRAM data to file\n");
-	}
-#else
-	FILE* sram_file = fopen(filename, "w");
-	if (!sram_file) {
-		LOG_error("Error opening SRAM file: %s\n", strerror(errno));
-		return;
-	}
-	if (!sram || sram_size != fwrite(sram, 1, sram_size, sram_file)) {
-		LOG_error("Error writing SRAM data to file\n");
-	}
-	fclose(sram_file);
-#endif
+	// srm is compressed; the other formats are raw
+	if (!writeSaveFile(filename, sram, sram_size, CFG_getSaveFormat() == SAVE_FORMAT_SRM))
+		LOG_error("Error writing SRAM data to file: %s (%s)\n", filename, strerror(errno));
 	sync();
 }
 
@@ -142,19 +158,9 @@ void RTC_write(void) {
 	RTC_getPath(filename);
 	printf("rtc path (write) size(%zu): %s\n", rtc_size, filename);
 
-	FILE* rtc_file = fopen(filename, "w");
-	if (!rtc_file) {
-		LOG_error("Error opening RTC file: %s\n", strerror(errno));
-		return;
-	}
-
 	void* rtc = core.get_memory_data(RETRO_MEMORY_RTC);
-
-	if (!rtc || rtc_size != fwrite(rtc, 1, rtc_size, rtc_file)) {
-		LOG_error("Error writing RTC data to file\n");
-	}
-
-	fclose(rtc_file);
+	if (!writeSaveFile(filename, rtc, rtc_size, 0))
+		LOG_error("Error writing RTC data to file: %s (%s)\n", filename, strerror(errno));
 
 	sync();
 }
@@ -382,12 +388,6 @@ int State_write(void) { // from picoarch
 	char filename[MAX_PATH];
 	State_getPath(filename);
 
-	// declared (and initialized) before the first goto so the error paths
-	// never see an indeterminate handle
-#ifndef HAS_SRM
-	FILE* state_file = NULL;
-#endif
-
 	void* state = calloc(1, state_size);
 	if (!state) {
 		LOG_error("Couldn't allocate memory for state\n");
@@ -399,41 +399,16 @@ int State_write(void) { // from picoarch
 		goto error;
 	}
 
-#ifdef HAS_SRM
-	if (CFG_getStateFormat() == STATE_FORMAT_SRM || CFG_getStateFormat() == STATE_FORMAT_SRM_EXTRADOT) {
-		if (!rzipstream_write_file(filename, state, state_size)) {
-			LOG_error("rzipstream: Error writing state data to file: %s\n", filename);
-			goto error;
-		}
-		success = 1;
-	} else {
-		if (!filestream_write_file(filename, state, state_size)) {
-			LOG_error("filestream: Error writing state data to file: %s\n", filename);
-			goto error;
-		}
-		success = 1;
-	}
-
-error:
-	if (state)
-		free(state);
-#else
-	state_file = fopen(filename, "w");
-	if (!state_file) {
-		LOG_error("Error opening state file: %s (%s)\n", filename, strerror(errno));
-		goto error;
-	}
-	if (state_size != fwrite(state, 1, state_size, state_file)) {
+	if (!writeSaveFile(filename, state, state_size,
+					   CFG_getStateFormat() == STATE_FORMAT_SRM || CFG_getStateFormat() == STATE_FORMAT_SRM_EXTRADOT)) {
 		LOG_error("Error writing state data to file: %s (%s)\n", filename, strerror(errno));
 		goto error;
 	}
 	success = 1;
+
 error:
 	if (state)
 		free(state);
-	if (state_file)
-		fclose(state_file);
-#endif
 
 	sync();
 	fast_forward = was_ff;

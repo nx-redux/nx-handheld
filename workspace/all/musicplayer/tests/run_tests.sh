@@ -14,3 +14,4 @@ cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I.. -o /tmp/nx_test_embedded_lyrics .
 cc -std=gnu99 -Wall -Werror -I.. -o /tmp/nx_test_radio_hls_id3 ../radio_hls.c ../tag_meta.c test_radio_hls_id3.c && /tmp/nx_test_radio_hls_id3
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_http_chunk test_http_chunk.c && /tmp/nx_test_http_chunk
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_audio_downmix test_audio_downmix.c && /tmp/nx_test_audio_downmix
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -I../include/yxml -o /tmp/nx_test_podcast_rss ../podcast_rss.c ../include/yxml/yxml.c test_podcast_rss.c && /tmp/nx_test_podcast_rss
