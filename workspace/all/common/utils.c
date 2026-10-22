@@ -100,12 +100,14 @@ void wrapString(char* string, size_t max_len, size_t max_lines) {
 	truncateString(line, max_len);
 }
 // based on https://stackoverflow.com/a/31775567/145965
+// Replaces every `search` in line (a buffer of buf_size bytes) in place.
+// Returns the number of replacements, or -1 when the result does not fit; the
+// matches before the one that did not fit stay replaced.
 int replaceString(char* line, size_t buf_size, const char* search, const char* replace) {
 	char* sp; // start of pattern
-	if ((sp = strstr(line, search)) == NULL) {
+	if (!*search || (sp = strstr(line, search)) == NULL) {
 		return 0;
 	}
-	int count = 1;
 	size_t sLen = strlen(search);
 	size_t rLen = strlen(replace);
 	size_t tail_len = strlen(sp + sLen);
@@ -126,11 +128,77 @@ int replaceString(char* line, size_t buf_size, const char* search, const char* r
 		memmove(sp + rLen, sp + sLen, tail_len + 1);
 	}
 	memcpy(sp, replace, rLen);
-	count += replaceString(sp + rLen, buf_size, search, replace);
-	return count;
+	// The rest of the line only has the space left after this replacement.
+	char* rest = sp + rLen;
+	int more = replaceString(rest, buf_size - (size_t)(rest - line), search, replace);
+	return more < 0 ? -1 : 1 + more;
 }
+
+int shellEscapeQuotes(char* dst, size_t dst_size, const char* src) {
+	if (!dst || dst_size == 0)
+		return -1;
+	if (!src)
+		src = "";
+	size_t need = 0;
+	for (const char* c = src; *c; c++)
+		need += (*c == '\'') ? 4 : 1;
+	if (need + 1 > dst_size) {
+		dst[0] = '\0';
+		return -1;
+	}
+	char* p = dst;
+	for (const char* c = src; *c; c++) {
+		if (*c == '\'') {
+			// close quote, escaped quote, reopen quote
+			memcpy(p, "'\\''", 4);
+			p += 4;
+		} else {
+			*p++ = *c;
+		}
+	}
+	*p = '\0';
+	return (int)need;
+}
+
+char* shellQuoteAlloc(const char* src) {
+	if (!src)
+		src = "";
+	size_t size = 3; // two quotes + NUL
+	for (const char* c = src; *c; c++)
+		size += (*c == '\'') ? 4 : 1;
+	char* out = malloc(size);
+	if (!out)
+		return NULL;
+	out[0] = '\'';
+	shellEscapeQuotes(out + 1, size - 2, src);
+	out[size - 2] = '\'';
+	out[size - 1] = '\0';
+	return out;
+}
+
 char* escapeSingleQuotes(char* str, size_t buf_size) {
-	replaceString(str, buf_size, "'", "'\\''");
+	// All or nothing: a partly escaped string would leave the caller's
+	// single-quoted argument unbalanced, so on overflow it is emptied instead.
+	size_t len = strlen(str);
+	size_t need = len;
+	for (const char* c = str; *c; c++)
+		if (*c == '\'')
+			need += 3;
+	if (need + 1 > buf_size) {
+		str[0] = '\0';
+		return str;
+	}
+	// Expand in place from the end so no source byte is overwritten unread.
+	char* dst = str + need;
+	*dst = '\0';
+	for (size_t i = len; i-- > 0;) {
+		if (str[i] == '\'') {
+			dst -= 4;
+			memcpy(dst, "'\\''", 4);
+		} else {
+			*--dst = str[i];
+		}
+	}
 	return str;
 }
 
@@ -192,7 +260,8 @@ size_t trimString(char* out, size_t len, const char* str, bool first) {
 	bool is_string = false;
 
 	// Trim leading space
-	while (strchr("\r\n\t {},", (unsigned char)*str) != NULL)
+	// strchr() matches the set's own terminator, so stop at the NUL first
+	while (*str && strchr("\r\n\t {},", (unsigned char)*str) != NULL)
 		str++;
 
 	end = str + 1;
@@ -300,7 +369,7 @@ char* removeExtension(const char* myStr) {
 	if (retStr == NULL)
 		return NULL;
 	strcpy(retStr, myStr);
-	if ((lastExt = strrchr(retStr, '.')) != NULL && *(lastExt + 1) != ' ' && *(lastExt + 2) != '\0')
+	if ((lastExt = strrchr(retStr, '.')) != NULL && lastExt[1] != '\0' && lastExt[1] != ' ' && lastExt[2] != '\0')
 		*lastExt = '\0';
 	return retStr;
 }
@@ -634,8 +703,8 @@ int getInt(char* path) {
 	return i;
 }
 void putInt(char* path, int value) {
-	char buffer[8];
-	sprintf(buffer, "%d", value);
+	char buffer[16]; // fits INT_MIN
+	snprintf(buffer, sizeof(buffer), "%d", value);
 	putFile(path, buffer);
 }
 

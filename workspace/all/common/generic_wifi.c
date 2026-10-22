@@ -18,8 +18,11 @@
 #include "api.h"
 #include "config.h"
 #include "utils.h"
+#include "wifi_scan_line.h"
 
 #include <unistd.h>
+
+_Static_assert(SSID_MAX == WIFI_SCAN_SSID_SIZE, "wifi_scan_line.h ssid width must match SSID_MAX");
 
 bool PLAT_hasWifi() {
 	return true;
@@ -197,7 +200,7 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 		memcpy(line, current, len);
 		line[len] = '\0';
 
-		char features[128];
+		char features[WIFI_SCAN_FEATURES_SIZE];
 		struct WIFI_network* network = &networks[count];
 
 		// Initialize fields
@@ -207,9 +210,8 @@ int PLAT_wifiScan(struct WIFI_network* networks, int max) {
 		network->rssi = -1;
 		network->security = SECURITY_NONE;
 
-		int parsed = sscanf(line, "%17[0-9a-fA-F:]\t%d\t%d\t%127[^\t]\t%127[^\n]",
-							network->bssid, &network->freq, &network->rssi,
-							features, network->ssid);
+		int parsed = WifiScan_parseLine(line, network->bssid, &network->freq, &network->rssi, features,
+										network->ssid);
 
 		if (parsed < 4) {
 			LOG_warn("PLAT_wifiScan: malformed line skipped (parsed %d fields): '%s'\n", parsed, line);

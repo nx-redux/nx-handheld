@@ -229,7 +229,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 
 	// Artist name (Medium font, gray)
 	const char* artist = info->artist[0] ? info->artist : "Unknown Artist";
-	GFX_truncateText(font.medium, artist, truncated, max_w_text, 0);
+	GFX_truncateText(font.medium, artist, truncated, sizeof(truncated), max_w_text, 0);
 	SDL_Surface* artist_surf = GFX_renderText(font.medium, truncated, COLOR_GRAY);
 	if (artist_surf) {
 		SDL_BlitSurface(artist_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -274,7 +274,7 @@ void render_playing(SDL_Surface* screen, IndicatorType show_setting, BrowserCont
 		// Show album name when lyrics are off
 		const char* album = info->album[0] ? info->album : "";
 		if (album[0]) {
-			GFX_truncateText(font.small, album, truncated, max_w_text, 0);
+			GFX_truncateText(font.small, album, truncated, sizeof(truncated), max_w_text, 0);
 			SDL_Surface* album_surf = GFX_renderText(font.small, truncated, COLOR_GRAY);
 			if (album_surf) {
 				SDL_BlitSurface(album_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -606,14 +606,14 @@ void Lyrics_renderGPU(void) {
 	// Render current line
 	SDL_Surface* cur_surf = NULL;
 	if (has_cur) {
-		GFX_truncateText(font.small, cur_str, truncated, lyrics_gpu_max_w, 0);
+		GFX_truncateText(font.small, cur_str, truncated, sizeof(truncated), lyrics_gpu_max_w, 0);
 		cur_surf = GFX_renderText(font.small, truncated, COLOR_LIGHT_TEXT);
 	}
 
 	// Render next line
 	SDL_Surface* next_surf = NULL;
 	if (has_next) {
-		GFX_truncateText(font.small, next_str, truncated, lyrics_gpu_max_w, 0);
+		GFX_truncateText(font.small, next_str, truncated, sizeof(truncated), lyrics_gpu_max_w, 0);
 		next_surf = GFX_renderText(font.small, truncated, COLOR_DARK_TEXT);
 	}
 

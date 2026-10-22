@@ -159,7 +159,7 @@ void render_iptv_curated_channels(SDL_Surface* screen, IndicatorType show_settin
 
 		// Render pill background and get text position
 		int name_max_width = layout.max_width - prefix_width - SCALE1(60);
-		int text_width = GFX_truncateText(font.medium, channel->name, truncated, name_max_width, SCALE1(BUTTON_PADDING * 2));
+		int text_width = GFX_truncateText(font.medium, channel->name, truncated, sizeof(truncated), name_max_width, SCALE1(BUTTON_PADDING * 2));
 		int pill_width = MIN(layout.max_width, prefix_width + text_width + SCALE1(BUTTON_PADDING));
 
 		SDL_Rect pill_rect = {UI_listPillX(), y, pill_width, layout.item_h};

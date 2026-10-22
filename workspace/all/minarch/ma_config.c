@@ -286,6 +286,7 @@ static char* shscaletype_labels[] = {
 
 // LOCAL_BUTTON_COUNT/RETRO_BUTTON_COUNT and ButtonMapping live in ma_internal.h
 
+// clang-format off
 ButtonMapping default_button_mapping[] = { // used if pak.cfg doesn't exist or doesn't have bindings
 	{"Up", RETRO_DEVICE_ID_JOYPAD_UP, BTN_ID_DPAD_UP},
 	{"Down", RETRO_DEVICE_ID_JOYPAD_DOWN, BTN_ID_DPAD_DOWN},
@@ -323,6 +324,7 @@ ButtonMapping button_label_mapping[] = { // used to lookup the retro_id and loca
 	{"L3", RETRO_DEVICE_ID_JOYPAD_L3, BTN_ID_L3},
 	{"R3", RETRO_DEVICE_ID_JOYPAD_R3, BTN_ID_R3},
 	{NULL, 0, 0}};
+// clang-format on
 ButtonMapping core_button_mapping[RETRO_BUTTON_COUNT + 1] = {0};
 
 const char* device_button_names[LOCAL_BUTTON_COUNT] = {
@@ -1215,7 +1217,10 @@ void Config_readOptionsString(char* cfg) {
 	}
 
 	if (has_custom_controllers && Config_getValue(cfg, "minarch_gamepad_type", value, NULL)) {
-		gamepad_type = strtol(value, NULL, 0);
+		// An index into gamepad_values[] from a user-editable file: clamp it
+		int type = strtol(value, NULL, 0);
+		int type_count = (int)(sizeof(gamepad_labels) / sizeof(gamepad_labels[0])) - 1; // minus the NULL
+		gamepad_type = (type >= 0 && type < type_count) ? type : 0;
 		int device = strtol(gamepad_values[gamepad_type], NULL, 0);
 		core.set_controller_port_device(0, device);
 		core.set_controller_port_device(1, device); // player 2 (netplay) gets the same pad
@@ -1235,7 +1240,7 @@ void Config_readOptionsString(char* cfg) {
 	// Per-pak left stick as D-pad (ma_input.h)
 	if (Config_getValue(cfg, "minarch_stick_dpad", value, NULL))
 		input_stick_dpad = strcmp(value, "off") != 0;
-	for (int i = 0; config.core.options[i].key; i++) {
+	for (int i = 0; config.core.options && config.core.options[i].key; i++) { // NULL: core has no options
 		Option* option = &config.core.options[i];
 		if (!Config_getValue(cfg, option->key, value, &option->lock))
 			continue;
@@ -1482,7 +1487,7 @@ void Config_write(int override) {
 	for (int i = 0; config.frontend.options[i].key; i++) {
 		writeOption(file, &config.frontend.options[i]);
 	}
-	for (int i = 0; config.core.options[i].key; i++) {
+	for (int i = 0; config.core.options && config.core.options[i].key; i++) { // NULL: core has no options
 		writeOption(file, &config.core.options[i]);
 	}
 	for (int i = 0; config.shaders.options[i].key; i++) {
@@ -1525,7 +1530,7 @@ void Config_restore(void) {
 		option->value = option->default_value;
 		Config_syncFrontend(option->key, option->value);
 	}
-	for (int i = 0; config.core.options[i].key; i++) {
+	for (int i = 0; config.core.options && config.core.options[i].key; i++) { // NULL: core has no options
 		Option* option = &config.core.options[i];
 		option->value = option->default_value;
 	}

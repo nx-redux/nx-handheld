@@ -55,7 +55,7 @@ void MinDraw_ellipsize(TTF_Font* f, const char* in, char* out, int max_w) {
 		return;
 	}
 	char cut[MIN_LINE_MAX + 8];
-	int w = GFX_truncateText(f, src, cut, max_w, 0);
+	int w = GFX_truncateText(f, src, cut, sizeof(cut), max_w, 0);
 	if (w <= max_w && strcmp(cut, "...") != 0)
 		snprintf(out, MIN_LINE_MAX, "%s", cut);
 }

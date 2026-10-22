@@ -326,6 +326,8 @@ void input_poll_callback(void) {
 	buttons = 0;
 	for (int i = 0; config.controls[i].name; i++) {
 		ButtonMapping* mapping = &config.controls[i];
+		if (mapping->retro < 0 || mapping->retro >= RETRO_BUTTON_COUNT)
+			continue; // a default.cfg bind with no core button (e.g. "NONE" without ":BTN")
 		int btn = ButtonMapping_btn(mapping);
 		if (btn == BTN_NONE)
 			continue; // present buttons can still be unbound
@@ -422,7 +424,7 @@ void Input_init(const struct retro_input_descriptor* vars) {
 
 	for (int i = 0; default_button_mapping[i].name; i++) {
 		ButtonMapping* mapping = &default_button_mapping[i];
-		if (core_button_names[mapping->retro])
+		if (mapping->retro >= 0 && mapping->retro < RETRO_BUTTON_COUNT && core_button_names[mapping->retro])
 			mapping->name = (char*)core_button_names[mapping->retro];
 	}
 
@@ -432,8 +434,10 @@ void Input_init(const struct retro_input_descriptor* vars) {
 		ButtonMapping* mapping = &config.controls[i];
 		mapping->default_ = mapping->local;
 
-		// ignore mappings that aren't available in this core
-		if (core_mapped && !present[mapping->retro]) {
+		// ignore mappings that aren't available in this core (retro -1, from a
+		// default.cfg "NONE" bind, names no core button at all)
+		if (core_mapped &&
+			(mapping->retro < 0 || mapping->retro >= RETRO_BUTTON_COUNT || !present[mapping->retro])) {
 			mapping->ignore = 1;
 			continue;
 		}

@@ -133,6 +133,22 @@ static void test_truncate_keeps_whole_code_points(void) {
 	assert(strcmp(out, in) == 0);
 }
 
+// Regression: GFX_truncateText passed strlen(in)+1 as out_size, so a 256+ byte
+// list label overran the caller's 256-byte row buffer. With the real size the
+// copy is bounded (heap buffer of exactly 256 bytes, so ASan catches a write).
+static void test_truncate_bounded_by_out_size(void) {
+	char in[400];
+	memset(in, 'a', sizeof(in) - 1);
+	in[sizeof(in) - 1] = '\0';
+	char* out = malloc(256);
+	int w = TextWrap_truncate(measure_10px, NULL, in, out, 256, 100000, 0);
+	assert(strlen(out) == 255);
+	assert(w == 10 * 255);
+	TextWrap_truncate(measure_10px, NULL, in, out, 256, 100, 0);
+	assert(strcmp(out, "aaaaaaa...") == 0); // 10 bytes = 100 px
+	free(out);
+}
+
 int main(void) {
 	test_long_tail_does_not_overflow();
 	test_first_word_wider_than_line();
@@ -140,6 +156,7 @@ int main(void) {
 	test_unlimited_lines_lose_nothing();
 	test_wide_middle_word();
 	test_truncate_keeps_whole_code_points();
+	test_truncate_bounded_by_out_size();
 	printf("test_text_wrap: OK\n");
 	return 0;
 }

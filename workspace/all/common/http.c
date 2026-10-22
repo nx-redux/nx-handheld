@@ -13,6 +13,7 @@
 // CA-bundle resolver shared with wget_fetch.c: picks the bundle to verify TLS
 // against, or NULL on a card without one.
 #include "ca_bundle.h"
+#include "utils.h" // shellQuoteAlloc
 
 // Build version info (defined in makefile)
 #ifndef BUILD_HASH
@@ -73,42 +74,9 @@ static void HTTPBuffer_free(HTTPBuffer* buf) {
 	buf->capacity = 0;
 }
 
-// Escape a string for shell use (single quotes)
+// Escape a string for shell use: a malloc'd, single-quoted argument.
 static char* shell_escape(const char* str) {
-	if (!str)
-		return strdup("");
-
-	// Count how many single quotes we need to escape
-	size_t len = strlen(str);
-	size_t quotes = 0;
-	for (size_t i = 0; i < len; i++) {
-		if (str[i] == '\'')
-			quotes++;
-	}
-
-	// Allocate: original + 3 chars per quote ('"'"') + 2 for surrounding quotes + 1 for null
-	char* escaped = malloc(len + quotes * 3 + 3);
-	if (!escaped)
-		return NULL;
-
-	char* p = escaped;
-	*p++ = '\'';
-	for (size_t i = 0; i < len; i++) {
-		if (str[i] == '\'') {
-			// End quote, escaped quote, start quote
-			*p++ = '\'';
-			*p++ = '"';
-			*p++ = '\'';
-			*p++ = '"';
-			*p++ = '\'';
-		} else {
-			*p++ = str[i];
-		}
-	}
-	*p++ = '\'';
-	*p = '\0';
-
-	return escaped;
+	return shellQuoteAlloc(str);
 }
 
 // Execute curl and capture output

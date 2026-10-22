@@ -103,6 +103,9 @@ typedef struct {
 	int text_y;
 } ListItemPos;
 
+// `truncated` (here and in the UI_render*Pill* helpers below) is the caller's
+// buffer of at least UI_LIST_TRUNC_SIZE bytes; the fitted text never exceeds it.
+#define UI_LIST_TRUNC_SIZE 256
 int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated,
 						 int max_width, int prefix_width);
 void UI_drawListItemBg(SDL_Surface* dst, SDL_Rect* rect, bool selected);

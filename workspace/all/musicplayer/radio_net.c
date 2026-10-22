@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "radio_net.h"
+#include "http_chunk.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -496,18 +497,15 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 			}
 			chunk_size_buf[chunk_size_pos] = '\0';
 
-			// Parse chunk size
-			long chunk_size = strtol(chunk_size_buf, NULL, 16);
+			// Parse chunk size (rejects garbage and sizes past INT_MAX)
+			long chunk_size = HttpChunk_parseSize(chunk_size_buf);
 			if (chunk_size <= 0)
 				break; // End of chunks or error
 
 			// Read chunk data
-			int chunk_read = 0;
+			long chunk_read = 0;
 			while (chunk_read < chunk_size && total_read < buffer_size - 1) {
-				int to_read = chunk_size - chunk_read;
-				if (total_read + to_read > buffer_size - 1) {
-					to_read = buffer_size - 1 - total_read;
-				}
+				int to_read = HttpChunk_span(chunk_size, chunk_read, (long)buffer_size - 1 - total_read);
 				int r;
 				if (is_https) {
 					r = mbedtls_ssl_read(&ssl_ctx->ssl, buffer + total_read, to_read);
@@ -527,29 +525,10 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 				chunk_read += r;
 			}
 
-			// Skip any remaining chunk data if buffer is full
-			while (chunk_read < chunk_size) {
-				char discard[256];
-				int to_discard = chunk_size - chunk_read;
-				if (to_discard > (int)sizeof(discard))
-					to_discard = sizeof(discard);
-				int r;
-				if (is_https) {
-					r = mbedtls_ssl_read(&ssl_ctx->ssl, (unsigned char*)discard, to_discard);
-					if (SSL_READ_IS_RETRYABLE(r)) {
-						if (++read_retries > max_read_retries)
-							goto chunked_done;
-						usleep(10000);
-						continue;
-					}
-					read_retries = 0;
-				} else {
-					r = recv(sock_fd, discard, to_discard, 0);
-				}
-				if (r <= 0)
-					goto chunked_done;
-				chunk_read += r;
-			}
+			// Buffer full mid-chunk: the body is truncated and nothing more fits,
+			// so stop instead of draining the rest of the chunk.
+			if (chunk_read < chunk_size)
+				goto chunked_done;
 
 			// Skip trailing \r\n after chunk data
 			char crlf[2];

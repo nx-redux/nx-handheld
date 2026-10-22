@@ -861,6 +861,8 @@ static void* hls_stream_thread_func(void* arg) {
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "AAC decoder init failed");
 		return NULL;
 	}
+	// decode_buf holds 2048 stereo frames: mix multichannel streams to stereo
+	aacDecoder_SetParam(radio.aac_decoder, AAC_PCM_MAX_OUTPUT_CHANNELS, 2);
 	radio.aac_initialized = true;
 	radio.aac_inbuf_size = 0;
 	radio.aac_sample_rate = 0; // Will be set on first frame
@@ -1291,6 +1293,8 @@ static void* stream_thread_func(void* arg) {
 				// Initialize FDK-AAC decoder (TT_MP4_ADTS for ADTS-framed AAC streams)
 				radio.aac_decoder = aacDecoder_Open(TT_MP4_ADTS, 1);
 				if (radio.aac_decoder) {
+					// decode_buf holds 2048 stereo frames: mix multichannel to stereo
+					aacDecoder_SetParam(radio.aac_decoder, AAC_PCM_MAX_OUTPUT_CHANNELS, 2);
 					radio.aac_initialized = true;
 					radio.aac_inbuf_size = 0;
 					radio.aac_sample_rate = 0; // Will be set on first frame

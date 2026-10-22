@@ -70,9 +70,8 @@ static const char* rsync_bin_path(void) {
 // Single-quote a path for a shell command line, so a path carrying spaces or
 // an apostrophe survives the shell; plain paths pass through unchanged.
 static const char* shq(const char* path, char* buf, size_t size) {
-	strncpy(buf, path, size - 1);
-	buf[size - 1] = '\0';
-	return escapeSingleQuotes(buf, size);
+	shellEscapeQuotes(buf, size, path); // "" if it does not fit
+	return buf;
 }
 
 // Log buffer for terminal-like display

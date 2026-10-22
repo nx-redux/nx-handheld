@@ -352,7 +352,7 @@ static void wifi_network_draw(SDL_Surface* screen, SettingItem* item,
 	// SSID text (truncate first so we know the label width for pills)
 	char truncated[128];
 	int max_text_w = w - SCALE1(BUTTON_PADDING * 2) - SCALE1(48); // room for icons
-	GFX_truncateText(f, info->ssid, truncated, max_text_w, 0);
+	GFX_truncateText(f, info->ssid, truncated, sizeof(truncated), max_text_w, 0);
 
 	// Draw 2-layer selection pill
 	if (selected) {

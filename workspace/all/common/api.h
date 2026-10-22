@@ -352,11 +352,13 @@ SDL_Surface* GFX_renderText(TTF_Font* primary, const char* utf8, SDL_Color color
 void GFX_measureText(TTF_Font* primary, const char* utf8, int* w, int* h);
 SDL_Surface* GFX_renderTextWrapped(TTF_Font* primary, const char* utf8, SDL_Color color, uint32_t wrap_w);
 
-int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
-// `text` as it fits `avail` px with `padding` (GFX_truncateText when it doesn't) into out (256 bytes), its own width in
-// *raw_w; true when truncated. Remembered per font, text and room (dropped with the text cache), so a list's rows
-// aren't measured every frame.
-bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, int padding, int* raw_w);
+// in_name cut with "..." to max_width into out_name (out_size bytes, never overrun); returns final width
+int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, size_t out_size, int max_width, int padding);
+// `text` as it fits `avail` px with `padding` (GFX_truncateText when it doesn't) into out (out_size bytes), its own
+// width in *raw_w; true when truncated. Remembered per font, text and room (dropped with the text cache), so a list's
+// rows aren't measured every frame.
+bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, size_t out_size, int avail, int padding,
+					   int* raw_w);
 // How many GFX_flip calls so far: a caller that keeps what its last frame left in the screen checks that nothing else
 // (a dialog, an overlay) has flipped a screen of its own since.
 unsigned GFX_flipCount(void);
@@ -365,7 +367,8 @@ unsigned GFX_flipCount(void);
 bool GFX_pillSprites(int asset, const SDL_Rect* rect, uint32_t asset_color, const SDL_Rect* clip);
 int PLAT_textShouldScroll(TTF_Font* font, const char* in_name, int max_width, SDL_mutex* fontMutex);
 void PLAT_resetScrollText(void);
-int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
+int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, size_t out_size, int max_width,
+					 int padding); // returns final width
 int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines);
 int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max_lines, SDL_Color color, SDL_Surface* surface, int y); // returns new y position
 

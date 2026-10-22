@@ -47,33 +47,7 @@ static char ss_password[128] = "";
 
 // Shell-escape a string for safe use in system() calls (wraps in single quotes)
 static char* shell_escape(const char* str) {
-	if (!str)
-		return strdup("''");
-	size_t len = strlen(str);
-	size_t quotes = 0;
-	for (size_t i = 0; i < len; i++) {
-		if (str[i] == '\'')
-			quotes++;
-	}
-	char* escaped = malloc(len + quotes * 3 + 3);
-	if (!escaped)
-		return NULL;
-	char* p = escaped;
-	*p++ = '\'';
-	for (size_t i = 0; i < len; i++) {
-		if (str[i] == '\'') {
-			*p++ = '\'';
-			*p++ = '"';
-			*p++ = '\'';
-			*p++ = '"';
-			*p++ = '\'';
-		} else {
-			*p++ = str[i];
-		}
-	}
-	*p++ = '\'';
-	*p = '\0';
-	return escaped;
+	return shellQuoteAlloc(str);
 }
 
 void ScraperAPI_init(void) {

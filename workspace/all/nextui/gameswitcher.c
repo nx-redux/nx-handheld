@@ -367,7 +367,7 @@ static void drawHeader(const char* rom_path, int status_w) {
 	if (tf) {
 		int max_w = screen->w - status_w - SCALE1(PADDING * 2) - x;
 		if (max_w > 0) {
-			GFX_truncateText(tf, selectedName(), cut, max_w, 0);
+			GFX_truncateText(tf, selectedName(), cut, sizeof(cut), max_w, 0);
 			SDL_Surface* text = GFX_getCachedText(tf, cut, COLOR_WHITE);
 			if (text)
 				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, (BAR_HEIGHT - text->h) / 2});
@@ -380,7 +380,7 @@ static void drawHeader(const char* rom_path, int status_w) {
 	consoleName(rom_path, console, sizeof(console));
 	char line[MAX_PATH + 32];
 	snprintf(line, sizeof(line), "%s   %d / %d", console, switcher_selected + 1, gs_count);
-	GFX_truncateText(sf, line, cut, screen->w - x - SCALE1(PADDING), 0); // under the title's first letter
+	GFX_truncateText(sf, line, cut, sizeof(cut), screen->w - x - SCALE1(PADDING), 0); // under the title's first letter
 	SDL_Surface* text = GFX_getCachedText(sf, cut, COLOR_GRAY);
 	if (text)
 		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, BAR_HEIGHT});

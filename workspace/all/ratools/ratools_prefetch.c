@@ -182,7 +182,7 @@ static bool rat_7z_entry(const char* path, char* entry, size_t n, long long* siz
 	FILE* tmp = tmpfile();
 	if (!tmp)
 		return false;
-	char* argv[] = {NULL, "l", "-ba", "-slt", "-sccUTF-8", (char*)path, NULL};
+	char* argv[] = {NULL, "l", "-ba", "-slt", "-sccUTF-8", "--", (char*)path, NULL};
 	bool ok = rat_run_7z(argv, fileno(tmp));
 	bool found = false;
 	if (ok) {
@@ -260,10 +260,12 @@ static bool rat_unpack(const RAT_RomFile* rom, char* out, size_t n) {
 
 	const char* ext = strrchr(rom->path, '.');
 	if (strcasecmp(ext, ".zip") != 0) {
-		// -spd: the entry name is literal, not a wildcard
+		// -spd: the entry name is literal, not a wildcard. --: switches end
+		// there, so an archive or entry name starting with '-' or '@' is a
+		// name, not an option or a list file.
 		char out_arg[512];
 		snprintf(out_arg, sizeof(out_arg), "-o%s", RAT_UNPACK_DIR);
-		char* argv[] = {NULL, "e", "-y", "-spd", out_arg, (char*)rom->path, (char*)rom->entry, NULL};
+		char* argv[] = {NULL, "e", "-y", "-spd", out_arg, "--", (char*)rom->path, (char*)rom->entry, NULL};
 		return rat_run_7z(argv, -1) && exists(out);
 	}
 

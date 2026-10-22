@@ -296,7 +296,7 @@ static void layoutLines(TTF_Font* f, const char* text, int max_w, int max_lines,
 		if (nl)
 			*nl = '\0';
 		if (textWidth(f, p) > max_w)
-			GFX_truncateText(f, p, out->line[out->n], max_w, 0);
+			GFX_truncateText(f, p, out->line[out->n], sizeof(out->line[out->n]), max_w, 0);
 		else
 			snprintf(out->line[out->n], LINE_MAX, "%s", p);
 		out->n++;

@@ -367,7 +367,8 @@ static void fitCacheForget(TTF_Font* font) {
 		fit_cache_lru = 0;
 }
 
-bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, int padding, int* raw_w) {
+bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, size_t out_size, int avail, int padding,
+					   int* raw_w) {
 	size_t len = text ? strlen(text) : 0;
 	if (!font || !text || len >= sizeof(fit_cache[0].text)) { // uncached: as measured and truncated directly
 		int w = 0;
@@ -375,11 +376,10 @@ bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, i
 		if (raw_w)
 			*raw_w = w;
 		if (w + padding > avail) {
-			GFX_truncateText(font, text, out, avail, padding);
+			GFX_truncateText(font, text, out, out_size, avail, padding);
 			return true;
 		}
-		strncpy(out, text ? text : "", 255);
-		out[255] = '\0';
+		snprintf(out, out_size, "%s", text ? text : "");
 		return false;
 	}
 	Uint32 hash = 2166136261u;
@@ -393,7 +393,7 @@ bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, i
 			e->lru = ++fit_cache_lru;
 			if (raw_w)
 				*raw_w = e->raw_w;
-			strcpy(out, e->fit);
+			snprintf(out, out_size, "%s", e->fit);
 			return e->truncated;
 		}
 		if (e->lru < slot->lru)
@@ -404,14 +404,14 @@ bool GFX_fitTextCached(TTF_Font* font, const char* text, char* out, int avail, i
 	GFX_measureText(font, text, &e.raw_w, NULL);
 	e.truncated = e.raw_w + padding > avail;
 	if (e.truncated)
-		GFX_truncateText(font, text, e.fit, avail, padding);
+		GFX_truncateText(font, text, e.fit, sizeof(e.fit), avail, padding);
 	else
 		memcpy(e.fit, text, len + 1);
 	e.lru = ++fit_cache_lru;
 	*slot = e;
 	if (raw_w)
 		*raw_w = e.raw_w;
-	strcpy(out, e.fit);
+	snprintf(out, out_size, "%s", e.fit);
 	return e.truncated;
 }
 
@@ -1241,13 +1241,16 @@ static int GFX_measureWidth(void* ctx, const char* utf8) {
 	return w;
 }
 
-int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
-	// out_name is caller-sized to hold in_name (unchanged contract).
-	return TextWrap_truncate(GFX_measureWidth, font, in_name, out_name, strlen(in_name) + 1, max_width, padding);
+int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, size_t out_size, int max_width,
+					 int padding) {
+	if (!out_name || out_size == 0)
+		return 0;
+	return TextWrap_truncate(GFX_measureWidth, font, in_name, out_name, out_size, max_width, padding);
 }
-int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding) {
+int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, size_t out_size, int max_width,
+					 int padding) {
 	int text_width;
-	strcpy(out_name, in_name);
+	snprintf(out_name, out_size, "%s", in_name);
 	GFX_measureText(font, out_name, &text_width, NULL);
 	text_width += padding;
 
@@ -2382,7 +2385,7 @@ static int hardwareGroupDraw(SDL_Surface* dst, IndicatorType show_setting, int y
 				else
 					strftime(timeString, 12, "%-I:%M %p", &tm);
 				char display_name[12];
-				clock_width = GFX_getTextWidth(font.small, timeString, display_name, bar_h, 0);
+				clock_width = GFX_getTextWidth(font.small, timeString, display_name, sizeof(display_name), bar_h, 0);
 				// Cached: redrawn every frame during list animation but the
 				// string only changes once a minute (one stale entry at most).
 				clock = GFX_getCachedText(font.small, display_name, uintToColour(THEME_COLOR6_255));

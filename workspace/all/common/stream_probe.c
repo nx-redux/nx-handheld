@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "utils.h" // shellEscapeQuotes
 
 // Total time budget for the probe (curl -m). Kept short so a dead host fails
 // fast instead of black-screening in ffplay.
@@ -21,20 +22,10 @@ bool Stream_probeReachable(const char* url) {
 		return true;
 
 	// Escape single quotes so the URL can sit inside a single-quoted shell arg
-	// ('\'' = close-quote, literal quote, reopen-quote).
+	// ('\'' = close-quote, literal quote, reopen-quote). Too long -> no probe.
 	char esc[2048];
-	size_t j = 0;
-	for (size_t i = 0; url[i] && j + 4 < sizeof(esc); i++) {
-		if (url[i] == '\'') {
-			esc[j++] = '\'';
-			esc[j++] = '\\';
-			esc[j++] = '\'';
-			esc[j++] = '\'';
-		} else {
-			esc[j++] = url[i];
-		}
-	}
-	esc[j] = '\0';
+	if (shellEscapeQuotes(esc, sizeof(esc), url) < 0)
+		return true;
 
 	// -k: firmware has no CA bundle; -L: follow redirects; -r 0-0: first byte only
 	// (don't pull a whole live stream); -o /dev/null -w %{http_code}: print status.

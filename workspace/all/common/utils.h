@@ -18,7 +18,16 @@ int hide(char* file_name);
 char* splitString(char* str, const char* delim);
 char* replaceString2(const char* orig, char* rep, char* with);
 int replaceString(char* line, size_t buf_size, const char* search, const char* replace);
+// In place: ' -> '\'' for use inside a single-quoted shell argument. If the
+// result does not fit in buf_size the string is emptied (never half-escaped).
 char* escapeSingleQuotes(char* str, size_t buf_size);
+// POSIX shell single-quoting (' -> '\'').
+// shellEscapeQuotes writes the escaped body WITHOUT the surrounding quotes
+// (the caller wraps it in '...'); returns its length, or -1 with dst = ""
+// when it does not fit in dst_size. shellQuoteAlloc returns a malloc'd,
+// fully quoted argument ('...'), or NULL on OOM; NULL src quotes as ''.
+int shellEscapeQuotes(char* dst, size_t dst_size, const char* src);
+char* shellQuoteAlloc(const char* src);
 void truncateString(char* string, size_t max_len);
 void wrapString(char* string, size_t max_len, size_t max_lines);
 size_t trimString(char* out, size_t len, const char* str, bool first);

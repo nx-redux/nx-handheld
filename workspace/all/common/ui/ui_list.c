@@ -269,7 +269,7 @@ int UI_calcListPillWidth(TTF_Font* font, const char* text, char* truncated, int 
 	int padding = SCALE1(BUTTON_PADDING * 2);
 
 	int raw_text_w = 0;
-	if (GFX_fitTextCached(font, text, truncated, available_width, padding, &raw_text_w))
+	if (GFX_fitTextCached(font, text, truncated, UI_LIST_TRUNC_SIZE, available_width, padding, &raw_text_w))
 		return max_width;
 	return MIN(max_width, prefix_width + raw_text_w + padding);
 }
@@ -728,7 +728,7 @@ void UI_renderSettingsPageEx(SDL_Surface* screen, ListLayout* layout,
 
 		for (int l = 0; l < nlines; l++) {
 			char truncated_desc[256];
-			GFX_truncateText(font.tiny, lines[l], truncated_desc, desc_max_w, 0);
+			GFX_truncateText(font.tiny, lines[l], truncated_desc, sizeof(truncated_desc), desc_max_w, 0);
 
 			SDL_Surface* desc_surf = GFX_renderText(font.tiny, truncated_desc, COLOR_GRAY);
 			if (desc_surf) {
@@ -789,7 +789,7 @@ int UI_renderSettingsRow(SDL_Surface* screen, ListLayout* layout,
 	if (label_max_w < 0)
 		label_max_w = 0;
 	char label_buf[512];
-	GFX_truncateText(f, label, label_buf, label_max_w, 0);
+	GFX_truncateText(f, label, label_buf, sizeof(label_buf), label_max_w, 0);
 	label = label_buf;
 
 	// Measure label (already fitted to label_max_w above)

@@ -190,7 +190,7 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 
 	// Genre (like Artist in local player) - gray, medium font
 	const char* genre = (current_station && current_station->genre[0]) ? current_station->genre : "Radio";
-	GFX_truncateText(font.medium, genre, truncated, max_w_half, 0);
+	GFX_truncateText(font.medium, genre, truncated, sizeof(truncated), max_w_half, 0);
 	SDL_Surface* genre_surf = GFX_renderText(font.medium, truncated, COLOR_GRAY);
 	if (genre_surf) {
 		SDL_BlitSurface(genre_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -206,7 +206,7 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 	const char* station_name = (current_station && current_station->name[0]) ? current_station->name
 							   : meta->station_name[0]						 ? meta->station_name
 																			 : "Unknown Station";
-	GFX_truncateText(font.xlarge, station_name, truncated, max_w_full, 0);
+	GFX_truncateText(font.xlarge, station_name, truncated, sizeof(truncated), max_w_full, 0);
 	SDL_Surface* name_surf = GFX_renderText(font.xlarge, truncated, COLOR_WHITE);
 	if (name_surf) {
 		SDL_BlitSurface(name_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -288,7 +288,7 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 	}
 	if (meta->artist[0]) {
 		// Artist line (smaller font)
-		GFX_truncateText(font.small, meta->artist, truncated, max_w_full, 0);
+		GFX_truncateText(font.small, meta->artist, truncated, sizeof(truncated), max_w_full, 0);
 		SDL_Surface* artist_surf = GFX_renderText(font.small, truncated, COLOR_GRAY);
 		if (artist_surf) {
 			SDL_BlitSurface(artist_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -299,7 +299,7 @@ void render_radio_playing(SDL_Surface* screen, IndicatorType show_setting, int r
 
 	// Show slogan if no title/artist available
 	if (!meta->title[0] && !meta->artist[0] && current_station && current_station->slogan[0]) {
-		GFX_truncateText(font.small, current_station->slogan, truncated, max_w_full, 0);
+		GFX_truncateText(font.small, current_station->slogan, truncated, sizeof(truncated), max_w_full, 0);
 		SDL_Surface* slogan_surf = GFX_renderText(font.small, truncated, COLOR_GRAY);
 		if (slogan_surf) {
 			SDL_BlitSurface(slogan_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -421,7 +421,7 @@ void render_radio_add_stations(SDL_Surface* screen, IndicatorType show_setting,
 
 		// Render pill background and get text position
 		int name_max_width = layout.max_width - prefix_width - SCALE1(60);
-		int text_width = GFX_truncateText(font.medium, station->name, truncated, name_max_width, SCALE1(BUTTON_PADDING * 2));
+		int text_width = GFX_truncateText(font.medium, station->name, truncated, sizeof(truncated), name_max_width, SCALE1(BUTTON_PADDING * 2));
 		int pill_width = MIN(layout.max_width, prefix_width + text_width + SCALE1(BUTTON_PADDING));
 
 		// Background pill

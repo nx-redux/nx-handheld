@@ -37,6 +37,7 @@
 #include "audio/minimp4.h"
 #include <src/aacdecoder_lib.h>
 #include <opusfile.h>
+#include "audio_downmix.h"
 
 // M4A decoder state (uses minimp4 + FDK-AAC)
 typedef struct {
@@ -521,6 +522,9 @@ static int stream_decoder_open(StreamDecoder* sd, const char* filepath, TrackInf
 			LOG_error("Stream: Failed to init AAC decoder for M4A: %s\n", filepath);
 			return -1;
 		}
+		// Mix multichannel (5.1) down to stereo inside FDK: decode_buf below
+		// only holds 2048 stereo frames, and the copy assumes <= 2 channels.
+		aacDecoder_SetParam(m4a->aac_decoder, AAC_PCM_MAX_OUTPUT_CHANNELS, 2);
 
 		// Configure decoder with AudioSpecificConfig from MP4 container
 		if (track->dsi && track->dsi_bytes > 0) {
@@ -602,6 +606,8 @@ static int stream_decoder_open(StreamDecoder* sd, const char* filepath, TrackInf
 			LOG_error("Stream: Failed to init AAC decoder for: %s\n", filepath);
 			return -1;
 		}
+		// Stereo mix-down for multichannel streams (see the M4A case)
+		aacDecoder_SetParam(aac->aac_decoder, AAC_PCM_MAX_OUTPUT_CHANNELS, 2);
 
 		// Read initial chunk and decode first frame to get stream info
 		aac->read_buf_size = fread(aac->read_buf, 1, AAC_FILE_READ_BUF_SIZE, aac->file);
@@ -695,35 +701,33 @@ static size_t stream_decoder_read(StreamDecoder* sd, int16_t* buffer, size_t fra
 	}
 	case AUDIO_FORMAT_WAV: {
 		drwav* wav = (drwav*)sd->decoder;
-		if (sd->source_channels == 1) {
-			int16_t* mono = malloc(frames * sizeof(int16_t));
-			if (mono) {
-				frames_read = drwav_read_pcm_frames_s16(wav, frames, mono);
-				for (size_t i = 0; i < frames_read; i++) {
-					buffer[i * 2] = mono[i];
-					buffer[i * 2 + 1] = mono[i];
-				}
-				free(mono);
-			}
-		} else {
+		if (sd->source_channels == 2) {
 			frames_read = drwav_read_pcm_frames_s16(wav, frames, buffer);
+		} else if (sd->source_channels > 0) {
+			// Mono or multichannel (e.g. 5.1): decode at the file's channel
+			// count into scratch, then mix to the stereo output buffer.
+			int16_t* scratch = malloc(frames * (size_t)sd->source_channels * sizeof(int16_t));
+			if (scratch) {
+				frames_read = drwav_read_pcm_frames_s16(wav, frames, scratch);
+				AudioDownmix_toStereo(scratch, sd->source_channels, frames_read, buffer);
+				free(scratch);
+			}
 		}
 		break;
 	}
 	case AUDIO_FORMAT_FLAC: {
 		drflac* flac = (drflac*)sd->decoder;
-		if (sd->source_channels == 1) {
-			int16_t* mono = malloc(frames * sizeof(int16_t));
-			if (mono) {
-				frames_read = drflac_read_pcm_frames_s16(flac, frames, mono);
-				for (size_t i = 0; i < frames_read; i++) {
-					buffer[i * 2] = mono[i];
-					buffer[i * 2 + 1] = mono[i];
-				}
-				free(mono);
-			}
-		} else {
+		if (sd->source_channels == 2) {
 			frames_read = drflac_read_pcm_frames_s16(flac, frames, buffer);
+		} else if (sd->source_channels > 0) {
+			// Mono or multichannel (e.g. 5.1): decode at the file's channel
+			// count into scratch, then mix to the stereo output buffer.
+			int16_t* scratch = malloc(frames * (size_t)sd->source_channels * sizeof(int16_t));
+			if (scratch) {
+				frames_read = drflac_read_pcm_frames_s16(flac, frames, scratch);
+				AudioDownmix_toStereo(scratch, sd->source_channels, frames_read, buffer);
+				free(scratch);
+			}
 		}
 		break;
 	}

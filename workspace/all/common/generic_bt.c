@@ -17,6 +17,7 @@
 #include "defines.h"
 #include "api.h"
 #include "config.h"
+#include "bt_addr.h"
 
 #include <msettings.h>
 #include <pthread.h>
@@ -393,6 +394,8 @@ static BluetoothDeviceType bt_get_device_type(const char* addr) {
 	char cmd[256];
 	char output[2048];
 
+	if (!BtAddr_isValid(addr)) // goes into a shell command line
+		return BLUETOOTH_NONE;
 	snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null", addr);
 	if (bt_run_cmd(cmd, output, sizeof(output)) == 0) {
 		return bt_parse_device_class(output);
@@ -486,7 +489,8 @@ void PLAT_bluetoothDiscovery(int on) {
 				char* line = strtok(rm_output, "\n");
 				while (line) {
 					char addr[18] = {0};
-					if (strncmp(line, "Device ", 7) == 0 && sscanf(line, "Device %17s", addr) == 1) {
+					if (strncmp(line, "Device ", 7) == 0 && sscanf(line, "Device %17s", addr) == 1 &&
+						BtAddr_isValid(addr)) {
 						int keep = 0;
 						for (int i = 0; i < keep_count; i++) {
 							if (strcmp(keep_list[i].remote_addr, addr) == 0) {
@@ -542,7 +546,7 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 
 		// Parse "Device XX:XX:XX:XX:XX:XX Name"
 		if (strncmp(line, "Device ", 7) == 0) {
-			if (sscanf(line, "Device %17s", addr) == 1) {
+			if (sscanf(line, "Device %17s", addr) == 1 && BtAddr_isValid(addr)) {
 				// Get name (everything after the address). "Device " (7) +
 				// "XX:XX:XX:XX:XX:XX " (18) = 25 bytes precede the name;
 				// bounds-check so a line with no trailing space can't over-read.
@@ -666,7 +670,7 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 
 		// Parse "Device XX:XX:XX:XX:XX:XX Name"
 		if (strncmp(line, "Device ", 7) == 0) {
-			if (sscanf(line, "Device %17s", addr) == 1) {
+			if (sscanf(line, "Device %17s", addr) == 1 && BtAddr_isValid(addr)) {
 				// Get name (everything after the address). "Device " (7) +
 				// "XX:XX:XX:XX:XX:XX " (18) = 25 bytes precede the name;
 				// bounds-check so a line with no trailing space can't over-read.
@@ -716,6 +720,8 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 }
 
 void PLAT_bluetoothPair(char* addr) {
+	if (!BtAddr_isValid(addr)) // goes into shell command lines
+		return;
 	btlog("Pairing with %s\n", addr);
 
 	char cmd[256];
@@ -740,6 +746,8 @@ void PLAT_bluetoothPair(char* addr) {
 }
 
 void PLAT_bluetoothUnpair(char* addr) {
+	if (!BtAddr_isValid(addr)) // goes into shell command lines
+		return;
 	btlog("Unpairing %s\n", addr);
 
 	char cmd[256];
@@ -760,6 +768,8 @@ void PLAT_bluetoothUnpair(char* addr) {
 }
 
 void PLAT_bluetoothConnect(char* addr) {
+	if (!BtAddr_isValid(addr)) // goes into shell command lines
+		return;
 	btlog("Connecting to %s\n", addr);
 
 	char cmd[256];
@@ -772,6 +782,8 @@ void PLAT_bluetoothConnect(char* addr) {
 }
 
 void PLAT_bluetoothDisconnect(char* addr) {
+	if (!BtAddr_isValid(addr)) // goes into shell command lines
+		return;
 	btlog("Disconnecting from %s\n", addr);
 
 	char cmd[256];

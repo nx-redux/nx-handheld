@@ -17,7 +17,7 @@ static void drawCentredLine(SDL_Surface* screen, TTF_Font* f, const char* text, 
 	char* buf = malloc(strlen(text) + 1);
 	if (!buf)
 		return;
-	GFX_truncateText(f, text, buf, max_w, 0);
+	GFX_truncateText(f, text, buf, strlen(text) + 1, max_w, 0);
 	SDL_Surface* s = GFX_renderText(f, buf, color);
 	free(buf);
 	if (s) {

@@ -117,3 +117,11 @@ else
 fi
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_emu_shortcuts ../emu_shortcuts.c test_emu_shortcuts.c
 /tmp/nx_test_emu_shortcuts
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_utils_strings ../utils.c test_utils_strings.c
+/tmp/nx_test_utils_strings
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wifi_scan_line test_wifi_scan_line.c
+/tmp/nx_test_wifi_scan_line
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_shader_strip test_shader_strip.c
+/tmp/nx_test_shader_strip
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_bt_addr test_bt_addr.c
+/tmp/nx_test_bt_addr

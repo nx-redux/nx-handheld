@@ -96,13 +96,18 @@ static int dev_ssh_check_running(void) {
 	return ssh_running;
 }
 
-static void* ssh_toggle_thread(void* arg) {
-	struct {
-		int val;
-		volatile int* done;
-	}* ctx = arg;
+// Static, not on dev_set_ssh's stack: B cancels the wait but the detached
+// worker keeps running and still writes `done`/`busy` when it finishes. `busy`
+// refuses a second toggle until that worker releases the context.
+static struct {
+	int val;
+	volatile int done;
+	volatile int busy;
+} ssh_toggle_ctx;
 
-	if (ctx->val) {
+static void* ssh_toggle_thread(void* arg) {
+	(void)arg;
+	if (ssh_toggle_ctx.val) {
 		// Try both init script names (tg5040 uses sshd, tg5050 uses S50sshd)
 		system("/etc/init.d/sshd start > /dev/null 2>&1 || /etc/init.d/S50sshd start > /dev/null 2>&1");
 	} else {
@@ -112,7 +117,8 @@ static void* ssh_toggle_thread(void* arg) {
 		// toggle stuck on. Turning SSH off drops every session too.
 		system("killall sshd > /dev/null 2>&1");
 	}
-	*ctx->done = 1;
+	ssh_toggle_ctx.done = 1;
+	ssh_toggle_ctx.busy = 0;
 	return NULL;
 }
 
@@ -125,29 +131,12 @@ static void dev_set_ssh(int val) {
 	if (!page || !page->screen)
 		return;
 
-	volatile int done = 0;
-	struct {
-		int val;
-		volatile int* done;
-	} ctx = {val, &done};
-
-	pthread_t t;
-	pthread_create(&t, NULL, ssh_toggle_thread, &ctx);
-	pthread_detach(t);
+	if (ssh_toggle_ctx.busy) // a toggle is still running in the background
+		return;
+	ssh_toggle_ctx.val = val;
 
 	const char* title = val ? "Starting SSH..." : "Stopping SSH...";
-
-	while (!done) {
-		GFX_startFrame();
-		PAD_poll();
-		if (PAD_justPressed(BTN_B))
-			break;
-
-		GFX_clear(page->screen);
-		settings_menu_render(page->screen, 0);
-		UI_renderLoadingOverlay(page->screen, title, "Press B to cancel");
-		GFX_flip(page->screen);
-	}
+	settings_run_async(page->screen, title, ssh_toggle_thread, NULL, &ssh_toggle_ctx.done, &ssh_toggle_ctx.busy);
 
 	// Update runtime state
 	dev_ssh_check_running();
@@ -214,10 +203,15 @@ static void* dotclean_thread(void* arg) {
 	// Matches: .Spotlight-V100, .apDisk, .fseventsd, .TemporaryItems,
 	//          .Trash, .Trashes, ._*, .DS_Store, *_cache[0-9].db, __MACOSX
 	// The card root is quoted for the shell like any other path.
+	// find deletes each match itself (-exec rm on the whole path it found) and
+	// prints what it removed, which is only counted here: a path is never read
+	// back and re-split, so an over-long name or one with a newline can never
+	// hand rm a fragment of a path.
 	char sd_q[MAX_PATH * 4];
-	strncpy(sd_q, SDCARD_PATH, sizeof(sd_q) - 1);
-	sd_q[sizeof(sd_q) - 1] = '\0';
-	escapeSingleQuotes(sd_q, sizeof(sd_q));
+	if (shellEscapeQuotes(sd_q, sizeof(sd_q), SDCARD_PATH) < 0) {
+		dotclean_done = 1;
+		return NULL;
+	}
 
 	char cmd[MAX_PATH * 4 + 512];
 	snprintf(cmd, sizeof(cmd),
@@ -225,10 +219,10 @@ static void* dotclean_thread(void* arg) {
 			 "{"
 			 " find . -maxdepth 1 \\( -name '.Spotlight-V100' -o -name '.apDisk'"
 			 " -o -name '.fseventsd' -o -name '.TemporaryItems'"
-			 " -o -name '.Trash' -o -name '.Trashes' \\);"
+			 " -o -name '.Trash' -o -name '.Trashes' \\) -exec rm -rf {} \\; -print;"
 			 " find . -depth -type f \\( -name '._*' -o -name '.DS_Store'"
-			 " -o -name '*_cache[0-9].db' \\);"
-			 " find . -depth -type d -name '__MACOSX';"
+			 " -o -name '*_cache[0-9].db' \\) -exec rm -f {} \\; -print;"
+			 " find . -depth -type d -name '__MACOSX' -exec rm -rf {} \\; -print;"
 			 "} 2>/dev/null",
 			 sd_q);
 
@@ -236,23 +230,11 @@ static void* dotclean_thread(void* arg) {
 	if (fp) {
 		char line[1024];
 		while (fgets(line, sizeof(line), fp)) {
-			// Strip trailing newline
+			// One removed path per line; a longer one arrives in several reads
+			// and is counted once, at its newline.
 			size_t len = strlen(line);
 			if (len > 0 && line[len - 1] == '\n')
-				line[len - 1] = '\0';
-			if (line[0] == '\0')
-				continue;
-
-			// Build full path and remove
-			char fullpath[MAX_PATH * 4];
-			snprintf(fullpath, sizeof(fullpath), "%s/%s", SDCARD_PATH, line + 2); // skip "./"
-			// Use rm -rf for both files and directories. Single-quoted +
-			// escaped: "._Link's Awakening.gb" is a perfectly normal name here.
-			escapeSingleQuotes(fullpath, sizeof(fullpath));
-			char rm_cmd[MAX_PATH * 4 + 16];
-			snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", fullpath);
-			system(rm_cmd);
-			dotclean_count++;
+				dotclean_count++;
 		}
 		pclose(fp);
 	}

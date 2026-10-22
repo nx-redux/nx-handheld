@@ -134,9 +134,10 @@ void ImageBrowser_loadDirectory(ImageBrowserContext* ctx, const char* path, cons
 		idx++;
 	}
 
-	// Second pass: fill entries
+	// Second pass: fill entries. Bounded by the first pass's count: a file
+	// added (or a directory made) in between must not write past entries[].
 	rewinddir(dir);
-	while ((ent = readdir(dir)) != NULL) {
+	while (idx < count && (ent = readdir(dir)) != NULL) {
 		if (ent->d_name[0] == '.')
 			continue;
 

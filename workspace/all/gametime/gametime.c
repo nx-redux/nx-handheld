@@ -323,7 +323,7 @@ void renderList(int count, int start, int end, int selected) {
 				nameFont = font.large;
 			int name_max_w = layout.list_display_start_x + layout.list_display_size_x - elemHeight / 2 - text_x;
 			char name_fit[sizeof(rom_name)];
-			GFX_truncateText(nameFont, rom_name, name_fit, name_max_w, 0);
+			GFX_truncateText(nameFont, rom_name, name_fit, sizeof(name_fit), name_max_w, 0);
 			renderText(name_fit, nameFont, textColor, &(SDL_Rect){text_x, row_y + title_y, layout.list_display_size_x, textHeight});
 		}
 
@@ -353,7 +353,7 @@ void renderList(int count, int start, int end, int selected) {
 			}
 			char seg_fit[64];
 			snprintf(seg_fit, sizeof(seg_fit), "%s", details[i]);
-			if (room > 0 && GFX_truncateText(detailFont, details[i], seg_fit, room, 0) <= room)
+			if (room > 0 && GFX_truncateText(detailFont, details[i], seg_fit, sizeof(seg_fit), room, 0) <= room)
 				renderText(seg_fit, detailFont, detailCol, &detailsRect);
 			break;
 		}

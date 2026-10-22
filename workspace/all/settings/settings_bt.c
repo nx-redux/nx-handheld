@@ -299,7 +299,7 @@ static void bt_device_draw(SDL_Surface* screen, SettingItem* item,
 	char truncated[256];
 	int max_text_w = w - SCALE1(BUTTON_PADDING * 2) - SCALE1(48); // room for status + icons
 	const char* display_name = info->name[0] ? info->name : info->addr;
-	GFX_truncateText(f, display_name, truncated, max_text_w, 0);
+	GFX_truncateText(f, display_name, truncated, sizeof(truncated), max_text_w, 0);
 
 	// Draw 2-layer selection pill
 	if (selected) {

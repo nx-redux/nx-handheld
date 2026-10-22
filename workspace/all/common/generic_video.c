@@ -27,6 +27,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/file.h>
+#include "shader_strip.h"
 
 static void bandShadowInvalidate(void);
 
@@ -726,6 +727,10 @@ char* load_shader_source(const char* filename) {
 	fseek(file, 0, SEEK_END);
 	long length = ftell(file);
 	rewind(file);
+	if (length < 0) {
+		fclose(file);
+		return NULL;
+	}
 
 	char* source = (char*)malloc(length + 1);
 	if (!source) {
@@ -734,8 +739,8 @@ char* load_shader_source(const char* filename) {
 		return NULL;
 	}
 
-	fread(source, 1, length, file);
-	source[length] = '\0';
+	size_t got = fread(source, 1, length, file);
+	source[got] = '\0';
 	fclose(file);
 	return source;
 }
@@ -750,21 +755,11 @@ GLuint load_shader_from_file(GLenum type, const char* filename, const char* path
 	LOG_info("load shader from file %s\n", filepath);
 
 	// Filter out lines starting with "#pragma parameter"
-	char* cleaned = malloc(strlen(source) + 1);
+	char* cleaned = ShaderStrip_parameters(source);
 	if (!cleaned) {
 		fprintf(stderr, "Out of memory\n");
 		free(source);
 		return 0;
-	}
-	cleaned[0] = '\0';
-
-	char* line = strtok(source, "\n");
-	while (line) {
-		if (strncmp(line, "#pragma parameter", 17) != 0) {
-			strcat(cleaned, line);
-			strcat(cleaned, "\n");
-		}
-		line = strtok(NULL, "\n");
 	}
 
 	const char* define = NULL;

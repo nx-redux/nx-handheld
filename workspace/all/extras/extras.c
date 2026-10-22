@@ -827,7 +827,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 	int detail_h = (detail && detail[0]) ? TTF_FontHeight(font.tiny) : 0;
 	char detail_truncated[256];
 	if (detail_h) {
-		GFX_truncateText(font.tiny, detail, detail_truncated, content_w, 0);
+		GFX_truncateText(font.tiny, detail, detail_truncated, sizeof(detail_truncated), content_w, 0);
 		detail = detail_truncated;
 	}
 

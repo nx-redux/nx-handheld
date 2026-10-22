@@ -972,7 +972,7 @@ void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_settin
 		int text_x = has_art ? (pad + img_size + SCALE1(8)) : pad;
 		int text_max_w = hw - text_x - pad;
 		int ty = base_y + img_pad;
-		GFX_truncateText(font.medium, feed->title, truncated, text_max_w, 0);
+		GFX_truncateText(font.medium, feed->title, truncated, sizeof(truncated), text_max_w, 0);
 		SDL_Surface* t = GFX_renderText(font.medium, truncated, COLOR_WHITE);
 		if (t) {
 			SDL_BlitSurface(t, NULL, screen, &(SDL_Rect){text_x, ty});
@@ -980,7 +980,7 @@ void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_settin
 			SDL_FreeSurface(t);
 		}
 		if (feed->author[0]) {
-			GFX_truncateText(font.small, feed->author, truncated, text_max_w, 0);
+			GFX_truncateText(font.small, feed->author, truncated, sizeof(truncated), text_max_w, 0);
 			SDL_Surface* a = GFX_renderText(font.small, truncated, COLOR_GRAY);
 			if (a) {
 				SDL_BlitSurface(a, NULL, screen, &(SDL_Rect){text_x, ty});
@@ -1051,7 +1051,7 @@ void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_settin
 
 			// Title (medium font, white)
 			{
-				GFX_truncateText(font.medium, feed->title, truncated, text_max_w, 0);
+				GFX_truncateText(font.medium, feed->title, truncated, sizeof(truncated), text_max_w, 0);
 				SDL_Surface* t = GFX_renderText(font.medium, truncated, COLOR_WHITE);
 				if (t) {
 					SDL_BlitSurface(t, NULL, screen, &(SDL_Rect){text_x, ty});
@@ -1062,7 +1062,7 @@ void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_settin
 
 			// Author (small font, gray)
 			if (feed->author[0]) {
-				GFX_truncateText(font.small, feed->author, truncated, text_max_w, 0);
+				GFX_truncateText(font.small, feed->author, truncated, sizeof(truncated), text_max_w, 0);
 				SDL_Surface* a = GFX_renderText(font.small, truncated, COLOR_GRAY);
 				if (a) {
 					SDL_BlitSurface(a, NULL, screen, &(SDL_Rect){text_x, ty});
@@ -1092,7 +1092,7 @@ void render_podcast_episodes(SDL_Surface* screen, MusicIndicatorType show_settin
 					GFX_measureText(desc_font, remaining, &tw, NULL);
 
 					if (tw <= text_max_w || line == max_lines - 1) {
-						GFX_truncateText(desc_font, remaining, truncated, text_max_w, 0);
+						GFX_truncateText(desc_font, remaining, truncated, sizeof(truncated), text_max_w, 0);
 						SDL_Surface* d = GFX_renderText(desc_font, truncated, COLOR_GRAY);
 						if (d) {
 							SDL_BlitSurface(d, NULL, screen, &(SDL_Rect){text_x, ty});
@@ -1618,7 +1618,7 @@ void render_podcast_playing(SDL_Surface* screen, MusicIndicatorType show_setting
 	int max_w_text = hw - SCALE1(PADDING * 2);
 
 	// Podcast name (like Artist in music player) - gray, artist font
-	GFX_truncateText(font.medium, feed->title, truncated, max_w_text, 0);
+	GFX_truncateText(font.medium, feed->title, truncated, sizeof(truncated), max_w_text, 0);
 	SDL_Surface* podcast_surf = GFX_renderText(font.medium, truncated, COLOR_GRAY);
 	if (podcast_surf) {
 		SDL_BlitSurface(podcast_surf, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});
@@ -1715,7 +1715,7 @@ void render_podcast_playing(SDL_Surface* screen, MusicIndicatorType show_setting
 			GFX_measureText(desc_font, remaining, &tw, NULL);
 
 			if (tw <= max_w_text || line == max_lines - 1) {
-				GFX_truncateText(desc_font, remaining, truncated, max_w_text, 0);
+				GFX_truncateText(desc_font, remaining, truncated, sizeof(truncated), max_w_text, 0);
 				SDL_Surface* d = GFX_renderText(desc_font, truncated, COLOR_GRAY);
 				if (d) {
 					SDL_BlitSurface(d, NULL, screen, &(SDL_Rect){SCALE1(PADDING), info_y});

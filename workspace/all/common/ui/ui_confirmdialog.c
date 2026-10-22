@@ -82,7 +82,7 @@ void UI_renderConfirmDialogHints(SDL_Surface* dst, const char* title,
 	// with an ellipsis so a long title can't overflow into the subtitle/hint
 	// row below.
 	char title_buf[256];
-	GFX_truncateText(font.large, title, title_buf, content_w, 0);
+	GFX_truncateText(font.large, title, title_buf, sizeof(title_buf), content_w, 0);
 	SDL_Rect title_rect = {padding_x, y, content_w, title_h};
 	GFX_blitMessage(font.large, title_buf, dst, &title_rect);
 	y += title_h;

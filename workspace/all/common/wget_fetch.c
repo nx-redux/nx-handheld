@@ -11,6 +11,7 @@
 // CA-bundle resolver shared with http.c: picks the bundle to verify TLS
 // against, or NULL on a card without one.
 #include "ca_bundle.h"
+#include "utils.h" // shellEscapeQuotes
 
 // Path to wget binary in shared system bin.
 static const char* wget_bin_path(void) {
@@ -28,22 +29,10 @@ static int wget_available(void) {
 	return avail;
 }
 
-// Escape a string for use inside single quotes in shell commands.
-// Caller must provide a buffer at least 4x the length of src.
+// Escape a string for use inside single quotes in shell commands. A string
+// that does not fit comes back empty (never cut mid-escape).
 static void shell_escape_single(const char* src, char* dst, int dst_size) {
-	int j = 0;
-	for (int i = 0; src[i] && j < dst_size - 5; i++) {
-		if (src[i] == '\'') {
-			// End quote, escaped apostrophe, reopen quote: '\''
-			dst[j++] = '\'';
-			dst[j++] = '\\';
-			dst[j++] = '\'';
-			dst[j++] = '\'';
-		} else {
-			dst[j++] = src[i];
-		}
-	}
-	dst[j] = '\0';
+	shellEscapeQuotes(dst, (size_t)dst_size, src);
 }
 
 // TLS verification argument for wget. NX Redux ships a CA bundle (the
