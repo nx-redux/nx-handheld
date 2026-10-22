@@ -38,6 +38,7 @@
 #include "artbg.h"
 #include "gameinfo.h"
 #include "gameinfo_text.h"
+#include "gamelist_text.h"
 #include "gridview.h"
 #include "minview.h"
 #include "rowview.h"
@@ -486,37 +487,10 @@ static bool entryHasArt(const char* path) {
 	return exists(p);
 }
 
-// True when `path` is the folder-named .cue/.m3u of its parent dir (basename
-// minus extension == parent dir name) — the file that makes the parent a
-// folder game. Fills parent_out (>= MAX_PATH) with the parent dir path.
+// True when `path` is the folder-named .cue/.m3u of its parent dir (GameListText_folderGameParent) — the file
+// that makes the parent a folder game. Fills parent_out (>= MAX_PATH) with the parent dir path.
 static bool isFolderGameFile(const char* path, char* parent_out) {
-	if (!suffixMatch(".cue", path) && !suffixMatch(".m3u", path))
-		return false;
-	if (!prefixMatch(ROMS_PATH, path))
-		return false;
-	char work[MAX_PATH];
-	strncpy(work, path, sizeof(work) - 1);
-	work[sizeof(work) - 1] = '\0';
-	char* slash = strrchr(work, '/');
-	if (!slash)
-		return false;
-	char base[MAX_PATH];
-	strncpy(base, slash + 1, sizeof(base) - 1);
-	base[sizeof(base) - 1] = '\0';
-	char* dot = strrchr(base, '.');
-	if (dot)
-		*dot = '\0';
-	*slash = '\0'; // work = parent dir
-	// never treat a console dir as the "game folder" — a stray playlist named
-	// after the console (eg. DC/DC.m3u) must not delete the whole library
-	if (isConsoleDir(work))
-		return false;
-	char* parent_name = strrchr(work, '/');
-	if (!parent_name || !exactMatch(parent_name + 1, base))
-		return false;
-	strncpy(parent_out, work, MAX_PATH - 1);
-	parent_out[MAX_PATH - 1] = '\0';
-	return true;
+	return GameListText_folderGameParent(path, ROMS_PATH, parent_out, MAX_PATH);
 }
 
 // Depth-first recursive delete. Symlink-safe: lstat, so symlinks are
@@ -712,14 +686,7 @@ static int pickCollectionModal_handle(void* vctx) {
 
 // Copy a name into a dialog row, cut short on a UTF-8 character boundary (never half a character), terminated.
 static void copyRowText(char* dst, size_t size, const char* src) {
-	size_t n = strlen(src);
-	if (n >= size) {
-		n = size - 1;
-		while (n > 0 && ((unsigned char)src[n] & 0xC0) == 0x80)
-			n--; // src[n] continues the character before it: leave that character out
-	}
-	memcpy(dst, src, n);
-	dst[n] = '\0';
+	GameListText_copyRow(dst, size, src);
 }
 
 // Full-screen blocking collection picker. Returns the chosen collection index
@@ -892,11 +859,7 @@ static bool isCollectionRow(Entry* entry) {
 
 // A collection's name: its file name without ".txt".
 static void collectionStem(const char* path, char* out /* MAX_PATH */) {
-	const char* slash = strrchr(path, '/');
-	snprintf(out, MAX_PATH, "%s", slash ? slash + 1 : path);
-	size_t n = strlen(out);
-	if (n > 4 && suffixMatch(".txt", out))
-		out[n - 4] = '\0';
+	GameListText_collectionStem(path, out, MAX_PATH);
 }
 
 // A one-button notice (A or B closes it).
@@ -1303,26 +1266,15 @@ static void artFetchPoll(unsigned long now, bool* dirty) {
 // Fit a game name onto one line of the modal title (font.large), ellipsizing
 // when it's wider than the modal (the loading overlay assumes a single-line
 // title, so an unbounded name would wrap into the subtitle). UTF-8 aware.
-static void artFetchTitle(const char* name, char* out, size_t out_size) {
-	int maxw = screen->w - SCALE1(PADDING * 6);
-	snprintf(out, out_size, "%s", name);
+static int artFetchMeasure(void* ctx, const char* utf8) {
+	(void)ctx;
 	int w = 0;
-	GFX_measureText(font.large, out, &w, NULL);
-	if (w <= maxw)
-		return;
-	size_t len = strlen(out);
-	while (len > 0) {
-		len--;
-		while (len > 0 && ((unsigned char)out[len] & 0xC0) == 0x80)
-			len--; // don't split a UTF-8 sequence
-		char cand[256];
-		snprintf(cand, sizeof(cand), "%.*s...", (int)len, name);
-		GFX_measureText(font.large, cand, &w, NULL);
-		if (w <= maxw) {
-			snprintf(out, out_size, "%s", cand);
-			return;
-		}
-	}
+	GFX_measureText(font.large, utf8, &w, NULL);
+	return w;
+}
+
+static void artFetchTitle(const char* name, char* out, size_t out_size) {
+	GameListText_fitTitle(name, out, out_size, screen->w - SCALE1(PADDING * 6), artFetchMeasure, NULL);
 }
 
 typedef struct {

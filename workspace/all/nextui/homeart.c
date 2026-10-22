@@ -109,28 +109,13 @@ static SDL_Surface* loadArgb(const char* path) {
 	return argb;
 }
 
-// 2x2 box-filter halving of `keep` into a new surface, so the bilinear pass never skips source pixels.
+// 2x2 box-filter halving of `keep` into a new surface (HomeArt_halve), so the bilinear pass never skips source pixels.
 static SDL_Surface* halve(SDL_Surface* src, HomeArtRect* keep) {
 	int w = keep->w / 2, h = keep->h / 2;
 	SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
 	if (!dst)
 		return NULL;
-	const Uint32* sp = src->pixels;
-	int spitch = src->pitch / 4;
-	Uint32* dp = dst->pixels;
-	int dpitch = dst->pitch / 4;
-	for (int y = 0; y < h; y++) {
-		const Uint32* r0 = sp + (keep->y + 2 * y) * spitch + keep->x;
-		const Uint32* r1 = r0 + spitch;
-		for (int x = 0; x < w; x++) {
-			Uint32 a = r0[2 * x], b = r0[2 * x + 1], c = r1[2 * x], d = r1[2 * x + 1];
-			// two channels a word (0x00RR00BB, 0x00AA00GG): a lane's sum of four <= 1022 never carries over
-			Uint32 rb = (a & 0x00FF00FFu) + (b & 0x00FF00FFu) + (c & 0x00FF00FFu) + (d & 0x00FF00FFu) + 0x00020002u;
-			Uint32 ag = ((a >> 8) & 0x00FF00FFu) + ((b >> 8) & 0x00FF00FFu) + ((c >> 8) & 0x00FF00FFu) +
-						((d >> 8) & 0x00FF00FFu) + 0x00020002u;
-			dp[y * dpitch + x] = ((rb >> 2) & 0x00FF00FFu) | (((ag >> 2) & 0x00FF00FFu) << 8);
-		}
-	}
+	HomeArt_halve(src->pixels, src->pitch / 4, *keep, dst->pixels, dst->pitch / 4);
 	*keep = (HomeArtRect){0, 0, w, h};
 	return dst;
 }
@@ -144,7 +129,7 @@ static SDL_Surface* cropFill(SDL_Surface* src, HomeArtRect keep, int w, int h, f
 			SDL_FreeSurface(src);
 		return NULL;
 	}
-	float s = fmaxf((float)w / keep.w, (float)h / keep.h) * zoom;
+	float s = HomeArt_coverScale(keep.w, keep.h, w, h, zoom);
 	while (s <= 0.5f && keep.w >= 2 && keep.h >= 2) {
 		SDL_Surface* half = halve(src, &keep);
 		if (!half)
@@ -158,8 +143,8 @@ static SDL_Surface* cropFill(SDL_Surface* src, HomeArtRect keep, int w, int h, f
 		SDL_FreeSurface(src);
 		return NULL;
 	}
-	float ox = 0.5f * (keep.w * s - w);
-	float oy = frame_y * (keep.h * s - h);
+	float ox, oy;
+	HomeArt_coverOrigin(keep.w, keep.h, w, h, s, frame_y, &ox, &oy);
 	int spitch = src->pitch / 4;
 	const Uint32* sp = (const Uint32*)src->pixels + keep.y * spitch + keep.x;
 	int ok = AreaScale_bilinearCover(sp, keep.w, keep.h, spitch, dst->pixels, w, h, dst->pitch / 4, s, ox, oy);
@@ -723,29 +708,21 @@ Entry* Home_continueEntry(void) {
 ///////////////////////////////////////
 // The Home List's background (the thumbnail loader's pictures)
 
-// "<prefix>cont\n<preview>\n<rom>" (a resume frame) or "<prefix>abs\n<rom>" (the abstract picture): never a file's
-// path (a control character leads)
-#define LIST_PATH_PREFIX "\x01home:"
-
+// HOMEART_LIST_PREFIX paths (homeart_model.h): never a file's path (a control character leads)
 void HomeArt_listPath(const char* rom_path, const char* preview_path, char* out, size_t size) {
 	out[0] = '\0';
 	if (!rom_path || !rom_path[0])
 		return;
-	int n = -1;
-	if (preview_path && preview_path[0])
-		n = snprintf(out, size, LIST_PATH_PREFIX "cont\n%s\n%s", preview_path, rom_path);
-	if (n >= 0 && (size_t)n < size)
+	if (preview_path && preview_path[0] && HomeArt_listPathCont(preview_path, rom_path, out, size))
 		return;
 	ROM_findScreenshot(rom_path, out, size); // the scraped screenshot, else the root .media picture (Ports)
 	if (out[0] && access(out, F_OK) == 0)
 		return;
-	n = snprintf(out, size, LIST_PATH_PREFIX "abs\n%s", rom_path);
-	if (n < 0 || (size_t)n >= size)
-		out[0] = '\0';
+	HomeArt_listPathAbs(rom_path, out, size);
 }
 
 bool HomeArt_isListPath(const char* path) {
-	return path && strncmp(path, LIST_PATH_PREFIX, sizeof(LIST_PATH_PREFIX) - 1) == 0;
+	return path && strncmp(path, HOMEART_LIST_PREFIX, sizeof(HOMEART_LIST_PREFIX) - 1) == 0;
 }
 
 // The abstract picture: its PNG when Grid or the Carousel made it already, else rendered here (not saved: the Home
@@ -763,20 +740,13 @@ static SDL_Surface* listAbstract(const char* rom) {
 }
 
 SDL_Surface* HomeArt_loadListPath(const char* path) {
-	if (!HomeArt_isListPath(path))
-		return NULL;
-	const char* p = path + sizeof(LIST_PATH_PREFIX) - 1;
-	if (strncmp(p, "abs\n", 4) == 0)
-		return listAbstract(p + 4);
-	if (strncmp(p, "cont\n", 5) != 0)
-		return NULL;
-	p += 5;
-	const char* nl = strchr(p, '\n');
-	if (!nl)
-		return NULL;
 	char preview[MAX_PATH];
-	snprintf(preview, sizeof(preview), "%.*s", (int)(nl - p), p);
-	const char* rom = nl + 1;
+	const char* rom = NULL;
+	HomeArtListKind kind = HomeArt_parseListPath(path, preview, sizeof(preview), &rom);
+	if (kind == HOMEART_LIST_ABS)
+		return listAbstract(rom);
+	if (kind != HOMEART_LIST_CONT)
+		return NULL;
 	// Continue's resume frame without its letterbox (as HomeArt_continue's); a black one gives way to the screenshot,
 	// then the abstract picture
 	SDL_Surface* src = loadArgb(preview);

@@ -15,6 +15,7 @@
 #include "gamelist.h"
 #include "launcher.h"
 #include "list_window.h"
+#include "path_stack.h"
 #include "menutabs.h"
 #include "shortcuts.h"
 
@@ -458,49 +459,38 @@ void openRom(char* path, char* last) {
 }
 
 static bool isDirectSubdirectory(const Directory* parent, const char* child_path) {
-	const char* parent_path = parent->path;
+	return PathStack_isDirectChild(parent->path, child_path, PLATFORM);
+}
 
-	size_t parent_len = strlen(parent_path);
-	size_t child_len = strlen(child_path);
+typedef struct {
+	Array* array;
+	int root_rows;
+	int list_rows;
+} StackBuild;
 
-	// Child must be longer than parent to be a subdirectory
-	if (child_len <= parent_len || strncmp(child_path, parent_path, parent_len) != 0) {
-		return false;
-	}
+// One directory of pathToStack's walk: pushed, or (a PLATFORM segment) merged into the one before it.
+static void pushStackDir(void* ctx, const char* dir_path, bool merge) {
+	StackBuild* build = ctx;
+	Array* array = build->array;
+	if (merge) {
+		// Merge with previous directory
+		if (array->count > 0) {
+			// Remove the previous directory
+			Directory* last = (Directory*)array->items[array->count - 1];
+			Array_pop(array);
+			Directory_free(last); // assuming you have a Directory_free
 
-	// Next char after parent path must be '/'
-	if (child_path[parent_len] != '/')
-		return false;
-
-	// Walk through the child path after parent, skipping PLATFORM segments
-	const char* cursor = child_path + parent_len + 1; // skip the slash
-
-	int levels = 0;
-	while (*cursor) {
-		const char* next = strchr(cursor, '/');
-		size_t segment_len = next ? (size_t)(next - cursor) : strlen(cursor);
-
-		if (segment_len == 0)
-			break;
-
-		// Copy segment into a buffer to compare
-		char segment[PATH_MAX];
-		if (segment_len >= PATH_MAX)
-			return false;
-		strncpy(segment, cursor, segment_len);
-		segment[segment_len] = '\0';
-
-		// Count level only if it's not PLATFORM
-		if (strcmp(segment, PLATFORM) != 0 && strcmp(segment, "Roms") != 0) {
-			levels++;
+			// Replace with updated one using combined path (the root's rows when it replaces the root)
+			Directory* merged = Directory_new((char*)dir_path, 0);
+			int rows = array->count == 0 ? build->root_rows : build->list_rows;
+			ListWindow_fromTop(merged->entries->count, rows, &merged->start, &merged->end);
+			Array_push(array, merged);
 		}
-
-		if (!next)
-			break;
-		cursor = next + 1;
+	} else {
+		Directory* dir = Directory_new((char*)dir_path, 0);
+		ListWindow_fromTop(dir->entries->count, build->list_rows, &dir->start, &dir->end);
+		Array_push(array, dir);
 	}
-
-	return (levels == 1); // exactly one meaningful level deeper
 }
 
 static Array* pathToStack(const char* path) {
@@ -529,62 +519,8 @@ static Array* pathToStack(const char* path) {
 	if (exactMatch(path, base))
 		return array;
 
-	char temp_path[PATH_MAX];
-	strcpy(temp_path, base);
-	size_t current_len = strlen(base);
-
-	const char* cursor = path + current_len;
-	if (*cursor == '/')
-		cursor++;
-
-	while (*cursor) {
-		const char* next = strchr(cursor, '/');
-		size_t segment_len = next ? (size_t)(next - cursor) : strlen(cursor);
-		if (segment_len == 0 || segment_len >= PATH_MAX)
-			break;
-
-		char segment[PATH_MAX];
-		strncpy(segment, cursor, segment_len);
-		segment[segment_len] = '\0';
-
-		// Append '/' if needed
-		if (temp_path[current_len - 1] != '/') {
-			if (current_len + 1 >= PATH_MAX)
-				break;
-			temp_path[current_len++] = '/';
-			temp_path[current_len] = '\0';
-		}
-
-		// Append segment
-		if (current_len + segment_len >= PATH_MAX)
-			break;
-		strcat(temp_path, segment);
-		current_len += segment_len;
-
-		if (strcmp(segment, PLATFORM) == 0) {
-			// Merge with previous directory
-			if (array->count > 0) {
-				// Remove the previous directory
-				Directory* last = (Directory*)array->items[array->count - 1];
-				Array_pop(array);
-				Directory_free(last); // assuming you have a Directory_free
-
-				// Replace with updated one using combined path (the root's rows when it replaces the root)
-				Directory* merged = Directory_new(temp_path, 0);
-				int rows = array->count == 0 ? root_rows : list_rows;
-				ListWindow_fromTop(merged->entries->count, rows, &merged->start, &merged->end);
-				Array_push(array, merged);
-			}
-		} else {
-			Directory* dir = Directory_new(temp_path, 0);
-			ListWindow_fromTop(dir->entries->count, list_rows, &dir->start, &dir->end);
-			Array_push(array, dir);
-		}
-
-		if (!next)
-			break;
-		cursor = next + 1;
-	}
+	StackBuild build = {array, root_rows, list_rows};
+	PathStack_walk(base, path, PLATFORM, pushStackDir, &build);
 
 	return array;
 }

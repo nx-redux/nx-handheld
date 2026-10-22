@@ -5,6 +5,7 @@
 #include <string.h>
 #include "ui_listview.h"
 #include "initial_jump.h"
+#include "list_nav.h"
 #include "api.h"
 #include "defines.h"
 #include "ui_buttonhintbar.h"
@@ -33,18 +34,16 @@ static bool row_is_header(ListView* v, int i) {
 	return row.is_header;
 }
 
-// Header rows: a quarter-row breathing gap above (separating the header
-// from the previous group's last row - dropped when the header is the
-// list's first row, where there is nothing to separate from), label in a
-// half-row band, and a quarter-row gap below (generalizes the extras
-// catalog layout).
+static bool row_is_header_cb(void* v, int i) {
+	return row_is_header(v, i);
+}
+
+// Header rows' layout: ListNav_rowHeight (a quarter-row gap above, a half-row label band, a quarter-row gap below).
 static int header_top_gap(int i, int item_h) {
-	return i > 0 ? item_h / 4 : 0;
+	return ListNav_headerTopGap(i, item_h);
 }
 static int row_height(ListView* v, int i, int item_h) {
-	return row_is_header(v, i)
-			   ? header_top_gap(i, item_h) + item_h / 2 + item_h / 4
-			   : item_h;
+	return ListNav_rowHeight(row_is_header(v, i), i, item_h);
 }
 
 // A list in the large font is a main list: its text and rows per device (UI_mainListFont, UI_mainListRows).
@@ -56,55 +55,17 @@ static TTF_Font* row_font(ListView* v) {
 	return is_main_list(v) ? UI_mainListFont() : v->font;
 }
 
-// Step from `from` by dir (+1/-1), skipping headers, wrapping unless
-// no_wrap. Returns `from` when no other selectable row exists (guards the
-// all-headers degenerate list against infinite skip loops).
+// Selectable-row steps over the headers (ListNav_step, ListNav_nearest, ListNav_adjacent).
 static int step_selectable(ListView* v, int from, int dir) {
-	int i = from;
-	for (int n = 0; n < v->count; n++) {
-		i += dir;
-		if (i < 0) {
-			if (v->no_wrap)
-				return from;
-			i = v->count - 1;
-		} else if (i >= v->count) {
-			if (v->no_wrap)
-				return from;
-			i = 0;
-		}
-		if (!row_is_header(v, i))
-			return i;
-	}
-	return from;
+	return ListNav_step(v->count, v->no_wrap, from, dir, row_is_header_cb, v);
 }
 
-// Nearest selectable row to `target` (clamped), preferring direction `dir`,
-// falling back to the other. For LEFT/RIGHT page jumps.
 static int nearest_selectable(ListView* v, int target, int dir) {
-	if (target < 0)
-		target = 0;
-	if (target >= v->count)
-		target = v->count - 1;
-	for (int i = target; i >= 0 && i < v->count; i += dir)
-		if (!row_is_header(v, i))
-			return i;
-	for (int i = target; i >= 0 && i < v->count; i -= dir)
-		if (!row_is_header(v, i))
-			return i;
-	return target;
+	return ListNav_nearest(v->count, target, dir, row_is_header_cb, v);
 }
 
-// True when every row strictly between a and b is a header: an "adjacent"
-// selection step for glide purposes, even though the index moved by 2+.
 static bool adjacent_selectable(ListView* v, int a, int b) {
-	if (a < 0 || b < 0 || a == b)
-		return false;
-	int lo = a < b ? a : b;
-	int hi = a > b ? a : b;
-	for (int i = lo + 1; i < hi; i++)
-		if (!row_is_header(v, i))
-			return false;
-	return true;
+	return ListNav_adjacent(a, b, row_is_header_cb, v);
 }
 
 ListViewAction UI_listViewHandleInput(ListView* v) {
@@ -294,37 +255,9 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen) {
 	// 2. Pixel-based scroll windowing: walk heights from scroll until the
 	// band is filled; advance scroll until selected is fully visible.
 	// Uniform rows degenerate to UI_adjustListScroll behavior.
-	if (v->scroll < 0)
-		v->scroll = 0;
-	if (v->scroll >= v->count)
-		v->scroll = v->count - 1;
-	if (v->selected < v->scroll) {
-		// scrolling up: bring the section header along when it is the row
-		// directly above, so the group reads as one unit
-		v->scroll = (v->selected > 0 && row_is_header(v, v->selected - 1))
-						? v->selected - 1
-						: v->selected;
-	}
-
-	int first = v->scroll;
 	int visible = 0;
-	for (;;) {
-		int y = 0;
-		visible = 0;
-		bool sel_visible = false;
-		for (int i = first; i < v->count && visible < LISTVIEW_MAX_VISIBLE; i++) {
-			int h = row_height(v, i, layout.item_h);
-			if (y + h > layout.list_h)
-				break;
-			if (i == v->selected)
-				sel_visible = true;
-			y += h;
-			visible++;
-		}
-		if (sel_visible || first >= v->selected)
-			break;
-		first++;
-	}
+	int first = ListNav_window(v->count, v->selected, v->scroll, layout.list_h, layout.item_h, LISTVIEW_MAX_VISIBLE,
+							   row_is_header_cb, v, &visible);
 	v->scroll = first;
 	v->last_visible = visible;
 

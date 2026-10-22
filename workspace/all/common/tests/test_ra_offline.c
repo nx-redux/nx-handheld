@@ -706,6 +706,54 @@ static void test_online_session_merge(void) {
 	printf("ok test_online_session_merge\n");
 }
 
+// A session body without an "Unlocks":[ array gets one inserted after its opening brace.
+static void test_merge_no_unlocks_array(void) {
+	reset_root();
+	RA_Offline_setMode(RA_NET_OFFLINE);
+	char* body;
+	size_t len;
+	int status;
+	RA_Offline_handleRequest("r=awardachievement&u=dana&t=tok&a=777&h=0&m=dddd4444", &body, &len, &status);
+	free(body);
+	RA_Offline_setMode(RA_NET_ONLINE);
+	const char* sess = "{\"Success\":true,\"HardcoreUnlocks\":[]}";
+	body = RA_Offline_mergeSession("r=startsession&u=dana&t=tok&g=1&m=dddd4444", sess, strlen(sess), &len);
+	assert(body && len == strlen(body));
+	const char* head = "{\"Unlocks\":[{\"ID\":777,\"When\":";
+	assert(strncmp(body, head, strlen(head)) == 0);
+	assert(strstr(body, "}],\"Success\":true,\"HardcoreUnlocks\":[]}"));
+	free(body);
+	printf("ok test_merge_no_unlocks_array\n");
+}
+
+// Journal lines longer than the 512-byte read buffer pass through RA_Offline_removePending whole.
+static void test_long_journal_line(void) {
+	reset_root();
+	char pad[700];
+	memset(pad, 'x', sizeof(pad) - 1);
+	pad[sizeof(pad) - 1] = '\0';
+	const char* keep = "{\"u\":\"bob\",\"a\":1,\"m\":\"aaaa1111\",\"t\":1}\n";
+	const char* drop = "{\"u\":\"bob\",\"a\":4242,\"m\":\"aaaa1111\",\"t\":1}\n";
+	char want[4096];
+	// a long garbage line, then one whose tail past byte 511 reads as the entry being removed
+	snprintf(want, sizeof(want), "%s%s\n%.*s%s%s", keep, pad, 511, pad, drop, keep);
+	FILE* f = fopen(ROOT "/pending/unlocks.jsonl", "w");
+	assert(f);
+	fputs(want, f);
+	fputs(drop, f);
+	fclose(f);
+	RA_Offline_removePending("bob", 4242, "aaaa1111");
+	f = fopen(ROOT "/pending/unlocks.jsonl", "r");
+	assert(f);
+	char got[4096] = {0};
+	size_t n = fread(got, 1, sizeof(got) - 1, f);
+	fclose(f);
+	got[n] = '\0';
+	// only the whole-line entry went; the long lines (and the head of the second one) are kept verbatim
+	assert(strcmp(got, want) == 0);
+	printf("ok test_long_journal_line\n");
+}
+
 int main(void) {
 	test_get_param();
 	test_cache_classification();
@@ -720,6 +768,8 @@ int main(void) {
 	test_confirmed_growth();
 	test_sync_username_case();
 	test_online_session_merge();
+	test_merge_no_unlocks_array();
+	test_long_journal_line();
 	printf("ALL TESTS PASSED\n");
 	return 0;
 }

@@ -103,6 +103,28 @@ int main(void) {
 	}
 	CHECK(missing == 0, "all canonical lines in the merged file");
 
+	// the radios: the OSD widgets sed wifi=/bluetooth= into the file themselves, so the file's values win a sync
+	// unless this process toggled the radio (then ours does, once)
+	f = fopen(path, "w");
+	fputs("wifi=0\nbluetooth=1\nonly_foreign=1\n", f);
+	fclose(f);
+	CFG_setShowClock(false);
+	merged = slurp();
+	CHECK(!CFG_getWifi() && CFG_getBluetooth(), "the file's radio values are adopted");
+	CHECK(count_key(merged, "wifi=0") == 1 && count_key(merged, "bluetooth=1") == 1, "the file's radio values kept");
+	CHECK(count_key(merged, "only_foreign=1") == 1, "a lone unknown key kept");
+	CHECK(count_lines(merged) == 1 + keys, "every missing known key appended");
+	CFG_setWifi(true);
+	merged = slurp();
+	CHECK(CFG_getWifi() && count_key(merged, "wifi=1") == 1, "an explicit toggle wins over the file");
+	f = fopen(path, "w");
+	fputs("wifi=0\nbluetooth=0\n", f);
+	fclose(f);
+	CFG_setShowClock(true); // the explicit flag was consumed: the file's wifi=0 wins again
+	merged = slurp();
+	CHECK(!CFG_getWifi() && !CFG_getBluetooth(), "the explicit flag is used once");
+	CHECK(count_key(merged, "wifi=0") == 1 && count_key(merged, "bluetooth=0") == 1, "the radios follow the file");
+
 	free(canon);
 	unlink(path);
 	rmdir(dir);

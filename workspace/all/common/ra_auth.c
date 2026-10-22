@@ -1,4 +1,5 @@
 #include "ra_auth.h"
+#include "ra_auth_parse.h"
 #include "http.h"
 #include "utils.h"
 
@@ -8,76 +9,6 @@
 
 // RetroAchievements API endpoints
 #define RA_API_URL "https://retroachievements.org/dorequest.php"
-
-// Minimal JSON helpers for RA login responses
-
-
-static int find_json_bool(const char* json, const char* key) {
-	if (!json || !key)
-		return -1;
-
-	// Search for "key":true or "key":false
-	char search_true[128];
-	char search_false[128];
-	snprintf(search_true, sizeof(search_true), "\"%s\":true", key);
-	snprintf(search_false, sizeof(search_false), "\"%s\":false", key);
-
-	if (strstr(json, search_true))
-		return 1;
-	if (strstr(json, search_false))
-		return 0;
-
-	// Try with space after colon
-	snprintf(search_true, sizeof(search_true), "\"%s\": true", key);
-	snprintf(search_false, sizeof(search_false), "\"%s\": false", key);
-
-	if (strstr(json, search_true))
-		return 1;
-	if (strstr(json, search_false))
-		return 0;
-
-	return -1;
-}
-
-// Parse RA login response
-static void parse_login_response(const char* json, RA_AuthResponse* response) {
-	if (!json || !response)
-		return;
-
-	// Check for Success field
-	int success = find_json_bool(json, "Success");
-
-	if (success == 1) {
-		response->result = RA_AUTH_SUCCESS;
-
-		// Extract Token
-		json_extract_string(json, "Token", response->token, sizeof(response->token));
-
-		// Extract User (display name)
-		json_extract_string(json, "User", response->display_name, sizeof(response->display_name));
-
-		if (strlen(response->token) == 0) {
-			// Token missing in success response - shouldn't happen but handle it
-			response->result = RA_AUTH_ERROR_PARSE;
-			strncpy(response->error_message, "Token missing in response",
-					sizeof(response->error_message) - 1);
-		}
-	} else if (success == 0) {
-		response->result = RA_AUTH_ERROR_INVALID;
-
-		// Try to extract error message
-		if (!json_extract_string(json, "Error", response->error_message,
-								 sizeof(response->error_message))) {
-			strncpy(response->error_message, "Invalid credentials",
-					sizeof(response->error_message) - 1);
-		}
-	} else {
-		// Couldn't parse Success field
-		response->result = RA_AUTH_ERROR_PARSE;
-		strncpy(response->error_message, "Invalid response format",
-				sizeof(response->error_message) - 1);
-	}
-}
 
 // Async authentication context
 typedef struct {
@@ -108,7 +39,7 @@ static void ra_auth_http_callback(HTTP_Response* http_response, void* userdata) 
 				sizeof(response.error_message) - 1);
 	} else {
 		// Parse the JSON response
-		parse_login_response(http_response->data, &response);
+		RA_Auth_parseLogin(http_response->data, &response);
 	}
 
 	// Call the user's callback
@@ -200,7 +131,7 @@ RA_AuthResult RA_authenticateSync(const char* username, const char* password,
 	}
 
 	// Parse the JSON response
-	parse_login_response(http_response->data, response);
+	RA_Auth_parseLogin(http_response->data, response);
 
 	HTTP_freeResponse(http_response);
 	return response->result;

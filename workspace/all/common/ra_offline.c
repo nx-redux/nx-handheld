@@ -1082,9 +1082,14 @@ static void ra_off_journal_rewrite(const RA_PendingUnlock* entries, const bool* 
 	bool failed = false;
 	char line[512];
 	RA_PendingUnlock e;
+	bool line_start = true; // fgets hands a line longer than the buffer over in pieces
 	while (fgets(line, sizeof(line), in)) {
 		bool drop = false;
-		if (ra_off_journal_parse_line(line, &e)) {
+		size_t len = strlen(line);
+		bool whole = line_start && ((len > 0 && line[len - 1] == '\n') || feof(in));
+		line_start = len > 0 && line[len - 1] == '\n';
+		// only a whole line is an entry: a piece of a longer one that happens to read as one is kept with the rest
+		if (whole && ra_off_journal_parse_line(line, &e)) {
 			for (int i = 0; i < count; i++) {
 				if (synced[i] &&
 					strcasecmp(entries[i].username, e.username) == 0 &&

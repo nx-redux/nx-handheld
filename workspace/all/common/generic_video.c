@@ -592,38 +592,25 @@ void PLAT_clearNotificationSurface(void) {
 
 #define MAX_SHADERLINE_LENGTH 512
 int extractPragmaParameters(const char* shaderSource, ShaderParam* params, int maxParams) {
-	const char* pragmaPrefix = "#pragma parameter";
 	char line[MAX_SHADERLINE_LENGTH];
 	int paramCount = 0;
 
 	const char* currentPos = shaderSource;
 
 	while (*currentPos && paramCount < maxParams) {
-		int i = 0;
+		ShaderStrip_readLine(&currentPos, line, sizeof(line));
 
-		// Read a line
-		while (*currentPos && *currentPos != '\n' && i < MAX_SHADERLINE_LENGTH - 1) {
-			line[i++] = *currentPos++;
-		}
-		line[i] = '\0';
-		if (*currentPos == '\n')
-			currentPos++;
-
-		// Check if it's a #pragma parameter line
-		if (strncmp(line, pragmaPrefix, strlen(pragmaPrefix)) == 0) {
-			const char* start = line + strlen(pragmaPrefix);
-			while (*start == ' ')
-				start++;
-
-			ShaderParam* p = &params[paramCount];
-
-			// Try to parse
-			if (sscanf(start, "%127s \"%127[^\"]\" %f %f %f %f",
-					   p->name, p->label, &p->def, &p->min, &p->max, &p->step) == 6) {
-				paramCount++;
-			} else {
-				fprintf(stderr, "Failed to parse line:\n%s\n", line);
-			}
+		ShaderParam* p = &params[paramCount];
+		float vals[4];
+		int parsed = ShaderStrip_parsePragma(line, p->name, p->label, vals);
+		if (parsed > 0) {
+			p->def = vals[0];
+			p->min = vals[1];
+			p->max = vals[2];
+			p->step = vals[3];
+			paramCount++;
+		} else if (parsed < 0) {
+			fprintf(stderr, "Failed to parse line:\n%s\n", line);
 		}
 	}
 

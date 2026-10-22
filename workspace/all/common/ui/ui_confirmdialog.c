@@ -1,6 +1,7 @@
 #include "ui_confirmdialog.h"
 #include "ui_draw.h"
 #include "ui_pindialog.h"
+#include "confirm_wrap.h"
 #include "api.h"
 #include "defines.h"
 
@@ -9,33 +10,19 @@
 
 #define CONFIRM_MAX_SUB_LINES 4
 
+static int confirm_measure(void* font, const char* utf8) {
+	int w = 0;
+	GFX_measureText(font, utf8, &w, NULL);
+	return w;
+}
+
 // Greedy word-wrap `text` to `max_w` using `font`, into up to
-// CONFIRM_MAX_SUB_LINES lines. Returns the line count. (SDL_ttf 2.0.13's
-// wrapped rendering left-aligns lines, so callers render each line centered.)
+// CONFIRM_MAX_SUB_LINES lines (ConfirmWrap_lines). Returns the line count.
+// (SDL_ttf 2.0.13's wrapped rendering left-aligns lines, so callers render
+// each line centered.)
 static int confirm_wrap_lines(TTF_Font* font, const char* text, int max_w,
 							  char lines[CONFIRM_MAX_SUB_LINES][256]) {
-	char work[512];
-	snprintf(work, sizeof(work), "%s", text);
-
-	int n = 0;
-	lines[0][0] = '\0';
-	char* save = NULL;
-	for (char* tok = strtok_r(work, " ", &save); tok && n < CONFIRM_MAX_SUB_LINES;
-		 tok = strtok_r(NULL, " ", &save)) {
-		char cand[256];
-		snprintf(cand, sizeof(cand), "%s%s%s", lines[n], lines[n][0] ? " " : "", tok);
-		int w = 0;
-		GFX_measureText(font, cand, &w, NULL);
-		if (w <= max_w || !lines[n][0]) {
-			snprintf(lines[n], sizeof(lines[n]), "%s", cand);
-		} else if (n + 1 < CONFIRM_MAX_SUB_LINES) {
-			n++;
-			snprintf(lines[n], sizeof(lines[n]), "%s", tok);
-		} else {
-			break; // out of lines; drop the rest
-		}
-	}
-	return lines[0][0] ? n + 1 : 0;
+	return ConfirmWrap_lines(text, max_w, confirm_measure, font, lines, CONFIRM_MAX_SUB_LINES);
 }
 
 void UI_renderConfirmDialog(SDL_Surface* dst, const char* title,

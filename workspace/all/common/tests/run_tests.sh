@@ -145,3 +145,33 @@ cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -
 /tmp/nx_test_scraper_parse
 cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_scraper_names ../../scraper/scraper_names.c ../utils.c test_scraper_names.c
 /tmp/nx_test_scraper_names
+# common/ and nextui/ coverage (names, radios, wpa escape, BT lines, shader pragmas, RA login, keyboard, list nav)
+SDROOT="-Wno-deprecated-declarations -Isdroot -I.. -DPLATFORM=\"tg5040\""
+PLAT="-Wno-deprecated-declarations -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\""
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g $SDROOT -o /tmp/nx_test_utils_names ../utils.c test_utils_names.c
+/tmp/nx_test_utils_names
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wifi_escape test_wifi_escape.c
+/tmp/nx_test_wifi_escape
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_ra_auth_parse ../utils.c test_ra_auth_parse.c
+/tmp/nx_test_ra_auth_parse
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_kb_utf8 test_kb_utf8.c
+/tmp/nx_test_kb_utf8
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_list_nav test_list_nav.c
+/tmp/nx_test_list_nav
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_confirm_wrap test_confirm_wrap.c
+/tmp/nx_test_confirm_wrap
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_emu_ovl_write_ini ../emu_overlay_cfg.c ../cjson/cJSON.c test_emu_ovl_write_ini.c
+/tmp/nx_test_emu_ovl_write_ini
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_path_stack ../../nextui/path_stack.c test_path_stack.c
+/tmp/nx_test_path_stack
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_gamelist_text ../../nextui/gamelist_text.c ../utils.c test_gamelist_text.c
+/tmp/nx_test_gamelist_text
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_entry_names ../../nextui/entry_names.c ../../nextui/types.c ../utils.c test_entry_names.c
+/tmp/nx_test_entry_names
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_entry_cache ../../nextui/entry_cache.c ../../nextui/emulist_model.c ../utils.c test_entry_cache.c
+/tmp/nx_test_entry_cache
+# recents.c/shortcuts.c as built, on a fixture card (-Isdroot) with api.h's logging stubbed (-Istubs)
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -Istubs $SDROOT -o /tmp/nx_test_recents_shortcuts ../../nextui/recents.c ../../nextui/shortcuts.c ../../nextui/types.c ../../nextui/menutabs_model.c ../utils.c test_recents_shortcuts.c
+/tmp/nx_test_recents_shortcuts
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_thumbcache_model ../../nextui/thumbcache_model.c test_thumbcache_model.c
+/tmp/nx_test_thumbcache_model

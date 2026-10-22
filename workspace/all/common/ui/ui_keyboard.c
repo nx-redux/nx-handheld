@@ -4,6 +4,7 @@
 #include "ui_keyboard.h"
 #include "ui_draw.h"
 #include "ui_buttonhintbar.h"
+#include "kb_utf8.h"
 #include "api.h"
 #include "config.h"
 #include "defines.h"
@@ -211,36 +212,6 @@ char* UIKeyboard_openEx(const char* prompt, int flags) {
 	return UIKeyboard_openWith(prompt, NULL, flags);
 }
 
-// Length of s with any trailing partial UTF-8 sequence dropped, so a cut or
-// a backspace never leaves half a character behind.
-static int kb_utf8_boundary(const char* s, int len) {
-	int i = len;
-	while (i > 0 && ((unsigned char)s[i - 1] & 0xC0) == 0x80)
-		i--; // continuation bytes
-	if (i == 0)
-		return 0;
-	unsigned char lead = (unsigned char)s[i - 1];
-	int need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3
-							  : lead >= 0xC0   ? 2
-											   : 1;
-	return (len - (i - 1)) >= need ? len : i - 1;
-}
-
-// Byte offset of the character before / after `at` (a char boundary).
-static int kb_prev_char(const char* s, int at) {
-	do
-		at--;
-	while (at > 0 && ((unsigned char)s[at] & 0xC0) == 0x80);
-	return at;
-}
-
-static int kb_next_char(const char* s, int at, int len) {
-	do
-		at++;
-	while (at < len && ((unsigned char)s[at] & 0xC0) == 0x80);
-	return at;
-}
-
 // Insert one ASCII key at the caret; false when the input is full.
 static bool kb_insert(char* input, int* len, int* caret, char c) {
 	if (*len >= KB_MAX_INPUT)
@@ -263,7 +234,7 @@ char* UIKeyboard_openWith(const char* prompt, const char* initial, int flags) {
 	int len = 0;
 	if (initial) {
 		snprintf(input, sizeof(input), "%s", initial);
-		len = kb_utf8_boundary(input, (int)strlen(input));
+		len = KbUtf8_boundary(input, (int)strlen(input));
 		input[len] = '\0';
 	}
 	int caret = len; // byte offset of the edit position, always on a char boundary
@@ -319,12 +290,12 @@ char* UIKeyboard_openWith(const char* prompt, const char* initial, int flags) {
 			dirty = true;
 		} else if (cur_row == KB_INPUT_ROW && PAD_justRepeated(BTN_LEFT)) {
 			if (caret > 0) {
-				caret = kb_prev_char(input, caret);
+				caret = KbUtf8_prev(input, caret);
 				dirty = true;
 			}
 		} else if (cur_row == KB_INPUT_ROW && PAD_justRepeated(BTN_RIGHT)) {
 			if (caret < len) {
-				caret = kb_next_char(input, caret, len);
+				caret = KbUtf8_next(input, caret, len);
 				dirty = true;
 			}
 		} else if (PAD_justRepeated(BTN_LEFT)) {
@@ -340,19 +311,19 @@ char* UIKeyboard_openWith(const char* prompt, const char* initial, int flags) {
 			dirty = true;
 		} else if (PAD_justRepeated(BTN_L1)) {
 			if (caret > 0) {
-				caret = kb_prev_char(input, caret);
+				caret = KbUtf8_prev(input, caret);
 				dirty = true;
 			}
 		} else if (PAD_justRepeated(BTN_R1)) {
 			if (caret < len) {
-				caret = kb_next_char(input, caret, len);
+				caret = KbUtf8_next(input, caret, len);
 				dirty = true;
 			}
 		} else if (PAD_justRepeated(BTN_Y)) {
 			// deletes the character before the caret; held Y keeps deleting,
 			// so a pre-filled name clears quickly
 			if (caret > 0) {
-				int start = kb_prev_char(input, caret);
+				int start = KbUtf8_prev(input, caret);
 				memmove(input + start, input + caret, len - caret + 1);
 				len -= caret - start;
 				caret = start;

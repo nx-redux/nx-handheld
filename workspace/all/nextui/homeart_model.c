@@ -1,7 +1,9 @@
 #include "homeart_model.h"
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define BAR_MAX 4 // a channel at or under this counts as black
 
@@ -74,4 +76,67 @@ bool HomeArt_isBlankFrame(const unsigned* px, HomeArtRect keep, int pitch_words)
 
 float HomeArt_frameY(int w, int h, float dflt) {
 	return h > w ? 0.0f : dflt;
+}
+
+void HomeArt_halve(const unsigned* px, int spitch, HomeArtRect keep, unsigned* dst, int dpitch) {
+	int w = keep.w / 2, h = keep.h / 2;
+	for (int y = 0; y < h; y++) {
+		const unsigned* r0 = px + (long)(keep.y + 2 * y) * spitch + keep.x;
+		const unsigned* r1 = r0 + spitch;
+		for (int x = 0; x < w; x++) {
+			unsigned a = r0[2 * x], b = r0[2 * x + 1], c = r1[2 * x], d = r1[2 * x + 1];
+			// two channels a word (0x00RR00BB, 0x00AA00GG): a lane's sum of four <= 1022 never carries over
+			unsigned rb = (a & 0x00FF00FFu) + (b & 0x00FF00FFu) + (c & 0x00FF00FFu) + (d & 0x00FF00FFu) + 0x00020002u;
+			unsigned ag = ((a >> 8) & 0x00FF00FFu) + ((b >> 8) & 0x00FF00FFu) + ((c >> 8) & 0x00FF00FFu) +
+						  ((d >> 8) & 0x00FF00FFu) + 0x00020002u;
+			dst[(long)y * dpitch + x] = ((rb >> 2) & 0x00FF00FFu) | (((ag >> 2) & 0x00FF00FFu) << 8);
+		}
+	}
+}
+
+float HomeArt_coverScale(int keep_w, int keep_h, int w, int h, float zoom) {
+	float sx = (float)w / keep_w, sy = (float)h / keep_h;
+	return (sx > sy ? sx : sy) * zoom;
+}
+
+void HomeArt_coverOrigin(int keep_w, int keep_h, int w, int h, float s, float frame_y, float* ox, float* oy) {
+	*ox = 0.5f * (keep_w * s - w);
+	*oy = frame_y * (keep_h * s - h);
+}
+
+bool HomeArt_listPathCont(const char* preview, const char* rom, char* out, size_t size) {
+	int n = snprintf(out, size, HOMEART_LIST_PREFIX "cont\n%s\n%s", preview, rom);
+	if (n < 0 || (size_t)n >= size) {
+		out[0] = '\0';
+		return false;
+	}
+	return true;
+}
+
+bool HomeArt_listPathAbs(const char* rom, char* out, size_t size) {
+	int n = snprintf(out, size, HOMEART_LIST_PREFIX "abs\n%s", rom);
+	if (n < 0 || (size_t)n >= size) {
+		out[0] = '\0';
+		return false;
+	}
+	return true;
+}
+
+HomeArtListKind HomeArt_parseListPath(const char* path, char* preview, size_t preview_size, const char** rom) {
+	if (!path || strncmp(path, HOMEART_LIST_PREFIX, sizeof(HOMEART_LIST_PREFIX) - 1) != 0)
+		return HOMEART_LIST_NONE;
+	const char* p = path + sizeof(HOMEART_LIST_PREFIX) - 1;
+	if (strncmp(p, "abs\n", 4) == 0) {
+		*rom = p + 4;
+		return HOMEART_LIST_ABS;
+	}
+	if (strncmp(p, "cont\n", 5) != 0)
+		return HOMEART_LIST_NONE;
+	p += 5;
+	const char* nl = strchr(p, '\n');
+	if (!nl)
+		return HOMEART_LIST_NONE;
+	snprintf(preview, preview_size, "%.*s", (int)(nl - p), p);
+	*rom = nl + 1;
+	return HOMEART_LIST_CONT;
 }

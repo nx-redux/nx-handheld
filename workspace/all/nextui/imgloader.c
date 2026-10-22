@@ -7,6 +7,7 @@
 #include "api.h"
 #include "config.h"
 #include "imgloader.h"
+#include "thumbcache_model.h"
 #include "artbg.h"
 #include "area_scale.h"
 #include "image_probe.h"
@@ -61,20 +62,7 @@ static int cachedScreenH = 0;
 ///////////////////////////////////////
 // Thumbnail cache
 //
-// Keyed by path and compose mode (thumbKey): the screenshot's faded background and the fitted box (List art = Mix,
-// 2D box art or Wheel) are different surfaces of what may be the same file (a Port's root picture is both its
-// screenshot and its legacy mix), so a Layouts > List art switch never reuses the other mode's surface.
-
-#define THUMB_CACHE_SIZE 8
-// "fit:" + a path startLoadThumb accepts (shorter than MAX_PATH, the task's buffer): every key fits whole
-#define THUMB_KEY_MAX (MAX_PATH + 8)
-
-typedef struct {
-	char path[THUMB_KEY_MAX]; // thumbKey
-	SDL_Surface* surface;	  // NULL: a remembered miss (no file, or it failed to decode), not retried until invalidated
-	int lru_counter;
-	bool occupied;
-} ThumbCacheEntry;
+// Keyed by path and compose mode (thumbKey): see thumbcache_model.h.
 
 static ThumbCacheEntry thumb_cache[THUMB_CACHE_SIZE];
 static int thumb_lru_counter = 0;
@@ -90,7 +78,7 @@ static char pendingThumbKey[THUMB_KEY_MAX] = {0};
 
 // The cache key for `path` composed as `compose`: the path itself for the background, "fit:" + path for the box.
 static void thumbKey(const char* path, int compose, char* out, size_t size) {
-	snprintf(out, size, "%s%s", compose == THUMB_COMPOSE_FIT && path[0] ? "fit:" : "", path);
+	ThumbCache_key(path, compose == THUMB_COMPOSE_FIT, out, size);
 }
 
 ///////////////////////////////////////
@@ -275,44 +263,9 @@ static int loadWorker(void* arg) {
 
 // Takes over the caller's reference to `surface` (NULL caches a miss).
 static void thumbCacheInsert(const char* path, SDL_Surface* surface) {
-	int target = -1;
-	int min_lru = INT_MAX;
-
-	// Check if already cached (update in place)
-	for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
-		if (thumb_cache[i].occupied && strcmp(thumb_cache[i].path, path) == 0) {
-			SDL_FreeSurface(thumb_cache[i].surface);
-			thumb_cache[i].surface = surface;
-			thumb_cache[i].lru_counter = ++thumb_lru_counter;
-			return;
-		}
-	}
-
-	// Find empty slot
-	for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
-		if (!thumb_cache[i].occupied) {
-			target = i;
-			break;
-		}
-	}
-
-	// No empty slot - evict LRU
-	if (target < 0) {
-		for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
-			if (thumb_cache[i].lru_counter < min_lru) {
-				min_lru = thumb_cache[i].lru_counter;
-				target = i;
-			}
-		}
-		if (thumb_cache[target].surface)
-			SDL_FreeSurface(thumb_cache[target].surface);
-	}
-
-	strncpy(thumb_cache[target].path, path, sizeof(thumb_cache[target].path) - 1);
-	thumb_cache[target].path[sizeof(thumb_cache[target].path) - 1] = '\0';
-	thumb_cache[target].surface = surface;
-	thumb_cache[target].lru_counter = ++thumb_lru_counter;
-	thumb_cache[target].occupied = true;
+	SDL_Surface* old = ThumbCache_insert(thumb_cache, THUMB_CACHE_SIZE, &thumb_lru_counter, path, surface);
+	if (old)
+		SDL_FreeSurface(old);
 }
 
 // Drop any cached thumbnail (or cached miss) for `path`, in either compose mode, so the next
@@ -494,11 +447,9 @@ bool thumbPrefetch(const char* thumbpath, int compose) {
 	char key[THUMB_KEY_MAX];
 	thumbKey(thumbpath, compose, key, sizeof(key));
 	SDL_LockMutex(thumbMutex);
-	for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
-		if (thumb_cache[i].occupied && strcmp(thumb_cache[i].path, key) == 0) {
-			SDL_UnlockMutex(thumbMutex);
-			return false; // decoded already (or a remembered miss)
-		}
+	if (ThumbCache_find(thumb_cache, THUMB_CACHE_SIZE, key) >= 0) {
+		SDL_UnlockMutex(thumbMutex);
+		return false; // decoded already (or a remembered miss)
 	}
 	// the selection's own picture first: nothing queued or decoding (the queue holds one task, so queueing now
 	// would displace or delay it)
@@ -558,26 +509,24 @@ bool startLoadThumb(const char* thumbpath, int compose) {
 	snprintf(desiredThumbPath, sizeof(desiredThumbPath), "%s", key);
 
 	// Check cache - swap immediately if found (a remembered miss drops the art at once)
-	for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
-		if (thumb_cache[i].occupied &&
-			strcmp(thumb_cache[i].path, key) == 0) {
-			thumb_cache[i].lru_counter = ++thumb_lru_counter;
-			SDL_Surface* cached = thumb_cache[i].surface;
-			if (!cached) {
-				dropThumb();				 // nothing to do when no art is up (the List asks every frame)
-			} else if (cached != thumbbmp) { // the same surface: back on art still shown (A -> B -> A mid-load)
-				cached->refcount++;			 // shared with the cache (see above)
-				if (thumbbmp)
-					SDL_FreeSurface(thumbbmp);
-				thumbbmp = cached;
-				thumb_fit = compose == THUMB_COMPOSE_FIT;
-				thumb_gen++;
-				SDL_AtomicSet(&thumbchanged, 1);
-				setNeedDraw(1);
-			}
-			SDL_UnlockMutex(thumbMutex);
-			return thumbbmp != NULL;
+	int i = ThumbCache_find(thumb_cache, THUMB_CACHE_SIZE, key);
+	if (i >= 0) {
+		thumb_cache[i].lru_counter = ++thumb_lru_counter;
+		SDL_Surface* cached = thumb_cache[i].surface;
+		if (!cached) {
+			dropThumb();				 // nothing to do when no art is up (the List asks every frame)
+		} else if (cached != thumbbmp) { // the same surface: back on art still shown (A -> B -> A mid-load)
+			cached->refcount++;			 // shared with the cache (see above)
+			if (thumbbmp)
+				SDL_FreeSurface(thumbbmp);
+			thumbbmp = cached;
+			thumb_fit = compose == THUMB_COMPOSE_FIT;
+			thumb_gen++;
+			SDL_AtomicSet(&thumbchanged, 1);
+			setNeedDraw(1);
 		}
+		SDL_UnlockMutex(thumbMutex);
+		return thumbbmp != NULL;
 	}
 
 	// Cache miss - keep old thumb visible while loading

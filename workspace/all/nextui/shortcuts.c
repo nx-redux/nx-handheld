@@ -232,11 +232,19 @@ bool Shortcuts_replacePath(const char* old_path, const char* new_path, const cha
 	if (idx == -1)
 		return false;
 	Shortcut* shortcut = shortcuts->items[idx];
+	// both copies first: out of memory leaves the pin as it was (a NULL path would crash every later lookup)
+	char* path = strdup(new_path);
+	char* name = new_name ? strdup(new_name) : NULL;
+	if (!path || (new_name && !name)) {
+		free(path);
+		free(name);
+		return false;
+	}
 	free(shortcut->path);
-	shortcut->path = strdup(new_path); // same slot: the pin keeps its place
-	if (new_name) {
+	shortcut->path = path; // same slot: the pin keeps its place
+	if (name) {
 		free(shortcut->name);
-		shortcut->name = strdup(new_name);
+		shortcut->name = name;
 	}
 	saveShortcuts();
 	return true;

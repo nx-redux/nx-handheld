@@ -489,8 +489,7 @@ void PLAT_bluetoothDiscovery(int on) {
 				char* line = strtok(rm_output, "\n");
 				while (line) {
 					char addr[18] = {0};
-					if (strncmp(line, "Device ", 7) == 0 && sscanf(line, "Device %17s", addr) == 1 &&
-						BtAddr_isValid(addr)) {
+					if (BtAddr_parseDeviceLine(line, addr, NULL, 0)) {
 						int keep = 0;
 						for (int i = 0; i < keep_count; i++) {
 							if (strcmp(keep_list[i].remote_addr, addr) == 0) {
@@ -545,23 +544,11 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 		char name[249] = {0};
 
 		// Parse "Device XX:XX:XX:XX:XX:XX Name"
-		if (strncmp(line, "Device ", 7) == 0) {
-			if (sscanf(line, "Device %17s", addr) == 1 && BtAddr_isValid(addr)) {
-				// Get name (everything after the address). "Device " (7) +
-				// "XX:XX:XX:XX:XX:XX " (18) = 25 bytes precede the name;
-				// bounds-check so a line with no trailing space can't over-read.
-				if (strlen(line) >= 25) {
-					char* name_start = line + 7 + 18;
-					if (*name_start) {
-						strncpy(name, name_start, sizeof(name) - 1);
-					}
-				}
-
-				// Get device type — only show audio and controller devices
-				BluetoothDeviceType kind = bt_get_device_type(addr);
-				if (kind == BLUETOOTH_AUDIO || kind == BLUETOOTH_CONTROLLER) {
-					bt_add_discovered_device(addr, name, kind);
-				}
+		if (BtAddr_parseDeviceLine(line, addr, name, sizeof(name))) {
+			// Get device type — only show audio and controller devices
+			BluetoothDeviceType kind = bt_get_device_type(addr);
+			if (kind == BLUETOOTH_AUDIO || kind == BLUETOOTH_CONTROLLER) {
+				bt_add_discovered_device(addr, name, kind);
 			}
 		}
 		line = strtok(NULL, "\n");
@@ -669,49 +656,37 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 		char name[249] = {0};
 
 		// Parse "Device XX:XX:XX:XX:XX:XX Name"
-		if (strncmp(line, "Device ", 7) == 0) {
-			if (sscanf(line, "Device %17s", addr) == 1 && BtAddr_isValid(addr)) {
-				// Get name (everything after the address). "Device " (7) +
-				// "XX:XX:XX:XX:XX:XX " (18) = 25 bytes precede the name;
-				// bounds-check so a line with no trailing space can't over-read.
-				if (strlen(line) >= 25) {
-					char* name_start = line + 7 + 18;
-					if (*name_start) {
-						strncpy(name, name_start, sizeof(name) - 1);
-					}
+		if (BtAddr_parseDeviceLine(line, addr, name, sizeof(name))) {
+			// Skip if already in the list (device may be both paired and connected)
+			int duplicate = 0;
+			for (int i = 0; i < count; i++) {
+				if (strcmp(paired[i].remote_addr, addr) == 0) {
+					duplicate = 1;
+					break;
 				}
-
-				// Skip if already in the list (device may be both paired and connected)
-				int duplicate = 0;
-				for (int i = 0; i < count; i++) {
-					if (strcmp(paired[i].remote_addr, addr) == 0) {
-						duplicate = 1;
-						break;
-					}
-				}
-				if (duplicate) {
-					line = strtok(NULL, "\n");
-					continue;
-				}
-
-				struct BT_devicePaired* device = &paired[count];
-				strncpy(device->remote_addr, addr, sizeof(device->remote_addr) - 1);
-				device->remote_addr[sizeof(device->remote_addr) - 1] = '\0';
-				strncpy(device->remote_name, name, sizeof(device->remote_name) - 1);
-				device->remote_name[sizeof(device->remote_name) - 1] = '\0';
-				device->is_bonded = true;
-				device->rssi = -50; // Default value, actual RSSI requires active connection
-
-				// Check if connected
-				char cmd[256];
-				char info_output[1024];
-				snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null | grep 'Connected: yes'", addr);
-				device->is_connected = (bt_run_cmd(cmd, info_output, sizeof(info_output)) == 0 &&
-										strstr(info_output, "Connected: yes") != NULL);
-
-				btlog("Paired device: %s (%s) connected=%d\n", device->remote_addr, device->remote_name, device->is_connected);
-				count++;
 			}
+			if (duplicate) {
+				line = strtok(NULL, "\n");
+				continue;
+			}
+
+			struct BT_devicePaired* device = &paired[count];
+			strncpy(device->remote_addr, addr, sizeof(device->remote_addr) - 1);
+			device->remote_addr[sizeof(device->remote_addr) - 1] = '\0';
+			strncpy(device->remote_name, name, sizeof(device->remote_name) - 1);
+			device->remote_name[sizeof(device->remote_name) - 1] = '\0';
+			device->is_bonded = true;
+			device->rssi = -50; // Default value, actual RSSI requires active connection
+
+			// Check if connected
+			char cmd[256];
+			char info_output[1024];
+			snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null | grep 'Connected: yes'", addr);
+			device->is_connected = (bt_run_cmd(cmd, info_output, sizeof(info_output)) == 0 &&
+									strstr(info_output, "Connected: yes") != NULL);
+
+			btlog("Paired device: %s (%s) connected=%d\n", device->remote_addr, device->remote_name, device->is_connected);
+			count++;
 		}
 		line = strtok(NULL, "\n");
 	}

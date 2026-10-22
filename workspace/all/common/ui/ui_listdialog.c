@@ -1,5 +1,6 @@
 #include "ui_listdialog.h"
 #include "ui_list.h"
+#include "list_nav.h"
 #include "ui_accent.h"
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
@@ -42,11 +43,7 @@ void ListDialog_setItems(ListDialogItem* items, int count) {
 		}
 	}
 	dialog_count = count;
-
-	if (dialog_selected >= dialog_count)
-		dialog_selected = dialog_count > 0 ? dialog_count - 1 : 0;
-	if (dialog_scroll > dialog_selected)
-		dialog_scroll = dialog_selected;
+	ListNav_clampSelection(dialog_count, &dialog_selected, &dialog_scroll);
 }
 
 void ListDialog_setStatus(const char* status) {

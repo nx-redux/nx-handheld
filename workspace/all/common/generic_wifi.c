@@ -19,6 +19,7 @@
 #include "config.h"
 #include "utils.h"
 #include "wifi_scan_line.h"
+#include "wifi_escape.h"
 
 #include <unistd.h>
 
@@ -66,34 +67,6 @@ static bool wifi_get_ip(char* ip, size_t len) {
 	}
 	ip[0] = '\0';
 	return false;
-}
-
-// Helper to escape a string for wpa_cli (double quotes/backslashes) and shell (single quotes)
-static void wifi_escape(char* dest, const char* src, size_t dest_len) {
-	size_t j = 0;
-	for (size_t i = 0; src[i] != '\0' && j < dest_len - 1; i++) {
-		// Double quotes and backslashes need to be escaped for wpa_cli (inside its own quotes)
-		if (src[i] == '"' || src[i] == '\\') {
-			if (j < dest_len - 2) {
-				dest[j++] = '\\';
-			}
-		}
-		// Single quotes need to be escaped for the shell (outside wpa_cli's quotes but inside shell's)
-		else if (src[i] == '\'') {
-			if (j < dest_len - 5) {
-				dest[j++] = '\''; // close single quote
-				dest[j++] = '\\'; // escape
-				dest[j++] = '\''; // the actual quote
-				dest[j++] = '\''; // open single quote again
-			}
-			continue;
-		}
-
-		if (j < dest_len - 1) {
-			dest[j++] = src[i];
-		}
-	}
-	dest[j] = '\0';
 }
 
 void PLAT_wifiInit() {
@@ -668,9 +641,9 @@ int PLAT_wifiConnectPass(const char* ssid, WifiSecurityType sec, const char* pas
 
 	char escaped_ssid[SSID_MAX * 5];
 	char escaped_pass[SSID_MAX * 5];
-	wifi_escape(escaped_ssid, ssid, sizeof(escaped_ssid));
+	WifiEscape_wpa(escaped_ssid, ssid, sizeof(escaped_ssid));
 	if (pass)
-		wifi_escape(escaped_pass, pass, sizeof(escaped_pass));
+		WifiEscape_wpa(escaped_pass, pass, sizeof(escaped_pass));
 
 	// Check if network already exists
 	int network_id = wifi_find_network_id(ssid);

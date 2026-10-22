@@ -311,7 +311,8 @@ void removeParentheses(char* str_out, const char* str_in) {
 	bool inside = false;
 	char end_char;
 
-	for (int i = 0; i < len && i < STR_MAX; i++) {
+	// STR_MAX - 1: a name of STR_MAX+ chars with no brackets kept every byte and wrote the NUL past temp
+	for (int i = 0; i < len && i < STR_MAX - 1; i++) {
 		if (!inside && (str_in[i] == '(' || str_in[i] == '[')) {
 			end_char = str_in[i] == '(' ? ')' : ']';
 			inside = true;
@@ -450,6 +451,11 @@ bool pathRelativeTo(char* path_out, const char* dir_from, const char* file_to) {
 	char* p2 = abs_to;
 	while (*p1 && (*p1 == *p2)) {
 		++p1, ++p2;
+	}
+	// The shared part ends on a whole path segment: "/a/bc" and "/a/bd/x" share "/a/", not "/a/b".
+	if (*p1 || (*p2 && *p2 != '/')) {
+		while (p1 > abs_from && p1[-1] != '/')
+			--p1, --p2;
 	}
 
 	if (*p2 == '/') {

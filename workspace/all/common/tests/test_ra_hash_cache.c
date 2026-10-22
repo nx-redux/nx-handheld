@@ -330,8 +330,32 @@ static void test_external_writer(void) {
 	printf("ok test_external_writer\n");
 }
 
+static void test_folder_dir(void) {
+	char buf[256];
+	RA_HashCache_init(ROMS "//"); // a trailing slash on the roms root is dropped
+	assert(RA_HashCache_folderDir(GBA "/Sub Folder/Game.gba", buf, sizeof(buf)));
+	assert(strcmp(buf, GBA "/.retroachievements") == 0);
+	// a dot folder, a path outside the root, a sibling root sharing its prefix, no rom below the folder, and
+	// "."/".." components are all refused (and leave "")
+	const char* bad[] = {ROMS "/.hidden/Game.gba", "/elsewhere/GBA/Game.gba", ROMS "2/GBA/Game.gba",
+						 GBA, GBA "/", ROMS "//Game.gba", GBA "/../x.gba", GBA "/./x.gba", GBA "/a//b.gba", NULL};
+	for (int i = 0; i < 9; i++) {
+		buf[0] = 'x';
+		assert(!RA_HashCache_folderDir(bad[i], buf, sizeof(buf)) && buf[0] == '\0');
+	}
+	assert(!RA_HashCache_folderDir(NULL, buf, sizeof(buf)));
+	assert(!RA_HashCache_folderDir(GBA "/Game.gba", NULL, 10));
+	// the dir must fit whole: exactly at the limit fits, one byte less does not
+	size_t need = strlen(GBA "/.retroachievements") + 1;
+	assert(RA_HashCache_folderDir(GBA "/Game.gba", buf, need));
+	assert(!RA_HashCache_folderDir(GBA "/Game.gba", buf, need - 1) && buf[0] == '\0');
+	RA_HashCache_init(ROMS);
+	printf("ok test_folder_dir\n");
+}
+
 int main(void) {
 	test_mtime_rule();
+	test_folder_dir();
 	test_can_store();
 	test_miss_hit();
 	test_size_and_mtime_change();

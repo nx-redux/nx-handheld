@@ -2,6 +2,7 @@
 #include "api.h"
 #include "config.h"
 #include "defines.h"
+#include "entry_names.h"
 #include "gamelist.h"
 #include "imgloader.h"
 #include "gameinfo.h"
@@ -101,32 +102,7 @@ static void gs_listBuild(void) {
 	}
 	// Games of one name from different consoles (Tetris on NES and Game Boy) read as a game list's do: the name, then
 	// its core's tag dimmed after it ("Tetris (GB)"); two of one name and tag, the file's name instead
-	for (int i = 0; i < gs_entries->count; i++) {
-		Entry* e = gs_entries->items[i];
-		bool dup = false, same_tag = false;
-		char tag[MAX_PATH];
-		getEmuName(e->path, tag);
-		for (int j = 0; j < gs_entries->count; j++) {
-			Entry* o = gs_entries->items[j];
-			if (j == i || !exactMatch(e->name, o->name))
-				continue;
-			dup = true;
-			char other[MAX_PATH];
-			getEmuName(o->path, other);
-			if (exactMatch(tag, other))
-				same_tag = true;
-		}
-		if (!dup)
-			continue;
-		char label[MAX_PATH], buf[MAX_PATH * 2 + 4];
-		if (same_tag)
-			snprintf(label, sizeof(label), "%s", baseName(e->path));
-		else
-			snprintf(label, sizeof(label), "%s", tag);
-		snprintf(buf, sizeof(buf), "%s (%s)", e->name, label);
-		free(e->unique);
-		e->unique = strdup(buf);
-	}
+	EntryNames_labelSwitcher(gs_entries);
 	gs_dir.path = (char*)"Recent";
 	gs_dir.name = (char*)"Recent";
 	gs_dir.entries = gs_entries;

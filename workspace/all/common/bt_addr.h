@@ -8,6 +8,9 @@
 // Pure, unit-tested on the host: see tests/test_bt_addr.c.
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 
 static inline bool BtAddr_isValid(const char* s) {
@@ -23,6 +26,25 @@ static inline bool BtAddr_isValid(const char* s) {
 		}
 	}
 	return s[17] == '\0';
+}
+
+// One `bluetoothctl devices` line: "Device XX:XX:XX:XX:XX:XX Name". False unless it starts "Device " and carries a
+// valid address (BtAddr_isValid), which goes to addr. name (may be NULL) gets what follows "Device " (7) and the
+// address with its space (18), cut to name_size - 1 bytes, or "" when the line ends before it.
+static inline bool BtAddr_parseDeviceLine(const char* line, char addr[18], char* name, size_t name_size) {
+	if (name && name_size > 0)
+		name[0] = '\0';
+	addr[0] = '\0';
+	if (!line || strncmp(line, "Device ", 7) != 0)
+		return false;
+	if (sscanf(line, "Device %17s", addr) != 1 || !BtAddr_isValid(addr))
+		return false;
+	// bounds-checked so a line with no trailing space can't over-read
+	if (name && name_size > 0 && strlen(line) >= 25 && line[25]) {
+		strncpy(name, line + 25, name_size - 1);
+		name[name_size - 1] = '\0';
+	}
+	return true;
 }
 
 #endif

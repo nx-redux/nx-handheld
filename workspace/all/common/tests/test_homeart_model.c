@@ -1,6 +1,7 @@
 #include "../../nextui/homeart_model.h"
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #define W 100
 #define H 80
@@ -113,7 +114,77 @@ static void blank_frames(void) {
 	assert(HomeArt_isBlankFrame(NULL, all, W));
 }
 
+// cropFill's 2x2 halving: rounded per-channel means, no carry between channels, odd edges left out
+static void halving(void) {
+	enum { P = 6 };
+	unsigned src[P * 2] = {
+		0xDEADBEEF,
+		0x01020304,
+		0x01020304,
+		0xFFFFFFFF,
+		0xFFFFFFFF,
+		0x12345678,
+		0xDEADBEEF,
+		0x01020304,
+		0x02030405,
+		0x00000000,
+		0x00000000,
+		0x12345678,
+	};
+	unsigned dst[3] = {0, 0, 0xCAFEF00D};
+	HomeArt_halve(src, P, (HomeArtRect){1, 0, 5, 2}, dst, 3);
+	assert(dst[0] == 0x01020304); // (3 * c + c + 1 + 2) >> 2 per channel
+	assert(dst[1] == 0x80808080); // two 0xFF and two 0x00: 128, every channel on its own
+	assert(dst[2] == 0xCAFEF00D); // the odd fifth column is not read into a third pixel
+	unsigned white[4] = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF}, out = 0;
+	HomeArt_halve(white, 2, (HomeArtRect){0, 0, 2, 2}, &out, 1);
+	assert(out == 0xFFFFFFFF); // 4 * 255 + 2 never carries into the next channel
+	out = 7;
+	HomeArt_halve(white, 2, (HomeArtRect){0, 0, 1, 2}, &out, 1); // under 2 px wide: nothing written
+	assert(out == 7);
+}
+
+static void cover_math(void) {
+	assert(HomeArt_coverScale(200, 100, 100, 100, 1.0f) == 1.0f); // the height decides
+	assert(HomeArt_coverScale(100, 200, 100, 100, 1.0f) == 1.0f); // the width decides
+	assert(HomeArt_coverScale(400, 400, 100, 50, 1.5f) == 0.375f);
+	float ox, oy;
+	HomeArt_coverOrigin(200, 100, 100, 100, 1.0f, 0.4f, &ox, &oy);
+	assert(ox == 50.0f && oy == 0.0f); // centred across
+	HomeArt_coverOrigin(100, 200, 100, 100, 1.0f, 0.4f, &ox, &oy);
+	assert(ox == 0.0f && oy == 40.0f); // frame_y of the vertical overflow
+	HomeArt_coverOrigin(100, 200, 100, 100, 1.0f, 0.0f, &ox, &oy);
+	assert(oy == 0.0f); // a tall picture's top
+	// the window stays inside the scaled picture at any zoom
+	HomeArt_coverOrigin(300, 200, 100, 100, HomeArt_coverScale(300, 200, 100, 100, 1.2f), 1.0f, &ox, &oy);
+	assert(ox >= 0 && oy >= 0 && ox + 100 <= 300 * 0.6f + 0.01f && oy + 100 <= 200 * 0.6f + 0.01f);
+}
+
+static void list_paths(void) {
+	char path[128], preview[64];
+	const char* rom = NULL;
+	assert(HomeArt_listPathCont("/sd/.userdata/a.bmp", "/sd/Roms/GB/a.gb", path, sizeof(path)));
+	assert(HomeArt_parseListPath(path, preview, sizeof(preview), &rom) == HOMEART_LIST_CONT);
+	assert(strcmp(preview, "/sd/.userdata/a.bmp") == 0 && strcmp(rom, "/sd/Roms/GB/a.gb") == 0);
+	assert(HomeArt_parseListPath(path, preview, 8, &rom) == HOMEART_LIST_CONT && strcmp(preview, "/sd/.us") == 0);
+	assert(HomeArt_listPathAbs("/sd/Roms/GB/a.gb", path, sizeof(path)));
+	assert(HomeArt_parseListPath(path, preview, sizeof(preview), &rom) == HOMEART_LIST_ABS);
+	assert(strcmp(rom, "/sd/Roms/GB/a.gb") == 0);
+	// too long for out: nothing half-written
+	assert(!HomeArt_listPathCont("/sd/p.bmp", "/sd/Roms/GB/a.gb", path, 20) && path[0] == '\0');
+	assert(!HomeArt_listPathAbs("/sd/Roms/GB/a.gb", path, 10) && path[0] == '\0');
+	// a plain file path and malformed ones are no list paths
+	assert(HomeArt_parseListPath("/sd/Roms/GB/.media/a.png", preview, sizeof(preview), &rom) == HOMEART_LIST_NONE);
+	assert(HomeArt_parseListPath(HOMEART_LIST_PREFIX "cont\nno-rom", preview, sizeof(preview), &rom) ==
+		   HOMEART_LIST_NONE);
+	assert(HomeArt_parseListPath(HOMEART_LIST_PREFIX "what\nx", preview, sizeof(preview), &rom) == HOMEART_LIST_NONE);
+	assert(HomeArt_parseListPath(NULL, preview, sizeof(preview), &rom) == HOMEART_LIST_NONE);
+}
+
 int main(void) {
+	halving();
+	cover_math();
+	list_paths();
 	// a tall picture (a DS screenshot, 256×384) frames its top; a wide or square one keeps the default
 	assert(HomeArt_frameY(256, 384, 0.5f) == 0.0f && HomeArt_frameY(256, 384, 0.4f) == 0.0f);
 	assert(HomeArt_frameY(320, 240, 0.5f) == 0.5f && HomeArt_frameY(256, 256, 0.4f) == 0.4f);
