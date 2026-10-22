@@ -32,8 +32,6 @@ typedef struct TurboState {
 	TurboButton btn[TURBO_MAX_BUTTONS];
 } TurboState;
 
-void Turbo_reset(TurboState* s);
-
 // Advance one frame for button `btn_id`. `activity` is non-zero when the pad
 // layer saw the button pressed, just pressed or just released this frame.
 // Returns 1 when the core should see the button pressed this frame.

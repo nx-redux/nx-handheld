@@ -9,8 +9,6 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <ifaddrs.h>
-#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/stat.h>
@@ -28,7 +26,9 @@
 #include "ui_quitrequest.h"
 #include "utils.h"
 #include "sync_proto.h"
+#include "sync_rsyncd.h"
 #include "usblink_state.h"
+#include "network_common.h"
 
 // Sync configuration
 #define SYNC_UDP_PORT 19999
@@ -42,8 +42,6 @@
 #define BROADCAST_INTERVAL_MS 1000
 #define RSYNC_CONF_PATH "/tmp/rsyncd.conf"
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
-#define USBLINK_STATE_PATH "/tmp/usblink.state"
-#define USBLINK_PID_PATH "/tmp/usblink.pid"
 #define ROMS_EXCLUDES_PATH "/tmp/sync-roms-excludes.txt"
 // mkdtemp() templates: the peer's collections in, the peer's merged ones out.
 #define COLLECTIONS_TMP_TEMPLATE "/tmp/sync-collections-XXXXXX"
@@ -59,13 +57,6 @@ static const char* saves_path(void) {
 // ROMS_PATH already defined in defines.h
 // The card's BIOS folder (Bios/<TAG>/, as minarch's core.bios_dir).
 #define BIOS_PATH SDCARD_PATH "/Bios"
-
-// rsync binary path (shared across platforms)
-static const char* rsync_bin_path(void) {
-	static char buf[MAX_PATH];
-	snprintf(buf, sizeof(buf), "%s/rsync", SHARED_BIN_PATH);
-	return buf;
-}
 
 // Single-quote a path for a shell command line, so a path carrying spaces or
 // an apostrophe survives the shell; plain paths pass through unchanged.
@@ -164,75 +155,18 @@ static void log_add(const char* line) {
 	pthread_mutex_unlock(&log_mutex);
 }
 
+// The Wi-Fi address to advertise, and its subnet broadcast. NET_getLanInfo
+// skips loopback, down and virtual interfaces (a VPN or VM address would send
+// the peer's READY/rsync traffic somewhere unreachable); the cable's TUN is
+// not a Wi-Fi address either.
 static int get_own_ip(void) {
-	struct ifaddrs* ifaddr;
-	struct ifaddrs* ifa;
-
-	if (getifaddrs(&ifaddr) == -1)
+	char ip[16];
+	char bcast[16] = {0};
+	if (NET_getLanInfo(ip, sizeof(ip), bcast, sizeof(bcast)) != 0 || !bcast[0] || sync_ip_is_cable(ip))
 		return -1;
-
-	// Virtual interfaces (VPN tunnels, VM/container bridges, peer-to-peer
-	// links). Advertising one of their addresses in the discovery payload
-	// sends the peer's READY/rsync traffic somewhere unreachable — the peer
-	// then waits forever.
-	static const char* virtual_prefixes[] = {
-		"utun", "bridge", "awdl", "llw", "vmnet", "docker",
-		"veth", "tap", "tun", "zt", "p2p", "nxlink", NULL};
-
-	int found = 0;
-	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-		if (ifa->ifa_addr == NULL)
-			continue;
-		if (ifa->ifa_addr->sa_family != AF_INET)
-			continue;
-		if (!(ifa->ifa_flags & IFF_UP))
-			continue;
-		if (ifa->ifa_flags & IFF_LOOPBACK)
-			continue;
-
-		int is_virtual = 0;
-		for (int v = 0; virtual_prefixes[v]; v++) {
-			if (strncmp(ifa->ifa_name, virtual_prefixes[v],
-						strlen(virtual_prefixes[v])) == 0) {
-				is_virtual = 1;
-				break;
-			}
-		}
-		if (is_virtual)
-			continue;
-
-		struct sockaddr_in* sa = (struct sockaddr_in*)ifa->ifa_addr;
-		inet_ntop(AF_INET, &sa->sin_addr, own_ip, sizeof(own_ip));
-
-		if (!ifa->ifa_netmask)
-			continue;
-		struct sockaddr_in* mask = (struct sockaddr_in*)ifa->ifa_netmask;
-		uint32_t ip_n = sa->sin_addr.s_addr;
-		uint32_t mask_n = mask->sin_addr.s_addr;
-		uint32_t bcast_n = ip_n | ~mask_n;
-		struct in_addr bcast_addr;
-		bcast_addr.s_addr = bcast_n;
-		inet_ntop(AF_INET, &bcast_addr, broadcast_ip, sizeof(broadcast_ip));
-
-		found = 1;
-
-		// First real interface wins (wlan0 on devices).
-		break;
-	}
-
-	freeifaddrs(ifaddr);
-	return found ? 0 : -1;
-}
-
-static int create_send_socket(void) {
-	int sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sock < 0)
-		return -1;
-
-	int yes = 1;
-	setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
-
-	return sock;
+	snprintf(own_ip, sizeof(own_ip), "%s", ip);
+	snprintf(broadcast_ip, sizeof(broadcast_ip), "%s", bcast);
+	return 0;
 }
 
 static int create_recv_socket(void) {
@@ -276,7 +210,7 @@ static void send_udp_message(int sock, const char* msg, const char* dest_ip) {
 
 // DONE or FAIL to the paired peer, five times over a second (UDP may drop one).
 static void notify_peer(const char* msg) {
-	int sock = create_send_socket();
+	int sock = NET_createBroadcastSocket();
 	if (sock < 0)
 		return;
 	for (int i = 0; i < 5; i++) {
@@ -318,12 +252,12 @@ static bool cable_link(char* local, size_t local_size, char* peer, size_t peer_s
 // the daemon's first state, so it runs on the discovery thread; stopping joins
 // that thread first, so a quick back can't stop the link before it started.
 static void cable_link_start(void) {
-	system("usblink.elf start >/dev/null 2>&1");
+	usblink_ctl_start();
 }
 
 static void cable_link_stop(void) {
 	if (usblink_owned)
-		system("usblink.elf stop >/dev/null 2>&1");
+		usblink_ctl_stop();
 	usblink_owned = false;
 }
 
@@ -332,8 +266,7 @@ static const char* cable_link_error(void) {
 	UsbLinkState st;
 	if (usblink_state_read(USBLINK_STATE_PATH, &st) != 0 || strcmp(st.link, "error") != 0)
 		return NULL;
-	return !strcmp(st.error, "version") ? "Both devices need the same\nNXRedux version."
-										: "USB link unavailable\non this device.";
+	return usblink_state_error_message(&st);
 }
 
 static bool wifi_ready(void) {
@@ -591,37 +524,15 @@ static void write_rsync_config(void) {
 }
 
 static int start_rsync_daemon(void) {
-	if (access(rsync_bin_path(), X_OK) != 0)
+	if (access(sync_rsyncd_bin(), X_OK) != 0)
 		return -1;
 
 	write_rsync_config();
-
-	char cmd[MAX_PATH * 4 + 128];
-	char bin_q[MAX_PATH * 4];
-	snprintf(cmd, sizeof(cmd), "'%s' --daemon --config=%s", shq(rsync_bin_path(), bin_q, sizeof(bin_q)), RSYNC_CONF_PATH);
-	int ret = system(cmd);
-	if (ret != 0)
-		return -1;
-
-	usleep(500000);
-	if (access(RSYNC_PID_PATH, F_OK) != 0)
-		return -1;
-
-	return 0;
+	return sync_rsyncd_start(RSYNC_CONF_PATH, RSYNC_PID_PATH);
 }
 
 static void stop_rsync_daemon(void) {
-	FILE* fp = fopen(RSYNC_PID_PATH, "r");
-	if (fp) {
-		int pid;
-		if (fscanf(fp, "%d", &pid) == 1 && pid > 0) {
-			kill(pid, SIGTERM);
-		}
-		fclose(fp);
-		unlink(RSYNC_PID_PATH);
-	}
-	system("killall rsync 2>/dev/null");
-	unlink(RSYNC_CONF_PATH);
+	sync_rsyncd_stop(RSYNC_PID_PATH, RSYNC_CONF_PATH);
 }
 
 // Progress tracking for current phase
@@ -675,7 +586,7 @@ static bool peer_entries(const char* folder, bool dirs_only, SyncNames* out) {
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
 	snprintf(cmd, sizeof(cmd), "'%s' --list-only --8-bit-output --timeout=30 'rsync://%s:%d/roms/%s%s' 2>&1",
-			 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), peer_ip, SYNC_RSYNC_PORT, shq(folder, dir_q, sizeof(dir_q)),
+			 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), peer_ip, SYNC_RSYNC_PORT, shq(folder, dir_q, sizeof(dir_q)),
 			 folder[0] ? "/" : "");
 	FILE* fp = popen(cmd, "r");
 	if (!fp)
@@ -825,35 +736,35 @@ static int run_rsync_phase(int phase, const char* extra) {
 	switch (phase) {
 	case 1:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/shared/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 2:
 		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/saves/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shq(saves_path(), dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, shq(saves_path(), dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 3:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/shared/ '%s'/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, peer_ip, SYNC_RSYNC_PORT, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)));
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, peer_ip, SYNC_RSYNC_PORT, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)));
 		break;
 	case 4:
 		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/saves/ '%s'/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(saves_path(), dir_q, sizeof(dir_q)));
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(saves_path(), dir_q, sizeof(dir_q)));
 		break;
 	case SYNC_PHASE_BIOS_PUSH:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/bios/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(BIOS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(BIOS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case SYNC_PHASE_BIOS_PULL:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/bios/ '%s'/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(BIOS_PATH, dir_q, sizeof(dir_q)));
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(BIOS_PATH, dir_q, sizeof(dir_q)));
 		break;
 	case SYNC_PHASE_ROMS_PUSH:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/roms/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case SYNC_PHASE_ROMS_PULL:
 		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/roms/ '%s'/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
 		break;
 	default:
 		return -1;
@@ -1180,7 +1091,7 @@ static int sync_collections(int* changed, int* scanned) {
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
 	snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/collections/ '%s'/ 2>&1",
-			 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS, SYNC_COLLECTIONS_PULL_ARGS, peer_ip,
+			 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS, SYNC_COLLECTIONS_PULL_ARGS, peer_ip,
 			 SYNC_RSYNC_PORT, shq(in_dir, dir_q, sizeof(dir_q)));
 	ret = run_rsync_cmd(cmd);
 	if (ret != 0 || sync_cancel)
@@ -1216,7 +1127,7 @@ static int sync_collections(int* changed, int* scanned) {
 
 	if (pushed) {
 		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/collections/ 2>&1",
-				 shq(rsync_bin_path(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS,
+				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS,
 				 shq(out_dir, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		ret = run_rsync_cmd(cmd);
 		if (ret != 0)
@@ -1267,7 +1178,7 @@ static void* sync_thread_func(void* arg) {
 		log_add("rsync daemon started, waiting for client...");
 		sync_phase = 0; // 0 = no phase yet; UI shows "Waiting for client..."
 
-		int notify_sock = create_send_socket();
+		int notify_sock = NET_createBroadcastSocket();
 		int done_sock = create_recv_socket();
 		if (done_sock < 0) {
 			if (notify_sock >= 0)

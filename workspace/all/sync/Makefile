@@ -21,9 +21,9 @@ SDL?=SDL
 ###########################################################
 
 TARGET = sync
-INCDIR = -I. -I../common/ -I../usblink/ -I../../$(PLATFORM)/platform/
+INCDIR = -I. -I../common/ -I../usblink/ -I../netplay/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
-SOURCE = $(TARGET).c sync_proto.c ../usblink/usblink_state.c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) \
+SOURCE = $(TARGET).c sync_proto.c sync_rsyncd.c ../usblink/usblink_state.c ../netplay/network_common.c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) \
          $(UI_DIR)/ui_list.c \
          ../../$(PLATFORM)/platform/platform.c
 

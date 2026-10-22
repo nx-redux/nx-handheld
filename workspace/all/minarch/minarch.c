@@ -8,10 +8,6 @@
 
 // libretro-common
 #include "libretro.h"
-#ifdef HAS_SRM
-#include "streams/rzip_stream.h"
-#include "streams/file_stream.h"
-#endif
 
 #include "defines.h"
 #include "api.h"
@@ -254,7 +250,7 @@ int main(int argc, char* argv[]) {
 
 	// the core waits for the other player inside load_game (up to a minute)
 	if (CoreNetplay_isActive()) {
-		Menu_netplayNotice("Connecting...", "Waiting for the other player.", 0);
+		Menu_notice("Connecting...", "Waiting for the other player.", 0);
 	}
 	Core_load();
 
@@ -487,7 +483,7 @@ int main(int argc, char* argv[]) {
 	if (CoreNetplay_isActive())
 		CoreNetplay_byeSend(CORE_NETPLAY_BYE_PORT);
 	if (CoreNetplay_hasEnded())
-		Menu_netplayNotice("Netplay ended", "The other player left or the connection was lost.", 3000);
+		Menu_notice("Netplay ended", "The other player left or the connection was lost.", 3000);
 	SDL_Surface* converted = Menu_captureScreenSurface(screen->format->format);
 	if (converted) {
 		GFX_animateSurfaceOpacity(converted, 0, 0, converted->w, converted->h, 255, 0, CFG_getMenuTransitions() ? 200 : 20, 1);
@@ -513,7 +509,6 @@ finish:
 	Game_close();
 	State_freeUndo();
 	Rewind_free();
-	Core_unload();
 	Core_quit();
 	Core_close();
 	Config_quit();

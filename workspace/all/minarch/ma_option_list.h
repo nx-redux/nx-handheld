@@ -7,6 +7,9 @@
 // The index of value in item->values; 0 when it is not there (or NULL).
 int Option_getValueIndex(Option* item, const char* value);
 
+// How many values the option has (its values array is NULL-terminated).
+int Option_valueCount(const Option* item);
+
 // Fills item from a legacy retro_variable: value is "Name; a|b|c" (name, then
 // the values; a missing "; " names the option after its key). The values and
 // labels point into item->var.

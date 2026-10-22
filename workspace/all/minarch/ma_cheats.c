@@ -88,17 +88,7 @@ void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 }
 
 void Cheats_free() {
-	if (cheatcodes.cheats) {
-		size_t i;
-		for (i = 0; i < cheatcodes.count; i++) {
-			struct Cheat* cheat = &cheatcodes.cheats[i];
-			free((char*)cheat->name);
-			free((char*)cheat->info);
-			free((char*)cheat->code);
-		}
-		free(cheatcodes.cheats);
-		cheatcodes.cheats = NULL;
-	}
+	CheatParse_free(&cheatcodes);
 	cheatcodes.count = 0;
 }
 

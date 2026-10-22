@@ -17,7 +17,6 @@
 #include "usblink_sio.h"
 #include "usblink_state.h"
 
-#define USBLINK_STATE_PATH "/tmp/usblink.state"
 #define REGISTER_RETRY_MS 100
 #define DRAIN_MAX 64
 

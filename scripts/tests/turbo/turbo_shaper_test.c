@@ -98,7 +98,7 @@ int main(void) {
 
 	// 1. The bug: the Brick daemon's 8 ms pulses sampled at 60 fps alias to a
 	//    constant -- the core sees at most one press in 10 s of "turbo".
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	simulate(&s, 8333, N, raw, out);
 	CHECK(rising_edges(raw, N) <= 1, "brick raw: expected aliased raw signal, got %d edges", rising_edges(raw, N));
 	// ...and the shaped output is a clean cadence at the intended rate.
@@ -106,26 +106,26 @@ int main(void) {
 	CHECK(cadence_ok(out, N), "brick shaped: cadence broken");
 
 	// 2. Same daemon with realistic loop overhead (period drifts past 8333us).
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	simulate(&s, 8400, N, raw, out);
 	CHECK(abs(rising_edges(out, N) - expect) <= 1, "brick drift shaped: %d presses, want ~%d", rising_edges(out, N), expect);
 	CHECK(cadence_ok(out, N), "brick drift shaped: cadence broken");
 
 	// 3. Smart Pro S daemon (16 ms pulses).
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	simulate(&s, 16000, N, raw, out);
 	CHECK(abs(rising_edges(out, N) - expect) <= 1, "sps shaped: %d presses, want ~%d", rising_edges(out, N), expect);
 	CHECK(cadence_ok(out, N), "sps shaped: cadence broken");
 
 	// 4. Plain hold (no daemon pulsing) shapes identically.
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	simulate(&s, 0, N, raw, out);
 	CHECK(abs(rising_edges(out, N) - expect) <= 1, "plain hold: %d presses, want ~%d", rising_edges(out, N), expect);
 	CHECK(out[0] == 1, "plain hold: first frame of a hold must press immediately");
 
 	// 5. Release: once the pulses stop the output drops within the grace
 	//    window and stays down.
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	simulate(&s, 8333, 30, raw, out);
 	int after[60];
 	for (int f = 0; f < 60; f++)
@@ -138,18 +138,18 @@ int main(void) {
 
 	// 6. A single-frame event gap (frame pacing jitter) must not restart the
 	//    cadence: the pattern continues as if uninterrupted.
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	int jit[16];
 	for (int f = 0; f < 16; f++)
 		jit[f] = Turbo_step(&s, ID, f == 5 ? 0 : 1);
 	int ref[16];
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	for (int f = 0; f < 16; f++)
 		ref[f] = Turbo_step(&s, ID, 1);
 	CHECK(memcmp(jit, ref, sizeof(jit)) == 0, "jitter: one missed frame changed the cadence");
 
 	// 7. Idle buttons stay released and independent of each other.
-	Turbo_reset(&s);
+	memset(&s, 0, sizeof(s));
 	Turbo_step(&s, 3, 1);
 	CHECK(Turbo_step(&s, ID, 0) == 0, "idle: untouched button reported pressed");
 

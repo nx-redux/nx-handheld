@@ -6,6 +6,7 @@
 #include "ma_menu.h"
 #include "ma_rewind.h"
 #include "ma_config.h"
+#include "ma_option_list.h"
 #include "netplay_helper.h"
 #include "ma_turbo.h"
 #include "ma_present.h"
@@ -281,11 +282,11 @@ void input_poll_callback(void) {
 					Menu_screenshot();
 					break;
 				case SHORTCUT_CYCLE_SCALE:
-					screen_scaling = (screen_scaling + 1) % config.frontend.options[FE_OPT_SCALING].count;
+					screen_scaling = (screen_scaling + 1) % Option_valueCount(&config.frontend.options[FE_OPT_SCALING]);
 					Config_syncFrontend(config.frontend.options[FE_OPT_SCALING].key, screen_scaling);
 					break;
 				case SHORTCUT_CYCLE_EFFECT:
-					screen_effect = (screen_effect + 1) % config.frontend.options[FE_OPT_EFFECT].count;
+					screen_effect = (screen_effect + 1) % Option_valueCount(&config.frontend.options[FE_OPT_EFFECT]);
 					Config_syncFrontend(config.frontend.options[FE_OPT_EFFECT].key, screen_effect);
 					break;
 				case SHORTCUT_TOGGLE_DPAD_JOYSTICK:

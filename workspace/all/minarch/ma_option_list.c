@@ -14,6 +14,13 @@ int Option_getValueIndex(Option* item, const char* value) {
 	return 0;
 }
 
+int Option_valueCount(const Option* item) {
+	int count = 0;
+	while (item->values && item->values[count])
+		count++;
+	return count;
+}
+
 void Option_initVar(Option* item, const char* key, const char* value) {
 	int len, count;
 
@@ -103,10 +110,7 @@ Option* OptionList_getOption(OptionList* list, const char* key) {
 char* OptionList_getOptionValue(OptionList* list, const char* key) {
 	Option* item = OptionList_getOption(list, key);
 	if (item) {
-		int count = 0;
-		while (item->values && item->values[count])
-			count++;
-		if (item->value >= 0 && item->value < count) {
+		if (item->value >= 0 && item->value < Option_valueCount(item)) {
 			return item->values[item->value];
 		}
 	}

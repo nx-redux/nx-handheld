@@ -1,6 +1,7 @@
 #include "usblink_state.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define HOST_IP "10.99.0.1"
@@ -62,4 +63,17 @@ int usblink_state_read(const char* path, UsbLinkState* s) {
 	}
 	fclose(f);
 	return s->link[0] ? 0 : -1;
+}
+
+const char* usblink_state_error_message(const UsbLinkState* s) {
+	return !strcmp(s->error, "version") ? "Both devices need the same\nNXRedux version."
+										: "USB link unavailable\non this device.";
+}
+
+int usblink_ctl_start(void) {
+	return system("usblink.elf start >/dev/null 2>&1");
+}
+
+void usblink_ctl_stop(void) {
+	system("usblink.elf stop >/dev/null 2>&1");
 }

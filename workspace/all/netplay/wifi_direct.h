@@ -90,6 +90,11 @@ int WIFI_direct_startHotspot(const char* ssid, const char* password);
 // Returns 0 on success
 int WIFI_direct_stopHotspot(void);
 
+// The AP half of WIFI_direct_stopHotspot(), whichever process started the AP:
+// hostapd and udhcpd killed, wlan0's AP address flushed and the link downed,
+// the temp files removed. wlan0 is not handed back to the client stack.
+void WIFI_direct_stopAP(void);
+
 // Check if hotspot is currently active
 bool WIFI_direct_isHotspotActive(void);
 

@@ -14,16 +14,16 @@
  * EXEC SAFETY. The names that reach wiz_sync_pull() are remote input — they
  * arrive as FILE lines on the control channel. wiz_proto.c's wiz_name_is_safe() whitelists them
  * to [A-Za-z0-9._-]+, but a whitelist upstream is a second line of defence and
- * never a licence to interpolate, so the pull runs posix_spawn(rsync_bin(), argv)
+ * never a licence to interpolate, so the pull runs posix_spawn(sync_rsyncd_bin(), argv)
  * with NO SHELL ANYWHERE. There is no command string to quote and therefore
  * nothing for a quote, space, semicolon or backtick in a name to break out of;
  * the whitelist and the spawn each stand on their own. sync.c uses popen()
  * (which is a shell) for the same job, and this file deliberately parts company
  * with it there — that is the one pattern from sync.c not copied.
  *
- * The two system() calls that remain — starting the daemon and killall rsync —
- * carry no remote data at all: their command strings are compile-time
- * constants plus rsync_bin()'s path, which is assembled from this process's
+ * The two system() calls that remain — starting the daemon and killall rsync,
+ * both in sync/sync_rsyncd.c — carry no remote data at all: their command strings are compile-time
+ * constants plus sync_rsyncd_bin()'s path, which is assembled from this process's
  * own install root. What does vary (serve_dir, the peer's address) goes into
  * the config FILE, never onto a command line, and is checked on the way in
  * for the one character that would matter there.
@@ -68,22 +68,10 @@
 #include "ui_message.h"
 #include "wizard.h"
 #include "wiz_sync_util.h"
+#include "sync_rsyncd.h"
 
 // posix_spawn's environment. POSIX leaves this one to the caller to declare.
 extern char** environ;
-
-// rsync binary path (shared across platforms). Same location as sync.c's rsync_bin_path(),
-// duplicated rather than shared because nothing in sync.c is linkable here.
-static const char* rsync_bin(void) {
-	static char path[MAX_PATH];
-	if (!path[0])
-		snprintf(path, sizeof(path), "%s/rsync", SHARED_BIN_PATH);
-	return path;
-}
-
-// How long the daemon gets to write its pidfile before we call it dead
-// (same as sync.c's start_rsync_daemon()).
-#define WIZ_SYNC_DAEMON_SETTLE_US 500000
 
 // Hard ceilings on the client's pull, in the order they bind: one file may not
 // hold the UI longer than FILE, and the whole set may not exceed TOTAL.
@@ -256,34 +244,19 @@ static void wiz_build_pull_url(char* out, size_t out_size, const char* host_ip, 
 //////////////////////////////////
 
 // Idempotent, and called on every exit path including wiz_sync_serve_start()'s
-// own failures. Clone of sync.c's stop_rsync_daemon() plus the log.
+// own failures. Device Sync's teardown (sync_rsyncd_stop) plus the log.
 void wiz_sync_serve_stop(void) {
-	FILE* fp = fopen(WIZ_RSYNC_PID, "r");
-
-	if (fp) {
-		int pid = 0;
-		if (fscanf(fp, "%d", &pid) == 1 && pid > 0)
-			kill(pid, SIGTERM);
-		fclose(fp);
-		unlink(WIZ_RSYNC_PID);
-	}
-
-	// A daemon that died before writing its pidfile leaves no other handle, so
-	// this is not belt-and-braces (stop_rsync_daemon() in sync.c does the same for the same
-	// reason). Safe on device: the only other rsync user there is sync.elf,
-	// a launcher app, which cannot be running while launch.sh has a game
-	// mid-launch — and the wizard's own pull is a client that has already
-	// finished by the time anything calls this.
-	system("killall rsync 2>/dev/null");
-
-	unlink(WIZ_RSYNC_CONF);
+	// sync_rsyncd_stop also runs killall rsync. Safe on device: the only other
+	// rsync user there is sync.elf, a launcher app, which cannot be running
+	// while launch.sh has a game mid-launch — and the wizard's own pull is a
+	// client that has already finished by the time anything calls this.
+	sync_rsyncd_stop(WIZ_RSYNC_PID, WIZ_RSYNC_CONF);
 	// Not in sync.c: the log names the peer and every file it read, and /tmp
 	// outlives this process. The session ends, the record goes with it.
 	unlink(WIZ_RSYNC_LOG);
 }
 
 int wiz_sync_serve_start(const char* serve_dir, const char* client_ip) {
-	char cmd[MAX_PATH * 4 + 128]; // quoted runtime rsync path + options
 	FILE* fp;
 	int wrote;
 
@@ -296,7 +269,7 @@ int wiz_sync_serve_start(const char* serve_dir, const char* client_ip) {
 		return -1;
 	}
 
-	if (access(rsync_bin(), X_OK) != 0) {
+	if (access(sync_rsyncd_bin(), X_OK) != 0) {
 		// Nothing created yet, so nothing to unwind.
 		wiz_sync_error("Save sharing is not\navailable on this device.");
 		return -1;
@@ -328,23 +301,10 @@ int wiz_sync_serve_start(const char* serve_dir, const char* client_ip) {
 		return -1;
 	}
 
-	// No user data in this command line; quote rsync_bin() against spaces
-	// all the same.
-	char bin_q[MAX_PATH * 4];
-	strncpy(bin_q, rsync_bin(), sizeof(bin_q) - 1);
-	bin_q[sizeof(bin_q) - 1] = '\0';
-	escapeSingleQuotes(bin_q, sizeof(bin_q));
-	snprintf(cmd, sizeof(cmd), "'%s' --daemon --config=%s", bin_q, WIZ_RSYNC_CONF);
-	if (system(cmd) != 0) {
-		wiz_sync_serve_stop();
-		wiz_sync_error("Could not start the\nsave server.");
-		return -1;
-	}
-
-	usleep(WIZ_SYNC_DAEMON_SETTLE_US);
-	if (access(WIZ_RSYNC_PID, F_OK) != 0) {
-		// Forked cleanly and then refused to bind (port already held, serve_dir
-		// unreadable). The daemon is the one thing killall can still catch.
+	// Fails also when it forked cleanly and then refused to bind (port already
+	// held, serve_dir unreadable). The daemon is the one thing killall can
+	// still catch.
+	if (sync_rsyncd_start(WIZ_RSYNC_CONF, WIZ_RSYNC_PID) != 0) {
 		wiz_sync_serve_stop();
 		wiz_sync_error("Could not start the\nsave server.");
 		return -1;
@@ -423,7 +383,7 @@ static int wiz_spawn_rsync(char* const argv[], int* out_fd, pid_t* out_pid) {
 	if (fds[1] > STDERR_FILENO)
 		posix_spawn_file_actions_addclose(&actions, fds[1]);
 
-	rc = posix_spawn(&pid, rsync_bin(), &actions, &attr, argv, environ);
+	rc = posix_spawn(&pid, sync_rsyncd_bin(), &actions, &attr, argv, environ);
 	posix_spawnattr_destroy(&attr);
 	posix_spawn_file_actions_destroy(&actions);
 	close(fds[1]);
@@ -515,7 +475,7 @@ static int wiz_pull_one(const char* host_ip, const char* stage_dir, const char* 
 	// argv, not a command string: the only element carrying remote input is url,
 	// and it is one element whatever bytes it holds. Its "rsync://" prefix also
 	// means it can never look like an option, whatever the name contributed.
-	char* argv[] = {(char*)rsync_bin(), "-t", "--inplace", "--no-perms",
+	char* argv[] = {(char*)sync_rsyncd_bin(), "-t", "--inplace", "--no-perms",
 					"--info=progress2", io_timeout, con_timeout, url, dest, NULL};
 
 	if (wiz_spawn_rsync(argv, &fd, &pid) != 0)

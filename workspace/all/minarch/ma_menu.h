@@ -29,12 +29,10 @@ void Menu_undoLoadState(void);
 void Menu_initState(void);
 void Menu_updateState(void);
 void Menu_loop(void);
-// A core-run netplay notice in the leave dialog's style, without buttons
-// ("Connecting...", "Netplay ended"); shown for hold_ms (0 = just drawn).
-void Menu_netplayNotice(const char* title, const char* subtitle, int hold_ms);
-// A core's progress before its first real frame (ma_core_progress.h), drawn
-// like the notices above, once per core frame while it lasts.
-void Menu_progressNotice(const char* title, const char* detail);
+// A notice in the leave dialog's style, without buttons ("Connecting...",
+// "Netplay ended", a core's progress before its first real frame); shown for
+// hold_ms (0 = just drawn).
+void Menu_notice(const char* title, const char* subtitle, int hold_ms);
 void Options_updateVisibility(void);
 void OptionSaveChanges_updateDesc(void);
 void OptionAchievements_updateDesc(void);

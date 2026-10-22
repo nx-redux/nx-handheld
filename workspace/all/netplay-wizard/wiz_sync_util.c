@@ -144,7 +144,7 @@ int wiz_progress_percent(const char* line) {
 // Consume every complete line in buf, returning the newest percentage they
 // carried (or `current` when none did) and moving the unterminated tail to the
 // front. Lines end with \r OR \n: --info=progress2 redraws in place with \r and
-// only ends with \n, which is why sync.c's read_line_cr() reads the same way. This one works
+// only ends with \n, which is why sync_proto.c's sync_read_line_cr() reads the same way. This one works
 // off a buffer rather than fgetc() because the caller has to select() on the same
 // descriptor for its deadline, and stdio's buffer is invisible to select().
 //

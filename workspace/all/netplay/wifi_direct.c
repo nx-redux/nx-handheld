@@ -344,11 +344,7 @@ int WIFI_direct_startHotspot(const char* ssid, const char* password) {
 	return 0;
 }
 
-int WIFI_direct_stopHotspot(void) {
-	if (!hotspot_active) {
-		return 0;
-	}
-
+void WIFI_direct_stopAP(void) {
 	// Stop the AP and DHCP server.
 	system("killall hostapd 2>/dev/null");
 	wifi_sleep_ms(200); // wait for hostapd to release wlan0
@@ -361,6 +357,14 @@ int WIFI_direct_stopHotspot(void) {
 
 	// Cleanup temp files
 	system("rm -f /tmp/gbalink_*.conf /tmp/gbalink_*.pid /tmp/gbalink_*.leases 2>/dev/null");
+}
+
+int WIFI_direct_stopHotspot(void) {
+	if (!hotspot_active) {
+		return 0;
+	}
+
+	WIFI_direct_stopAP();
 
 	hotspot_active = false;
 	hotspot_ssid[0] = '\0';

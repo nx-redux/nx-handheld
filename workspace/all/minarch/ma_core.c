@@ -271,7 +271,7 @@ void Core_load(void) {
 		// running a core with no loaded game is a guaranteed crash inside the core
 		LOG_error("core refused to load game: %s\n", game_info.path);
 		if (CoreNetplay_isActive()) // the core gave up waiting for the peer
-			Menu_netplayNotice("Netplay failed", "Couldn't connect to the other player.", 3000);
+			Menu_notice("Netplay failed", "Couldn't connect to the other player.", 3000);
 		exit(EXIT_FAILURE);
 	}
 	{
@@ -306,12 +306,6 @@ void Core_reset(void) {
 	// the undo snapshot belongs to the abandoned pre-reset session
 	State_invalidateUndo();
 	Rewind_on_state_change();
-}
-void Core_unload(void) {
-	// Disabling this is a dumb hack for bluetooth, we should really be using
-	// bluealsa with --keep-alive=-1 - but SDL wont reconnect the stream on next start.
-	// Reenable as soon as we have a more recent SDL available, if ever.
-	//SND_quit();
 }
 void Core_quit(void) {
 	if (core.initialized) {

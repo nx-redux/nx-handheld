@@ -34,7 +34,17 @@ int main(void) {
 	CHECK(Option_getValueIndex(&o, "fast") == 2 && Option_getValueIndex(&o, "slow") == 0, "value index");
 	CHECK(Option_getValueIndex(&o, "warp") == 0, "unknown value: index 0");
 	CHECK(Option_getValueIndex(&o, NULL) == 0 && Option_getValueIndex(NULL, "fast") == 0, "NULL value or option: 0");
+	CHECK(Option_valueCount(&o) == 3, "value count");
 	Option_free(&o); // ASan: name aliases var, freed once
+
+	// a static frontend list: counted up to its NULL, none without values
+	{
+		char* labels[] = {"None", "Line", "Grid", NULL};
+		Option fe = {.values = labels, .labels = labels};
+		CHECK(Option_valueCount(&fe) == 3, "NULL-terminated values counted");
+		fe.values = NULL;
+		CHECK(Option_valueCount(&fe) == 0, "no values: 0");
+	}
 
 	// a single value has no '|'
 	memset(&o, 0, sizeof(o));

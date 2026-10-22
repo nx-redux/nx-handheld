@@ -379,9 +379,6 @@ static char* getScreenScalingDesc(void) {
 		return "Native uses integer scaling.\nAspect uses core reported aspect ratio.\nAspect screen uses screen aspect ratio\nFullscreen has non-square pixels.";
 	}
 }
-static int getScreenScalingCount(void) {
-	return GFX_supportsOverscan() ? 5 : 4;
-}
 
 
 struct Config config = {
@@ -394,7 +391,6 @@ struct Config config = {
 						 .desc = NULL, // will call getScreenScalingDesc()
 						 .default_value = 1,
 						 .value = 1,
-						 .count = 3, // will call getScreenScalingCount()
 						 .values = scaling_labels,
 						 .labels = scaling_labels,
 					 },
@@ -404,7 +400,6 @@ struct Config config = {
 						 .desc = "Resampling quality higher takes more CPU",
 						 .default_value = 2,
 						 .value = 2,
-						 .count = 4,
 						 .values = resample_labels,
 						 .labels = resample_labels,
 					 },
@@ -414,7 +409,6 @@ struct Config config = {
 						 .desc = "Makes your leds follow on screen colors",
 						 .default_value = 0,
 						 .value = 0,
-						 .count = 6,
 						 .values = ambient_labels,
 						 .labels = ambient_labels,
 					 },
@@ -424,7 +418,6 @@ struct Config config = {
 						 .desc = "Grid simulates an LCD grid.\nLine simulates CRT scanlines.\nEffects usually look best at native scaling.",
 						 .default_value = 0,
 						 .value = 0,
-						 .count = 3,
 						 .values = effect_labels,
 						 .labels = effect_labels,
 					 },
@@ -434,7 +427,6 @@ struct Config config = {
 						 .desc = "Choose a custom overlay png from the Overlays folder",
 						 .default_value = 0,
 						 .value = 0,
-						 .count = 1,
 						 .values = overlay_labels,
 						 .labels = overlay_labels,
 					 },
@@ -444,7 +436,6 @@ struct Config config = {
 						 .desc = "Offset X pixels",
 						 .default_value = 64,
 						 .value = 64,
-						 .count = 129,
 						 .values = offset_labels,
 						 .labels = offset_labels,
 					 },
@@ -454,7 +445,6 @@ struct Config config = {
 						 .desc = "Offset Y pixels",
 						 .default_value = 64,
 						 .value = 64,
-						 .count = 129,
 						 .values = offset_labels,
 						 .labels = offset_labels,
 					 },
@@ -465,7 +455,6 @@ struct Config config = {
 						 .desc = "LINEAR smooths lines, but works better when final image is at higher resolution, so either core that outputs higher resolution or upscaling with shaders",
 						 .default_value = 1,
 						 .value = 1,
-						 .count = 3,
 						 .values = sharpness_labels,
 						 .labels = sharpness_labels,
 					 },
@@ -475,7 +464,6 @@ struct Config config = {
 						 .desc = "Choose what should be used as a\nreference for the frame rate.\n\"Native\" uses the emulator frame rate,\n\"Screen\" uses the frame rate of the screen,\n\"Emulated\" follows the game's own timing\n(GPU cores).",
 						 .default_value = SYNC_SRC_AUTO,
 						 .value = SYNC_SRC_AUTO,
-						 .count = 4,
 						 .values = sync_ref_labels,
 						 .labels = sync_ref_labels,
 					 },
@@ -485,7 +473,6 @@ struct Config config = {
 						 .desc = "Over- or underclock the CPU to prioritize\npure performance or power savings.",
 						 .default_value = 3,
 						 .value = 3,
-						 .count = 4,
 						 .values = overclock_labels,
 						 .labels = overclock_labels,
 					 },
@@ -495,7 +482,6 @@ struct Config config = {
 						 .desc = "Show frames per second, cpu load,\nresolution, and scaler information.",
 						 .default_value = 0,
 						 .value = 0,
-						 .count = 2,
 						 .values = onoff_labels,
 						 .labels = onoff_labels,
 					 },
@@ -505,7 +491,6 @@ struct Config config = {
 						 .desc = "Fast forward will not exceed the\nselected speed (but may be less\ndepending on game and emulator).",
 						 .default_value = 3, // 4x
 						 .value = 3,		 // 4x
-						 .count = 8,
 						 .values = max_ff_labels,
 						 .labels = max_ff_labels,
 					 },
@@ -515,7 +500,6 @@ struct Config config = {
 						 .desc = "Play or mute audio when fast forwarding.",
 						 .default_value = 0,
 						 .value = 0,
-						 .count = 2,
 						 .values = onoff_labels,
 						 .labels = onoff_labels,
 					 },
@@ -525,7 +509,6 @@ struct Config config = {
 						 .desc = "Enable in-memory rewind buffer.\nMust set a shortcut to access rewind during gameplay.\nUses extra CPU and memory.",
 						 .default_value = MINARCH_DEFAULT_REWIND_ENABLE ? 1 : 0,
 						 .value = MINARCH_DEFAULT_REWIND_ENABLE ? 1 : 0,
-						 .count = 2,
 						 .values = rewind_enable_labels,
 						 .labels = rewind_enable_labels,
 					 },
@@ -535,7 +518,6 @@ struct Config config = {
 						 .desc = "Memory reserved for rewind snapshots.\nIncrease for longer rewind times.",
 						 .default_value = 3, // 64MB
 						 .value = 3,
-						 .count = 6,
 						 .values = rewind_buffer_labels,
 						 .labels = rewind_buffer_labels,
 					 },
@@ -545,7 +527,6 @@ struct Config config = {
 						 .desc = "Interval between rewind snapshots.\nShorter intervals improve smoothness during rewind,\nbut increase CPU and memory usage.",
 						 .default_value = 0, // 16ms
 						 .value = 0,
-						 .count = 12,
 						 .values = rewind_granularity_values,
 						 .labels = rewind_granularity_labels,
 					 },
@@ -555,7 +536,6 @@ struct Config config = {
 						 .desc = "Compress rewind snapshots to save memory at the cost of CPU.",
 						 .default_value = 1,
 						 .value = 1,
-						 .count = 2,
 						 .values = onoff_labels,
 						 .labels = onoff_labels,
 					 },
@@ -565,7 +545,6 @@ struct Config config = {
 						 .desc = "LZ4 acceleration used for rewind snapshots.\nLower values compress more but use more CPU.",
 						 .default_value = 1, // value 2
 						 .value = 1,
-						 .count = 5,
 						 .values = rewind_compression_accel_values,
 						 .labels = rewind_compression_accel_labels,
 					 },
@@ -575,7 +554,6 @@ struct Config config = {
 						 .desc = "Play or mute audio when rewinding.",
 						 .default_value = MINARCH_DEFAULT_REWIND_AUDIO ? 1 : 0,
 						 .value = MINARCH_DEFAULT_REWIND_AUDIO ? 1 : 0,
-						 .count = 2,
 						 .values = onoff_labels,
 						 .labels = onoff_labels,
 					 },
@@ -596,7 +574,6 @@ struct Config config = {
 								  .desc = "If shaders have extra settings they will show up in this settings menu",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 0,
 								  .values = NULL,
 								  .labels = NULL,
 							  },
@@ -606,7 +583,6 @@ struct Config config = {
 								  .desc = "Load a premade shaders/emulators config.\nTo try out a preset, exit the game without saving settings!",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 0,
 								  .values = NULL,
 								  .labels = NULL,
 							  },
@@ -616,7 +592,6 @@ struct Config config = {
 								  .desc = "Number of shaders 1 to 3",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 4,
 								  .values = nrofshaders_labels,
 								  .labels = nrofshaders_labels,
 							  },
@@ -627,7 +602,6 @@ struct Config config = {
 								  .desc = "Shader 1 program to run",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 0,
 								  .values = NULL,
 								  .labels = NULL,
 							  },
@@ -637,7 +611,6 @@ struct Config config = {
 								  .desc = "Method of upscaling, NEAREST or LINEAR",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 2,
 								  .values = shfilter_labels,
 								  .labels = shfilter_labels,
 							  },
@@ -647,7 +620,6 @@ struct Config config = {
 								  .desc = "This will choose resolution source to scale from",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 2,
 								  .values = shscaletype_labels,
 								  .labels = shscaletype_labels,
 							  },
@@ -657,7 +629,6 @@ struct Config config = {
 								  .desc = "This will choose resolution source to scale from",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 2,
 								  .values = shscaletype_labels,
 								  .labels = shscaletype_labels,
 							  },
@@ -667,7 +638,6 @@ struct Config config = {
 								  .desc = "This will scale images x times,\nscreen scales to screens resolution (can hit performance)",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 9,
 								  .values = shupscale_labels,
 								  .labels = shupscale_labels,
 							  },
@@ -677,7 +647,6 @@ struct Config config = {
 								  .desc = "Shader 2 program to run",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 0,
 								  .values = NULL,
 								  .labels = NULL,
 
@@ -688,7 +657,6 @@ struct Config config = {
 								  .desc = "Method of upscaling, NEAREST or LINEAR",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 2,
 								  .values = shfilter_labels,
 								  .labels = shfilter_labels,
 							  },
@@ -698,7 +666,6 @@ struct Config config = {
 								  .desc = "This will choose resolution source to scale from",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 2,
 								  .values = shscaletype_labels,
 								  .labels = shscaletype_labels,
 							  },
@@ -708,7 +675,6 @@ struct Config config = {
 								  .desc = "This will choose resolution source to scale from",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 2,
 								  .values = shscaletype_labels,
 								  .labels = shscaletype_labels,
 							  },
@@ -718,7 +684,6 @@ struct Config config = {
 								  .desc = "This will scale images x times,\nscreen scales to screens resolution (can hit performance)",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 9,
 								  .values = shupscale_labels,
 								  .labels = shupscale_labels,
 							  },
@@ -728,7 +693,6 @@ struct Config config = {
 								  .desc = "Shader 3 program to run",
 								  .default_value = 2,
 								  .value = 2,
-								  .count = 0,
 								  .values = NULL,
 								  .labels = NULL,
 
@@ -739,7 +703,6 @@ struct Config config = {
 								  .desc = "Method of upscaling, NEAREST or LINEAR",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 2,
 								  .values = shfilter_labels,
 								  .labels = shfilter_labels,
 							  },
@@ -749,7 +712,6 @@ struct Config config = {
 								  .desc = "This will choose resolution source to scale from",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 2,
 								  .values = shscaletype_labels,
 								  .labels = shscaletype_labels,
 							  },
@@ -759,7 +721,6 @@ struct Config config = {
 								  .desc = "This will choose resolution source to scale from",
 								  .default_value = 1,
 								  .value = 1,
-								  .count = 2,
 								  .values = shscaletype_labels,
 								  .labels = shscaletype_labels,
 							  },
@@ -769,7 +730,6 @@ struct Config config = {
 								  .desc = "This will scale images x times,\nscreen scales to screens resolution (can hit performance)",
 								  .default_value = 0,
 								  .value = 0,
-								  .count = 9,
 								  .values = shupscale_labels,
 								  .labels = shupscale_labels,
 							  },
@@ -1041,7 +1001,6 @@ void Config_init(void) {
 	char** preset_filelist = list_files_in_folder(shaders_folder, &preset_filecount, NULL, ".cfg");
 	config.shaders.options[SH_SHADERS_PRESET].values = preset_filelist;
 	config.shaders.options[SH_SHADERS_PRESET].labels = preset_filelist;
-	config.shaders.options[SH_SHADERS_PRESET].count = preset_filecount;
 
 	// populate shader options
 	// TODO: None option?
@@ -1053,15 +1012,12 @@ void Config_init(void) {
 
 	config.shaders.options[SH_SHADER1].values = filelist;
 	config.shaders.options[SH_SHADER1].labels = filelist;
-	config.shaders.options[SH_SHADER1].count = filecount;
 
 	config.shaders.options[SH_SHADER2].values = filelist;
 	config.shaders.options[SH_SHADER2].labels = filelist;
-	config.shaders.options[SH_SHADER2].count = filecount;
 
 	config.shaders.options[SH_SHADER3].values = filelist;
 	config.shaders.options[SH_SHADER3].labels = filelist;
-	config.shaders.options[SH_SHADER3].count = filecount;
 
 	char overlaypath[MAX_PATH];
 	snprintf(overlaypath, sizeof(overlaypath), "%s/Overlays/%s", SDCARD_PATH, core.tag);
@@ -1070,7 +1026,6 @@ void Config_init(void) {
 	if (overlaylist) {
 		config.frontend.options[FE_OPT_OVERLAY].labels = overlaylist;
 		config.frontend.options[FE_OPT_OVERLAY].values = overlaylist;
-		config.frontend.options[FE_OPT_OVERLAY].count = filecount;
 	}
 	config.initialized = 1;
 }
@@ -1183,7 +1138,6 @@ void Config_load(void) {
 	// update for crop overscan support
 	Option* scaling_option = &config.frontend.options[FE_OPT_SCALING];
 	scaling_option->desc = getScreenScalingDesc();
-	scaling_option->count = getScreenScalingCount();
 	if (!GFX_supportsOverscan()) {
 		scaling_labels[4] = NULL;
 	}
@@ -1339,9 +1293,7 @@ void Config_readControls(void) {
 	Config_readShortcuts();
 }
 static void writeOption(FILE* file, Option* option) {
-	int count = 0;
-	while (option->values && option->values[count])
-		count++;
+	int count = Option_valueCount(option);
 	int value = Config_netplayPadUserValue(option); // a forced netplay pad saves the user's own choice
 	if (value >= 0 && value < count) {
 		fprintf(file, "%s = %s\n", option->key, option->values[value]);

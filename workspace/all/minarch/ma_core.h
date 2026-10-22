@@ -11,6 +11,5 @@ void Core_setPendingGeometry(const struct retro_game_geometry* geometry);
 void Core_applyPendingAV(void);
 void Core_load(void);
 void Core_reset(void);
-void Core_unload(void);
 void Core_quit(void);
 void Core_close(void);

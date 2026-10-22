@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 // FNV-1a, 64-bit
@@ -32,11 +33,11 @@ int ArchiveCache_dir(char* out, size_t size, const char* root, const char* archi
 	return (n < 0 || (size_t)n >= size) ? -1 : 0;
 }
 
-static int has_extension(const char* name, char** extensions) {
+int ArchiveCache_hasExtension(const char* name, char** extensions) {
 	size_t len = strlen(name);
 	for (int e = 0; extensions[e]; e++) {
 		size_t ext_len = strlen(extensions[e]);
-		if (len > ext_len + 1 && name[len - ext_len - 1] == '.' && !strcmp(name + len - ext_len, extensions[e]))
+		if (len > ext_len + 1 && name[len - ext_len - 1] == '.' && !strcasecmp(name + len - ext_len, extensions[e]))
 			return 1;
 	}
 	return 0;
@@ -50,7 +51,7 @@ int ArchiveCache_find(const char* dir, char** extensions, char* out, size_t size
 	int found = 0;
 	struct dirent* entry;
 	while (!found && (entry = readdir(d))) {
-		if (entry->d_name[0] == '.' || !has_extension(entry->d_name, extensions))
+		if (entry->d_name[0] == '.' || !ArchiveCache_hasExtension(entry->d_name, extensions))
 			continue;
 		int n = snprintf(out, size, "%s/%s", dir, entry->d_name);
 		if (n < 0 || (size_t)n >= size)

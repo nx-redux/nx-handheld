@@ -41,9 +41,7 @@
 #include "usblink_state.h"
 #include "usblink_tun.h"
 
-#define PID_FILE "/tmp/usblink.pid"
-#define STATE_FILE "/tmp/usblink.state"
-#define STATE_TMP STATE_FILE ".tmp" // usblink_state_write's temp name
+#define STATE_TMP USBLINK_STATE_PATH ".tmp" // usblink_state_write's temp name
 #define UDC_SAVE "/tmp/usblink.udc"
 #define G_UDC "/sys/kernel/config/usb_gadget/g1/UDC"
 #define TUN_NAME "nxlink0"
@@ -128,9 +126,9 @@ static void shutdown_and_exit(int code, int keep_state) {
 		close(tun_fd);		  // nxlink0 vanishes with its last fd
 	unlink(USBLINK_SIO_SOCK); // async-signal-safe; minarch's next send fails and it falls back to IP
 	if (!keep_state)
-		unlink(STATE_FILE);
+		unlink(USBLINK_STATE_PATH);
 	unlink(STATE_TMP);
-	unlink(PID_FILE);
+	unlink(USBLINK_PID_PATH);
 	_exit(code);
 }
 
@@ -148,7 +146,7 @@ static void fatal(const char* error) {
 	memset(&st, 0, sizeof(st));
 	strcpy(st.link, "error");
 	snprintf(st.error, sizeof(st.error), "%s", error);
-	usblink_state_write(STATE_FILE, &st);
+	usblink_state_write(USBLINK_STATE_PATH, &st);
 	fprintf(stderr, "usblink: fatal: %s\n", error);
 	shutdown_and_exit(1, 1);
 }
@@ -156,8 +154,8 @@ static void fatal(const char* error) {
 static void publish(void) {
 	UsbLinkState st;
 	usblink_state_from_link(&g_link, last_error, &st);
-	if (usblink_state_write(STATE_FILE, &st) != 0)
-		fprintf(stderr, "usblink: write %s: %s\n", STATE_FILE, strerror(errno));
+	if (usblink_state_write(USBLINK_STATE_PATH, &st) != 0)
+		fprintf(stderr, "usblink: write %s: %s\n", USBLINK_STATE_PATH, strerror(errno));
 }
 
 // Applies the state-side effects of a USBLINK_ACT_* set (mu held) and returns
@@ -487,7 +485,7 @@ static void* sio_rx(void* arg) {
 static int write_pid_file(void) {
 	char s[16];
 	int len = snprintf(s, sizeof(s), "%d\n", (int)getpid());
-	int fd = open(PID_FILE, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	int fd = open(USBLINK_PID_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (fd < 0)
 		return -1;
 	int r = (int)write(fd, s, (size_t)len);
@@ -498,7 +496,7 @@ static int write_pid_file(void) {
 // pid of a live usblink daemon named by the pid file, or 0. The cmdline check
 // keeps a recycled pid (or a zombie) from counting as ours.
 static pid_t running_pid(void) {
-	FILE* f = fopen(PID_FILE, "r");
+	FILE* f = fopen(USBLINK_PID_PATH, "r");
 	if (!f)
 		return 0;
 	int pid = 0;
@@ -544,7 +542,7 @@ static int run_daemon(int foreground) {
 	signal(SIGPIPE, SIG_IGN);
 
 	if (write_pid_file() != 0)
-		fprintf(stderr, "usblink: write %s: %s\n", PID_FILE, strerror(errno));
+		fprintf(stderr, "usblink: write %s: %s\n", USBLINK_PID_PATH, strerror(errno));
 	usblink_link_init(&g_link);
 	usblink_power_restore_saved(); // a SIGKILLed predecessor may have left charging off
 	// Before the gadget attaches: the main port must come up as the USB device,
@@ -642,10 +640,10 @@ static void close_inherited_fds(void) {
 static int cmd_start(void) {
 	if (running_pid() > 0)
 		return 0;
-	unlink(PID_FILE);
+	unlink(USBLINK_PID_PATH);
 	// The daemon's first state file is the startup verdict, so no stale one
 	// from an earlier run may answer for it (no daemon is running here).
-	unlink(STATE_FILE);
+	unlink(USBLINK_STATE_PATH);
 	unlink(STATE_TMP);
 	pid_t p = fork();
 	if (p < 0)
@@ -665,7 +663,7 @@ static int cmd_start(void) {
 	// tun.ko loading (up to 1 s) plus the UDC rebind in attach.
 	for (int i = 0; i < START_WAIT_MS / 50; i++) {
 		UsbLinkState st;
-		if (usblink_state_read(STATE_FILE, &st) == 0 && st.link[0])
+		if (usblink_state_read(USBLINK_STATE_PATH, &st) == 0 && st.link[0])
 			return strcmp(st.link, "error") == 0 ? 1 : 0;
 		sleep_ms(50);
 	}
@@ -690,15 +688,15 @@ static int cmd_stop(void) {
 	usblink_gadget_repair();
 	usblink_power_restore_saved();
 	usblink_cc_restore_saved();
-	unlink(PID_FILE);
-	unlink(STATE_FILE);
+	unlink(USBLINK_PID_PATH);
+	unlink(USBLINK_STATE_PATH);
 	unlink(STATE_TMP);
 	unlink(USBLINK_SIO_SOCK);
 	return 0;
 }
 
 static int cmd_status(void) {
-	FILE* f = fopen(STATE_FILE, "r");
+	FILE* f = fopen(USBLINK_STATE_PATH, "r");
 	if (!f) {
 		puts("USBLINK_LINK=down");
 		return 0;

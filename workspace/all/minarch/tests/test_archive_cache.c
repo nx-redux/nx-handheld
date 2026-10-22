@@ -110,6 +110,13 @@ int main(void) {
 	snprintf(other, sizeof(other), "%s/nowhere", root);
 	CHECK(!ArchiveCache_find(other, exts, found, sizeof(found)), "missing dir finds nothing");
 
+	// the zip/7z extractors pick the rom inside an archive with the same match
+	CHECK(ArchiveCache_hasExtension("Game.nes", exts), "extension matches");
+	CHECK(ArchiveCache_hasExtension("dir/GAME.NES", exts), "extension match ignores case");
+	CHECK(!ArchiveCache_hasExtension(".nes", exts), "a bare extension is not a rom");
+	CHECK(!ArchiveCache_hasExtension("Game.snes", exts), "no match on a longer extension");
+	CHECK(!ArchiveCache_hasExtension("nes", exts), "no match without a dot");
+
 	// /tmp is RAM: launching a game drops every other game's folder, in any
 	// core's tag folder, and keeps its own
 	char nx[700], fc[800], gb[800], keep[900], gone1[900], gone2[900], f[1000];

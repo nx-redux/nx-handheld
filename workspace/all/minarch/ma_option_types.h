@@ -11,7 +11,7 @@ typedef struct Option {
 	char* var;
 	int default_value;
 	int value;
-	int count; // TODO: drop this?
+	int count; // values, set for core options only (Option_free); others use Option_valueCount
 	int lock;
 	int hidden;
 	char** values;

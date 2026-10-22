@@ -21,9 +21,6 @@
 #include "utils.h"
 #include "wizard.h"
 
-#define USBLINK_STATE_PATH "/tmp/usblink.state"
-#define USBLINK_PID_PATH "/tmp/usblink.pid"
-
 // Any pidfile, live pid or not: a SIGKILLed daemon leaves its pidfile behind
 // together with a gadget that may still be linked, and that dead-pid case is
 // exactly the one `usblink.elf stop` has to repair. stop removes the pidfile,
@@ -35,7 +32,7 @@ bool wiz_usb_link_may_be_up(void) {
 void wiz_usb_link_stop(void) {
 	// Always, not only when the pidfile looks alive: `stop` is also the repair
 	// for a daemon that was SIGKILLed with the gadget function still linked.
-	system("usblink.elf stop >/dev/null 2>&1");
+	usblink_ctl_stop();
 }
 
 // GFX_blitText centres inside dst_rect, so a full-width rect at y is a centred
@@ -75,7 +72,7 @@ int wiz_usb_link_up(WizSession* s) {
 	// put the cabling hint up first rather than leaving the mode menu on show
 	// with B dead underneath it.
 	wiz_usb_render("Starting USB link...", false);
-	if (system("usblink.elf start >/dev/null 2>&1") != 0) {
+	if (usblink_ctl_start() != 0) {
 		// A slow-starting daemon may still be alive after a failed start, so
 		// the stop inside wiz_usb_fail() is not optional.
 		wiz_usb_fail("USB link could not start.", 1500);
@@ -103,10 +100,7 @@ int wiz_usb_link_up(WizSession* s) {
 				return 0;
 			}
 			if (!strcmp(st.link, "error")) {
-				const char* why = !strcmp(st.error, "version")
-									  ? "Both devices need the same\nNXRedux version."
-									  : "USB link unavailable\non this device.";
-				wiz_usb_fail(why, 2000);
+				wiz_usb_fail(usblink_state_error_message(&st), 2000);
 				return -1;
 			}
 		}

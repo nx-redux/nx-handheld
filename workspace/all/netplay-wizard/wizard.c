@@ -387,21 +387,13 @@ static bool wiz_orphan_ap_present(void) {
  * outlive the session that created it, which is the one thing --cleanup exists
  * to prevent.
  *
- * Mirror of WIFI_direct_stopHotspot()'s body, tmp-file names included; if that sequence
- * changes, this one changes with it. The alternative — teaching
+ * Runs the same WIFI_direct_stopAP() as WIFI_direct_stopHotspot(). The alternative — teaching
  * WIFI_direct_stopHotspot() to treat a live hostapd as an active hotspot, which
  * would delete this function — also changes behaviour for minarch's netplay.c,
  * gblink.c and gbalink.c, which the wizard should not change.
  */
 static void wiz_stop_hotspot_orphan(void) {
-	system("killall hostapd 2>/dev/null");
-	usleep(200000); // let hostapd release wlan0 (as WIFI_direct_stopHotspot() does)
-	system("kill $(cat /tmp/gbalink_udhcpd.pid 2>/dev/null) 2>/dev/null");
-	system("killall udhcpd 2>/dev/null");
-
-	system("ip addr flush dev wlan0 2>/dev/null");
-	system("ip link set wlan0 down 2>/dev/null");
-	system("rm -f /tmp/gbalink_*.conf /tmp/gbalink_*.pid /tmp/gbalink_*.leases 2>/dev/null");
+	WIFI_direct_stopAP();
 
 	// Hands wlan0 back to the client stack: wifi_init.sh start restarts
 	// wpa_supplicant, which reassociates to a saved network on its own. Also

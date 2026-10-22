@@ -100,29 +100,19 @@ int OptionFrontend_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
-// case-insensitive strstr; strcasestr is GNU-only and would need _GNU_SOURCE
-// ahead of every include in this TU
-static int containsCI(const char* haystack, const char* needle) {
-	if (!haystack)
-		return 0;
-	size_t nlen = strlen(needle);
-	for (; *haystack; haystack++) {
-		if (strncasecmp(haystack, needle, nlen) == 0)
-			return 1;
-	}
-	return 0;
-}
-
 // The libretro options API has no restart-required flag; every shipped core
 // that has restart-only options marks them with "restart" or "reload" in the
 // label or info text (audited against workspace/*/cores/src). Options that
 // can't take effect while a game is running stay in the pre-launch editor
 // (options.elf) and are hidden from the in-game menu.
 static int Option_requiresRestart(Option* option) {
-	static const char* words[] = {"restart", "reload", NULL};
+	static char* words[] = {"restart", "reload", NULL};
+	char* texts[] = {option->name, option->desc, option->full};
 	for (int i = 0; words[i]; i++) {
-		if (containsCI(option->name, words[i]) || containsCI(option->desc, words[i]) || containsCI(option->full, words[i]))
-			return 1;
+		for (int j = 0; j < 3; j++) {
+			if (texts[j] && containsString(texts[j], words[i]))
+				return 1;
+		}
 	}
 	return 0;
 }
@@ -789,7 +779,6 @@ int OptionShaders_openMenu(MenuList* list, int i) {
 	for (int i = SH_SHADER1; i < config.shaders.count; i += SH_SHADER2 - SH_SHADER1) {
 		config.shaders.options[i].values = filelist;
 		config.shaders.options[i].labels = filelist;
-		config.shaders.options[i].count = filecount;
 	}
 	ShaderOptions_menu.items = calloc(config.shaders.count + 1, sizeof(MenuItem));
 	fillShaderItems(ShaderOptions_menu.items);

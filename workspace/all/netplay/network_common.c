@@ -42,8 +42,8 @@ static const int SSID_CHARSET_LEN = 32;
 // in NET_sendDiscoveryBroadcast. Skips loopback by FLAG, not name, plus
 // interfaces that are down and virtual links (VPN tunnels, VM/container
 // bridges, peer-to-peer). Advertising one of those addresses sends the peer's
-// connect somewhere unreachable; same ruling and same prefix list as Device
-// Sync's get_own_ip (sync.c). wlan* still wins outright so a device with a
+// connect somewhere unreachable; Device Sync's get_own_ip (sync.c) uses it
+// too. wlan* still wins outright so a device with a
 // second link keeps advertising the radio; otherwise the FIRST real interface
 // is kept.
 //
@@ -109,12 +109,6 @@ void NET_getLocalIP(char* ip_out, size_t ip_size) {
 	ip_out[ip_size - 1] = '\0';
 
 	NET_getLanInfo(ip_out, ip_size, NULL, 0);
-}
-
-bool NET_hasConnection(void) {
-	char ip[16];
-	NET_getLocalIP(ip, sizeof(ip));
-	return strcmp(ip, "0.0.0.0") != 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////

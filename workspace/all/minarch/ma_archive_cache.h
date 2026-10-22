@@ -15,6 +15,10 @@
 // path does not fit.
 int ArchiveCache_dir(char* out, size_t size, const char* root, const char* archive_path);
 
+// 1 if name ends in "." plus one of extensions (NULL-terminated, without
+// dots), ignoring case, after a non-empty stem.
+int ArchiveCache_hasExtension(const char* name, char** extensions);
+
 // Looks in dir for a non-empty regular file ending in one of extensions
 // (NULL-terminated, without dots, e.g. {"nes", "fds", NULL}) and writes its
 // path into out. Returns 1 if found, 0 if not.

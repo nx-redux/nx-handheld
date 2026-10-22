@@ -64,7 +64,6 @@ LDFLAGS  += -llz4
 
 # SaveRAM support
 LDFLAGS	 +=  -Llibretro-common -lsrm -lzip -lz
-CFLAGS   += -DHAS_SRM
 LDFLAGS +=  -lasound
 
 # RA support: rcheevos and libchdr linking

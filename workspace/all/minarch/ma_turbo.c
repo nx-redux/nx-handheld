@@ -1,9 +1,4 @@
-#include <string.h>
 #include "ma_turbo.h"
-
-void Turbo_reset(TurboState* s) {
-	memset(s, 0, sizeof(*s));
-}
 
 int Turbo_step(TurboState* s, int btn_id, int activity) {
 	if (btn_id < 0 || btn_id >= TURBO_MAX_BUTTONS)

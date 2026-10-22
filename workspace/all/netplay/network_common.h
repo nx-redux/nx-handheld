@@ -79,12 +79,6 @@ void NET_getLocalIP(char* ip_out, size_t ip_size);
  */
 int NET_getLanInfo(char* ip_out, size_t ip_size, char* bcast_out, size_t bcast_size);
 
-/**
- * Check if device has a valid network connection
- * @return true if connected (has non-0.0.0.0 IP), false otherwise
- */
-bool NET_hasConnection(void);
-
 //////////////////////////////////////////////////////////////////////////////
 // TCP Socket Configuration
 //////////////////////////////////////////////////////////////////////////////

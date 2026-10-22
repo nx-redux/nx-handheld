@@ -12,10 +12,8 @@
 #include <unistd.h>
 #include "ma_rewind.h"
 #include "ma_emutime.h"
-#ifdef HAS_SRM
 #include "streams/rzip_stream.h"
 #include "streams/file_stream.h"
-#endif
 
 // Saves, RTC data and states are staged to a sibling .tmp, fsynced and renamed
 // over the old file, so a full card, a power cut or a kill mid-write keeps the
@@ -23,7 +21,6 @@
 static int writeSaveFile(const char* path, const void* data, size_t size, int compressed) {
 	if (!data)
 		return 0;
-#ifdef HAS_SRM
 	if (compressed) {
 		char tmp[MAX_PATH + 16];
 		snprintf(tmp, sizeof(tmp), "%s.tmp", path);
@@ -42,9 +39,6 @@ static int writeSaveFile(const char* path, const void* data, size_t size, int co
 		}
 		return 1;
 	}
-#else
-	(void)compressed;
-#endif
 	return writeFileAtomic(path, (const char*)data, size);
 }
 
@@ -79,7 +73,6 @@ void SRAM_read(void) {
 
 	void* sram = core.get_memory_data(RETRO_MEMORY_SAVE_RAM);
 
-#ifdef HAS_SRM
 	// Always read through rzipstream, regardless of the save-format setting: it
 	// detects the #RZIPv# magic and falls back to a raw read when absent, so it
 	// handles both compressed and uncompressed .srm files. Choosing the reader
@@ -96,15 +89,6 @@ void SRAM_read(void) {
 		LOG_error("rzipstream: Error reading SRAM data\n");
 
 	rzipstream_close(sram_file);
-#else
-	FILE* sram_file = fopen(filename, "r");
-	if (!sram_file)
-		return;
-	if (!sram || !fread(sram, 1, sram_size, sram_file)) {
-		LOG_error("Error reading SRAM data\n");
-	}
-	fclose(sram_file);
-#endif
 }
 
 void SRAM_write(void) {
@@ -180,16 +164,9 @@ void State_getPath(char* filename) {
 	State_getSlotPath(state_slot, filename);
 }
 
-#ifdef HAS_SRM
 static int64_t State_readRz(void* stream, void* buf, size_t len) {
 	return rzipstream_read((rzipstream_t*)stream, buf, len);
 }
-#else
-static int64_t State_readFile(void* stream, void* buf, size_t len) {
-	size_t n = fread(buf, 1, len, (FILE*)stream);
-	return (n == 0 && ferror((FILE*)stream)) ? -1 : (int64_t)n;
-}
-#endif
 
 // The whole state first; a core that wants exactly its serialize_size (and refuses a longer
 // state before touching anything) then gets the state cut to it, as before.
@@ -221,16 +198,11 @@ int State_read(void) { // from picoarch
 
 	// declared (and initialized) before the first goto so the error paths
 	// never see an indeterminate handle
-#ifdef HAS_SRM
 	rzipstream_t* state_rzfile = NULL;
-#else
-	FILE* state_file = NULL;
-#endif
 
 	void* state = NULL;
 	size_t data_size = 0;
 
-#ifdef HAS_SRM
 	state_rzfile = rzipstream_open(filename, RETRO_VFS_FILE_ACCESS_READ);
 	if (!state_rzfile) {
 		if (state_slot != RESUME_SLOT_DEFAULT) { // default state in MiniUI, may not exist
@@ -270,46 +242,6 @@ error:
 		free(state);
 	if (state_rzfile)
 		rzipstream_close(state_rzfile);
-#else
-	state_file = fopen(filename, "r");
-	if (!state_file) {
-		if (state_slot != RESUME_SLOT_DEFAULT) { // default state in MiniUI, may not exist
-			LOG_error("Error opening state file: %s (%s)\n", filename, strerror(errno));
-		}
-		goto error;
-	}
-
-	if (fread(rastate_header, 1, RASTATE_HEADER_SIZE, state_file) < RASTATE_HEADER_SIZE) {
-		LOG_error("Error reading rastate header from file: %s (%s)\n", filename, strerror(errno));
-		goto error;
-	}
-
-	if (memcmp(rastate_header, "RASTATE", 7) != 0) {
-		// This file only contains raw core state data; rewind
-		fseek(state_file, 0, SEEK_SET);
-	}
-
-	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4,
-	// so a shorter state is padded to state_size, and a longer one is read whole
-	state = State_readData(State_readFile, state_file, state_size, State_memSize(rastate_header), &data_size);
-	if (!state) {
-		LOG_error("Error reading state data from file: %s (%s)\n", filename, strerror(errno));
-		goto error;
-	}
-
-	if (!State_unserialize(state, data_size, state_size)) {
-		LOG_error("Error restoring save state: %s\n", filename);
-		goto error;
-	}
-	success = 1;
-	EmuTime_reset(); // the loaded state starts a new emulated timeline
-
-error:
-	if (state)
-		free(state);
-	if (state_file)
-		fclose(state_file);
-#endif
 	fast_forward = was_ff;
 	return success;
 }

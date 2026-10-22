@@ -182,7 +182,7 @@ static int has_room_for(const char* dir, unsigned long long needed) {
 	char detail[128];
 	snprintf(detail, sizeof(detail), "Unpacking needs %llu MB of memory, %llu MB is free.",
 			 (needed + ARCHIVE_CACHE_RESERVE) >> 20, available >> 20);
-	Menu_netplayNotice("Game too big to unzip", detail, 3000);
+	Menu_notice("Game too big to unzip", detail, 3000);
 	return 0;
 }
 
@@ -250,16 +250,7 @@ int extract_zip(const char* tmp_dirname, char** extensions) {
 			if (len > 0 && sb.name[len - 1] == '/') {
 				snprintf(game.tmp_path, sizeof(game.tmp_path), "%s/%s", tmp_dirname, basename(entry_name));
 			} else {
-				int found = 0;
-				char extension[34];
-				for (int e = 0; extensions[e]; e++) {
-					snprintf(extension, sizeof(extension), ".%s", extensions[e]);
-					if (suffixMatch(extension, sb.name)) {
-						found = 1;
-						break;
-					}
-				}
-				if (!found)
+				if (!ArchiveCache_hasExtension(sb.name, extensions))
 					continue;
 
 				snprintf(game.tmp_path, sizeof(game.tmp_path), "%s/%s", tmp_dirname, basename(entry_name));
@@ -404,16 +395,7 @@ int extract_7z(const char* tmp_dirname, char** extensions) {
 				continue;
 			snprintf(src, sizeof(src), "%s/%s", staging, entry->d_name);
 			if (ok && !result) {
-				int found = 0;
-				char extension[34];
-				for (int e = 0; extensions[e]; e++) {
-					snprintf(extension, sizeof(extension), ".%s", extensions[e]);
-					if (suffixMatch(extension, entry->d_name)) {
-						found = 1;
-						break;
-					}
-				}
-				if (found) {
+				if (ArchiveCache_hasExtension(entry->d_name, extensions)) {
 					snprintf(game.tmp_path, sizeof(game.tmp_path), "%s/%s", tmp_dirname, entry->d_name);
 					if (rename(src, game.tmp_path) == 0) {
 						result = 1;

@@ -1089,7 +1089,7 @@ void video_refresh_callback(const void* data, unsigned width, unsigned height, s
 				restore_h = screen->h;
 				restore_p = screen->pitch;
 			}
-			Menu_progressNotice(title, detail);
+			Menu_notice(title, detail, 0);
 			return;
 		}
 		if (progress_shown) {
