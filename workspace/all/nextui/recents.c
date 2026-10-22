@@ -116,7 +116,10 @@ void Recents_add(char* path, char* alias) {
 		if (recents->count >= MAX_RECENTS) {
 			Recent_free(Array_pop(recents));
 		}
-		Array_unshift(recents, recent);
+		if (!Array_unshift(recents, recent)) {
+			Recent_free(recent);
+			return;
+		}
 	} else { // refresh the alias even when already at the top (id == 0)
 		Recent* existing = recents->items[id];
 		if (alias) {
@@ -152,9 +155,12 @@ int Recents_load(void) {
 			Recent* recent = Recent_new(disc_path, NULL);
 			if (!recent)
 				goto done_disc;
+			if (!Array_push(recents, recent)) {
+				Recent_free(recent);
+				goto done_disc;
+			}
 			if (recent->available)
 				has += 1;
-			Array_push(recents, recent);
 
 			char parent_path[MAX_PATH];
 			strcpy(parent_path, disc_path);
@@ -162,8 +168,8 @@ int Recents_load(void) {
 			if (tmp) {
 				tmp[1] = '\0';
 				char* dup = strdup(parent_path);
-				if (dup)
-					Array_push(parent_paths, dup);
+				if (dup && !Array_push(parent_paths, dup))
+					free(dup);
 			}
 		}
 	done_disc:
@@ -235,17 +241,20 @@ int Recents_load(void) {
 				}
 
 				char* dup = strdup(parent_path);
-				if (dup)
-					Array_push(parent_paths, dup);
+				if (dup && !Array_push(parent_paths, dup))
+					free(dup);
 			}
 
 		skip_m3u:;
 			Recent* recent = Recent_new(path, alias);
 			if (!recent)
 				continue;
+			if (!Array_push(recents, recent)) {
+				Recent_free(recent);
+				continue;
+			}
 			if (recent->available)
 				has += 1;
-			Array_push(recents, recent);
 		}
 		fclose(file);
 	}
@@ -316,12 +325,7 @@ Entry* Recents_entryFromRecent(Recent* recent) {
 	char sd_path[MAX_PATH];
 	snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, recent->path);
 	int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM; // ???
-	Entry* entry = Entry_new(sd_path, type);
-	if (recent->alias) {
-		free(entry->name);
-		entry->name = strdup(recent->alias);
-	}
-	return entry;
+	return recent->alias ? Entry_newNamed(sd_path, type, recent->alias) : Entry_new(sd_path, type);
 }
 
 Array* Recents_getEntries(void) {
@@ -330,9 +334,7 @@ Array* Recents_getEntries(void) {
 		return entries;
 	for (int i = 0; i < recents->count; i++) {
 		Recent* recent = recents->items[i];
-		Entry* entry = Recents_entryFromRecent(recent);
-		if (entry)
-			Array_push(entries, entry);
+		EntryArray_push(entries, Recents_entryFromRecent(recent));
 	}
 	return entries;
 }

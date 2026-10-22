@@ -4,7 +4,9 @@
 #include "utils.h"
 #include "api.h"
 #include "wifi.h"
+#include "ca_bundle.h"
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +43,9 @@ static void ss_decodeDevCredentials(char* devid, char* devpass) {
 }
 #endif
 
+// The UI thread (account info) and the scrape worker (searches) both make requests: one limiter for both, so the
+// interval holds across them.
+static pthread_mutex_t rate_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t last_request_time = 0;
 static char ss_username[64] = "";
 static char ss_password[128] = "";
@@ -51,7 +56,9 @@ static char* shell_escape(const char* str) {
 }
 
 void ScraperAPI_init(void) {
+	pthread_mutex_lock(&rate_lock);
 	last_request_time = 0;
+	pthread_mutex_unlock(&rate_lock);
 	ss_username[0] = '\0';
 	ss_password[0] = '\0';
 }
@@ -72,16 +79,17 @@ bool ScraperAPI_hasUserCredentials(void) {
 }
 
 void ScraperAPI_rateLimit(void) {
-	if (last_request_time == 0) {
-		last_request_time = getMicroseconds();
-		return;
-	}
-	uint64_t now = getMicroseconds();
-	uint64_t elapsed_ms = (now - last_request_time) / 1000;
-	if (elapsed_ms < SS_RATE_LIMIT_MS) {
-		usleep((SS_RATE_LIMIT_MS - elapsed_ms) * 1000);
+	// held across the wait: a second caller waits its own full interval after this one
+	pthread_mutex_lock(&rate_lock);
+	if (last_request_time != 0) {
+		uint64_t now = getMicroseconds();
+		uint64_t elapsed_ms = (now - last_request_time) / 1000;
+		if (elapsed_ms < SS_RATE_LIMIT_MS) {
+			usleep((SS_RATE_LIMIT_MS - elapsed_ms) * 1000);
+		}
 	}
 	last_request_time = getMicroseconds();
+	pthread_mutex_unlock(&rate_lock);
 }
 
 bool ScraperAPI_isOnline(void) {
@@ -228,11 +236,10 @@ static bool parseSearchResponse(HTTP_Response* resp, ScraperGameInfo* info) {
 						info->wheel_url, sizeof(info->wheel_url));
 	}
 
-	LOG_info("Scraper: game='%s' ss='%s' box='%s' wheel='%s'\n",
-			 info->game_name,
-			 info->screenshot_url[0] ? info->screenshot_url : "(none)",
-			 info->boxart_url[0] ? info->boxart_url : "(none)",
-			 info->wheel_url[0] ? info->wheel_url : "(none)");
+	// which media were found, not their URLs: ScreenScraper's carry the dev and user passwords as query parameters
+	LOG_info("Scraper: game='%s' ss=%s box=%s box2d=%s wheel=%s\n", info->game_name,
+			 info->screenshot_url[0] ? "yes" : "no", info->boxart_url[0] ? "yes" : "no",
+			 info->boxart2d_url[0] ? "yes" : "no", info->wheel_url[0] ? "yes" : "no");
 
 	cJSON_Delete(root);
 	return true;
@@ -388,13 +395,27 @@ bool ScraperAPI_downloadFile(const char* url, const char* dest_path) {
 		return false;
 	}
 
-	// Use curl for binary downloads since HTTP module is text-oriented
+	// TLS checked against the shipped CA bundle like every other fetch (-k only when there is none)
+	const char* ca_bundle = nx_ca_bundle_path();
+	char* escaped_ca = ca_bundle ? shell_escape(ca_bundle) : NULL;
+	char tls_opt[MAX_PATH * 4 + 16];
+	if (escaped_ca)
+		snprintf(tls_opt, sizeof(tls_opt), "--cacert %s", escaped_ca);
+	else
+		snprintf(tls_opt, sizeof(tls_opt), "-k");
+	free(escaped_ca);
+
+	// Use curl for binary downloads since HTTP module is text-oriented. --fail: an HTTP error (quota, 404) is a
+	// failed download, not an error page saved as the image.
 	char cmd[4096];
-	snprintf(cmd, sizeof(cmd),
-			 "curl -s -k -L -o %s --connect-timeout 10 --max-time 30 %s",
-			 escaped_path, escaped_url);
+	int n = snprintf(cmd, sizeof(cmd), "curl -s --fail %s -L -o %s --connect-timeout 10 --max-time 30 %s", tls_opt,
+					 escaped_path, escaped_url);
 	free(escaped_url);
 	free(escaped_path);
+	if (n < 0 || (size_t)n >= sizeof(cmd)) {
+		LOG_error("Scraper download: command too long for %s\n", dest_path);
+		return false;
+	}
 
 	// Log only the destination: ScreenScraper media URLs carry the dev and
 	// user passwords as query parameters.

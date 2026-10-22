@@ -57,6 +57,22 @@ bool MenuTabs_underPath(const char* path, const char* base) {
 	return strncmp(path, base, n) == 0 && (path[n] == '\0' || path[n] == '/');
 }
 
+int MenuTabs_collectionRow(const char* const* paths, int count, const char* name, const char* rom) {
+	if (!name || !name[0])
+		return -1;
+	int first = -1;
+	for (int i = 0; i < count; i++) {
+		const char* slash = paths[i] ? strrchr(paths[i], '/') : NULL;
+		if (!slash || strcmp(slash + 1, name) != 0)
+			continue;
+		if (rom && strcmp(paths[i], rom) == 0)
+			return i;
+		if (first < 0)
+			first = i;
+	}
+	return first;
+}
+
 MenuTabId MenuTabs_forPath(const char* path, const MenuTabPaths* paths) {
 	if (!path)
 		return MENU_TAB_HOME;

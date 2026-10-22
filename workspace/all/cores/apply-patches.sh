@@ -23,7 +23,21 @@ if [ -f "$MARK" ]; then
 	exit 1
 fi
 ABS=$(cd "${DIR:-.}" 2>/dev/null && pwd || true)
+# All or nothing: git apply is atomic per patch, and when one fails the ones
+# before it are reversed (newest first), so the checkout is left unpatched and
+# the next build retries the whole set instead of re-applying patch 1 onto a
+# half-patched tree.
+APPLIED=""
 for P in $PATCHES; do
-	(cd "$SRC" && git apply -p1 < "$ABS/$(basename "$P")")
+	F="$ABS/$(basename "$P")"
+	if ! (cd "$SRC" && git apply -p1 < "$F"); then
+		for R in $APPLIED; do
+			(cd "$SRC" && git apply -R -p1 < "$R") ||
+				echo "error: could not reverse $R; rm -rf $SRC and rebuild" >&2
+		done
+		echo "error: $(basename "$P") does not apply to $SRC (earlier patches reversed)" >&2
+		exit 1
+	fi
+	APPLIED="$F $APPLIED"
 done
 echo "$WANT" > "$MARK"

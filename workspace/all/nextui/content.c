@@ -307,7 +307,7 @@ static void Directory_index(Directory* self) {
 			if (hide(entry->name)) {
 				Entry_free(entry);
 			} else {
-				Array_push(entries, entry);
+				EntryArray_push(entries, entry);
 			}
 		}
 		Array_free(self->entries);
@@ -829,7 +829,7 @@ typedef struct {
 
 static void readEntryCacheCb(char* path, char* name, void* ctx) {
 	EntryCacheRead* read = ctx;
-	Array_push(read->entries, Entry_newNamed(path, read->type, name));
+	EntryArray_push(read->entries, Entry_newNamed(path, read->type, name));
 }
 
 // Shared reader for the "path\tname\n" caches writeEntryCache emits. Returns
@@ -938,7 +938,7 @@ static void readEmulistCb(char* path, char* name, void* ctx) {
 		read->cap = cap;
 	}
 	read->counts[read->entries->count] = count;
-	Array_push(read->entries, Entry_newNamed(row_path, ENTRY_DIR, row_name));
+	EntryArray_push(read->entries, Entry_newNamed(row_path, ENTRY_DIR, row_name));
 }
 
 // The emulist rows recorded against fp, or NULL (forcing a rescan) when the file is missing, stale,
@@ -1180,7 +1180,7 @@ Array* Content_searchRoms(const char* query) {
 		// match the label ("Metal Slug (Arcade)") or the raw filename ("mslug"),
 		// so an aliased rom still surfaces under its on-disk name
 		if (containsString(entry->name, (char*)query) || containsString((char*)baseName(entry->path), (char*)query)) {
-			Array_push(results, entry);
+			EntryArray_push(results, entry);
 		} else {
 			Entry_free(entry);
 		}
@@ -1316,7 +1316,8 @@ static void indexRomDir(Array* rom_index, const char* dir_path) {
 		snprintf(full_display, sizeof(full_display), "%s (%s)", rom_label, tag);
 
 		Entry* entry = Entry_newNamed(rom_path, ENTRY_ROM, full_display);
-		Array_push(rom_index, entry);
+		if (!EntryArray_push(rom_index, entry))
+			continue; // out of memory: the row is left out (and freed)
 
 		if (from_arcade) {
 			if (arcade_count == arcade_cap) {
@@ -1394,7 +1395,7 @@ static Array* scanRoms(uint64_t fp, int** counts_out) {
 			if (hasRoms(dp->d_name)) {
 				strncpy(tmp, dp->d_name, remaining - 1);
 				full_path[MAX_PATH - 1] = '\0';
-				Array_push(emus, Entry_new(full_path, ENTRY_DIR));
+				EntryArray_push(emus, Entry_new(full_path, ENTRY_DIR));
 			}
 		}
 		closedir(dh);
@@ -1408,11 +1409,11 @@ static Array* scanRoms(uint64_t fp, int** counts_out) {
 				// (MD) when Sega Genesis (GPGX) survived) are still scanned for
 				// the search index under the survivor's label, mirroring
 				// getEntries' collation
-				Array_push(sibling_dirs, entry);
+				EntryArray_push(sibling_dirs, entry);
 				continue;
 			}
-			Array_push(entries, entry);
-			prev_entry = entry;
+			if (EntryArray_push(entries, entry))
+				prev_entry = entry;
 		}
 		Array_free(emus);
 	}
@@ -1535,7 +1536,7 @@ static Array* getRoms(void) {
 	Array* entries = Array_new();
 	for (int i = 0; i < emu_memo->count; i++) {
 		Entry* entry = emu_memo->items[i];
-		Array_push(entries, Entry_newNamed(entry->path, entry->type, entry->name));
+		EntryArray_push(entries, Entry_newNamed(entry->path, entry->type, entry->name));
 	}
 	return entries;
 }
@@ -1590,7 +1591,7 @@ Array* getCollections(void) {
 				continue;
 			strncpy(tmp, dp->d_name, remaining - 1);
 			full_path[MAX_PATH - 1] = '\0';
-			Array_push(collections, Entry_new(full_path, ENTRY_DIR));
+			EntryArray_push(collections, Entry_new(full_path, ENTRY_DIR));
 		}
 		closedir(dh);
 		EntryArray_sort(collections);
@@ -1624,12 +1625,8 @@ static Array* getPinned(void) {
 				}
 			}
 
-			Entry* entry = Entry_new(sd_path, type);
-			if (name) {
-				free(entry->name);
-				entry->name = strdup(name);
-			}
-			Array_push(root, entry);
+			Entry* entry = name ? Entry_newNamed(sd_path, type, name) : Entry_new(sd_path, type);
+			EntryArray_push(root, entry);
 		}
 	}
 
@@ -1646,7 +1643,7 @@ static Array* getSimpleTools(void) {
 	if (!exists(settings_path))
 		snprintf(settings_path, sizeof(settings_path), "%s/Settings.pak", TOOLS_PATH);
 	if (exists(settings_path))
-		Array_push(entries, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
+		EntryArray_push(entries, Entry_newNamed(settings_path, ENTRY_PAK, "Settings"));
 	return entries;
 }
 
@@ -1676,7 +1673,7 @@ int Content_forEachCollectionGame(const char* path, bool (*cb)(const char* sd_pa
 
 static bool getCollectionCb(const char* sd_path, void* ctx) {
 	int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM;
-	Array_push((Array*)ctx, Entry_new(sd_path, type));
+	EntryArray_push((Array*)ctx, Entry_new(sd_path, type));
 	return true;
 }
 static Array* getCollection(char* path) {
@@ -1687,12 +1684,9 @@ static Array* getCollection(char* path) {
 
 static bool getDiscsCb(const char* disc_path, int index, void* ctx) {
 	Array* entries = (Array*)ctx;
-	Entry* entry = Entry_new(disc_path, ENTRY_ROM);
-	free(entry->name);
 	char name[16];
-	sprintf(name, "Disc %i", index + 1);
-	entry->name = strdup(name);
-	Array_push(entries, entry);
+	snprintf(name, sizeof(name), "Disc %i", index + 1);
+	EntryArray_push(entries, Entry_newNamed(disc_path, ENTRY_ROM, name));
 	return true;
 }
 static Array* getDiscs(char* path) {
@@ -1743,7 +1737,7 @@ static void addEntries(Array* entries, char* path) {
 					type = ENTRY_ROM;
 				}
 			}
-			Array_push(entries, Entry_new(full_path, type));
+			EntryArray_push(entries, Entry_new(full_path, type));
 		}
 		closedir(dh);
 	}
@@ -1815,7 +1809,7 @@ Array* getTools(void) {
 				continue;
 			char full_path[MAX_PATH];
 			snprintf(full_path, sizeof(full_path), "%s/%s", TOOLS_PATH, dp->d_name);
-			Array_push(entries, Entry_new(full_path, type));
+			EntryArray_push(entries, Entry_new(full_path, type));
 		}
 		closedir(sd);
 	}
@@ -1839,7 +1833,7 @@ Array* getTools(void) {
 				continue;
 			char full_path[MAX_PATH];
 			snprintf(full_path, sizeof(full_path), "%s/%s", plat_path, dp->d_name);
-			Array_push(entries, Entry_new(full_path, ENTRY_PAK));
+			EntryArray_push(entries, Entry_new(full_path, ENTRY_PAK));
 		}
 		closedir(pd);
 	}
@@ -1855,7 +1849,7 @@ Array* getTools(void) {
 				continue;
 			char full_path[MAX_PATH];
 			snprintf(full_path, sizeof(full_path), "%s/%s", sys_path, dp->d_name);
-			Array_push(entries, Entry_new(full_path, ENTRY_PAK));
+			EntryArray_push(entries, Entry_new(full_path, ENTRY_PAK));
 		}
 		closedir(dh);
 	}

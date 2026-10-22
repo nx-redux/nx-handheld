@@ -95,14 +95,9 @@ static void gs_listBuild(void) {
 		if (!entry && recent) {
 			char sd_path[MAX_PATH];
 			snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, recent->path);
-			entry = Entry_new(sd_path, ENTRY_ROM);
-			if (entry && recent->alias) {
-				free(entry->name);
-				entry->name = strdup(recent->alias);
-			}
+			entry = recent->alias ? Entry_newNamed(sd_path, ENTRY_ROM, recent->alias) : Entry_new(sd_path, ENTRY_ROM);
 		}
-		if (entry)
-			Array_push(gs_entries, entry);
+		EntryArray_push(gs_entries, entry);
 	}
 	// Games of one name from different consoles (Tetris on NES and Game Boy) read as a game list's do: the name, then
 	// its core's tag dimmed after it ("Tetris (GB)"); two of one name and tag, the file's name instead

@@ -235,6 +235,28 @@ static void clamp_window_cases(void) {
 	assert(sel == 2 && start == 0 && end == 4);
 }
 
+// loadLast after a launch from a collection: "Super Mario.zip" listed before "Mario.zip" picked Super Mario (the
+// basename was matched as a case-insensitive suffix), and Tetris on NES picked the Game Boy row listed first
+static void collection_row_matches_the_launched_rom(void) {
+	const char* rows[] = {
+		"/mnt/SDCARD/Roms/Nintendo (NES)/Super Mario.zip",
+		"/mnt/SDCARD/Roms/Nintendo (NES)/Mario.zip",
+		"/mnt/SDCARD/Roms/Game Boy (GB)/Tetris.zip",
+		"/mnt/SDCARD/Roms/Nintendo (NES)/Tetris.zip",
+		"/mnt/SDCARD/Roms/Game Boy (GB)/MARIO.ZIP",
+	};
+	assert(MenuTabs_collectionRow(rows, 5, "Mario.zip", NULL) == 1);
+	assert(MenuTabs_collectionRow(rows, 5, "MARIO.ZIP", NULL) == 4);
+	assert(MenuTabs_collectionRow(rows, 5, "Tetris.zip", NULL) == 2);
+	assert(MenuTabs_collectionRow(rows, 5, "Tetris.zip", rows[3]) == 3);
+	assert(MenuTabs_collectionRow(rows, 5, "Tetris.zip", rows[2]) == 2);
+	// a rom that is no longer a row (removed since): the first row of the name
+	assert(MenuTabs_collectionRow(rows, 5, "Tetris.zip", "/mnt/SDCARD/Roms/X/Tetris.zip") == 2);
+	assert(MenuTabs_collectionRow(rows, 5, "rio.zip", NULL) == -1);
+	assert(MenuTabs_collectionRow(rows, 5, "", NULL) == -1);
+	assert(MenuTabs_collectionRow(rows, 0, "Mario.zip", NULL) == -1);
+}
+
 static void under_path_needs_a_boundary(void) {
 	assert(MenuTabs_underPath("/mnt/SDCARD/Roms", "/mnt/SDCARD/Roms"));
 	assert(MenuTabs_underPath("/mnt/SDCARD/Roms/GBA/x.gba", "/mnt/SDCARD/Roms"));
@@ -363,6 +385,7 @@ int main(void) {
 	home_launch_owns_path();
 	clamp_window_cases();
 	under_path_needs_a_boundary();
+	collection_row_matches_the_launched_rom();
 	slots_park_take_round_trip();
 	slots_park_full_returns_old();
 	slots_drop_keeps_hint();

@@ -44,18 +44,22 @@ static int loadImages(void) {
 				snprintf(path, sizeof(path), "%s%s", basepath, ent->d_name);
 				SDL_Surface* bmp = IMG_Load(path);
 				if (bmp) {
-					count++;
-					SDL_Surface** new_images = realloc(images, sizeof(SDL_Surface*) * count);
-					char** new_paths = realloc(image_paths, sizeof(char*) * count);
-					if (!new_images || !new_paths) {
+					// each grown array is kept as soon as its realloc succeeds (the old block is gone then), so
+					// one failing after the other leaves both valid for unloadImages
+					SDL_Surface** new_images = realloc(images, sizeof(SDL_Surface*) * (count + 1));
+					if (new_images)
+						images = new_images;
+					char** new_paths = new_images ? realloc(image_paths, sizeof(char*) * (count + 1)) : NULL;
+					if (new_paths)
+						image_paths = new_paths;
+					char* path_copy = new_paths ? strdup(path) : NULL;
+					if (!path_copy) {
 						SDL_FreeSurface(bmp);
-						count--;
 						break;
 					}
-					images = new_images;
-					image_paths = new_paths;
-					images[count - 1] = bmp;
-					image_paths[count - 1] = strdup(path);
+					images[count] = bmp;
+					image_paths[count] = path_copy;
+					count++;
 				}
 			}
 		}

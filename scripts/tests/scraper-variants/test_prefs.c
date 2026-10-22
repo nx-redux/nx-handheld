@@ -105,6 +105,24 @@ int main(int argc, char** argv) {
 	CHECK(strcmp(buf, "box2d=1\nwheel=0\nmix=1\n") == 0, "saveTo writes key=0|1 lines");
 	load(path, &p);
 	CHECK(p.box2d && !p.wheel && p.mix, "round trip of {1,0,1}");
+
+	// --- 6b. A save replaces the file rather than truncating it: the scrape worker reading it while the Download
+	// options screen saves must see the old contents or the new, never an empty file (every option off) ---
+	FILE* reader = fopen(path, "r");
+	ScraperPrefs next = {false, true, false};
+	CHECK(ScraperPrefs_saveTo(path, &next), "second saveTo succeeds");
+	char old[128] = {0};
+	if (reader) {
+		size_t n = fread(old, 1, sizeof(old) - 1, reader);
+		old[n] = '\0';
+		fclose(reader);
+	}
+	CHECK(strcmp(old, "box2d=1\nwheel=0\nmix=1\n") == 0, "a reader open across a save still reads the old file whole");
+	char tmp_path[600];
+	snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+	CHECK(access(tmp_path, F_OK) != 0, "no temp file left behind");
+	load(path, &p);
+	CHECK(!p.box2d && p.wheel && !p.mix, "the new contents load after the save");
 	unlink(path);
 
 	// --- 7. Default-path wrappers create creds_dir() ---

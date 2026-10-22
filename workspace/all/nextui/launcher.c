@@ -18,6 +18,10 @@
 #include "menutabs.h"
 #include "shortcuts.h"
 
+// The ROM behind a row launched from a collection's list, beside LAST_PATH (which saves the row by its file name):
+// one game on two consoles in a collection has two rows of that name. Transient, like LAST_PATH.
+#define LAST_ROM_PATH "/tmp/last_rom.txt"
+
 ///////////////////////////////////////
 
 static void queueNext(char* cmd) {
@@ -709,6 +713,7 @@ void Entry_open(Entry* self) {
 
 			snprintf(last_path, sizeof(last_path), "%s/%s", top->path, filename);
 			last = last_path;
+			putFile(LAST_ROM_PATH, self->path); // which of the rows of that name (loadLast)
 		} else if (onHomeTab()) {
 			// save the pinned row itself, not a game folder it sits in, so
 			// loadLast reselects it on the Home tab
@@ -765,6 +770,21 @@ void pushTabOverTab(MenuTabId id, const char* select_path) {
 	MenuTabs_leaveFocus();
 	Array_push(stack, list);
 	top = list;
+}
+
+// The row of the current list a launch from a collection saved (MenuTabs_collectionRow), -1 for none.
+static int collectionRowIndex(const char* filename, const char* rom) {
+	int count = top->entries->count;
+	if (count <= 0)
+		return -1;
+	const char** paths = malloc(sizeof(*paths) * count);
+	if (!paths)
+		return -1;
+	for (int i = 0; i < count; i++)
+		paths[i] = ((Entry*)top->entries->items[i])->path;
+	int row = MenuTabs_collectionRow(paths, count, filename, rom[0] ? rom : NULL);
+	free(paths);
+	return row;
 }
 
 void loadLast(void) { // call after loading root directory
@@ -837,6 +857,12 @@ void loadLast(void) { // call after loading root directory
 	char paks_tools_path[MAX_PATH];
 	snprintf(paks_tools_path, sizeof(paks_tools_path), "%s/Tools/", PAKS_PATH);
 
+	// a launch from a collection's list: the ROM behind the row (Entry_open)
+	bool from_collection = MenuTabs_underPath(full_path, COLLECTIONS_PATH);
+	char last_rom[MAX_PATH] = "";
+	if (from_collection && exists(LAST_ROM_PATH))
+		getFile(LAST_ROM_PATH, last_rom, sizeof(last_rom));
+
 	Array* last = Array_new();
 	while (!exactMatch(last_path, SDCARD_PATH)) {
 		Array_push(last, strdup(last_path));
@@ -859,11 +885,12 @@ void loadLast(void) { // call after loading root directory
 					tmp[1] = '\0'; // 1 because we want to keep the opening parenthesis to avoid collating "Game Boy Color" and "Game Boy Advance" into "Game Boy"
 			}
 
+			int coll_row = from_collection ? collectionRowIndex(filename, last_rom) : -1;
 			for (int i = 0; i < top->entries->count; i++) {
 				Entry* entry = top->entries->items[i];
 
 				// NOTE: strlen() is required for collated_path, '\0' wasn't reading as NULL for some reason
-				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path) && isConsoleDir(entry->path)) || (MenuTabs_underPath(full_path, COLLECTIONS_PATH) && suffixMatch(filename, entry->path)) || (prefixMatch(paks_tools_path, entry->path) && suffixMatch(slash_name, entry->path))) {
+				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path) && isConsoleDir(entry->path)) || i == coll_row || (prefixMatch(paks_tools_path, entry->path) && suffixMatch(slash_name, entry->path))) {
 					top->selected = i;
 					if (i >= top->end)
 						ListWindow_selectAtTop(top->entries->count, GameList_rowCount(), i, &top->start, &top->end);

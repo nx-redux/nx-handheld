@@ -3,7 +3,7 @@
 // without the scraper's API/network stack.
 #include "scraper_prefs.h"
 #include "scraper_core.h" // creds_dir
-#include "utils.h"		  // mkdir_p
+#include "utils.h"		  // mkdir_p, writeFileAtomic
 
 #include <stdio.h>
 #include <string.h>
@@ -32,12 +32,12 @@ void ScraperPrefs_loadFrom(const char* path, ScraperPrefs* out) {
 	fclose(f);
 }
 
+// Replaced whole (tmp + rename), never truncated in place: the scrape worker reads the file for each game while
+// the Download options screen saves it, and a read of a half-written file turned every option off for that game.
 bool ScraperPrefs_saveTo(const char* path, const ScraperPrefs* p) {
-	FILE* f = fopen(path, "w");
-	if (!f)
-		return false;
-	fprintf(f, "box2d=%d\nwheel=%d\nmix=%d\n", p->box2d, p->wheel, p->mix);
-	return fclose(f) == 0;
+	char buf[64];
+	int len = snprintf(buf, sizeof(buf), "box2d=%d\nwheel=%d\nmix=%d\n", p->box2d, p->wheel, p->mix);
+	return len > 0 && (size_t)len < sizeof(buf) && writeFileAtomic(path, buf, (size_t)len);
 }
 
 bool ScraperPrefs_isComplete(const ScraperPrefs* p, bool has_screenshot, bool has_boxart, bool has_mix) {

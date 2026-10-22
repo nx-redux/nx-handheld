@@ -38,6 +38,11 @@ int MenuTabs_resolve(const MenuTabId* tabs, int count, MenuTabId current);
 // path is base or lies below it: base followed by '/' or the end, so "Roms/GBA2" is not under "Roms/GBA" (a base
 // ending in '/' needs only the prefix). False for a NULL or empty base.
 bool MenuTabs_underPath(const char* path, const char* base);
+// The row a launch from a collection's list comes back to: Entry_open saves it by file name
+// (Collections/<c>.txt/<name>), so the first row whose last path component is exactly name ('/'-bounded and
+// case-sensitive: "Mario.zip" isn't "Super Mario.zip"), and of several such rows (one game on two consoles) the one
+// equal to rom, the launched ROM's path, when given. -1 for none.
+int MenuTabs_collectionRow(const char* const* paths, int count, const char* name, const char* rom);
 // The tab a saved/launched path belongs to (Home when nothing else claims it).
 MenuTabId MenuTabs_forPath(const char* path, const MenuTabPaths* paths);
 const char* MenuTabs_label(MenuTabId id); // "Home", "Consoles", "Collections", "Tools"

@@ -113,7 +113,10 @@ static void walk_dir(Walk* w, const char* dir, int depth) {
 				break;
 			names = grown;
 		}
-		names[n++] = strdup(dp->d_name);
+		char* name = strdup(dp->d_name);
+		if (!name)
+			break; // out of memory: a NULL name would crash the sort
+		names[n++] = name;
 	}
 	closedir(dh);
 	if (n > 1)

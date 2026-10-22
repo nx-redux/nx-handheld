@@ -201,10 +201,22 @@ int RAT_listGames(RAT_Game** out_games) {
 
 	int cap = 64, count = 0;
 	RAT_Game* games = (RAT_Game*)malloc(cap * sizeof(RAT_Game));
-	if (!games) {
+	// the journal and confirmed files hold every game's entries: read once here and filtered by hash per game
+	// (rat_resolve_unlock), not re-read per game
+	RA_PendingUnlock* pend = malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
+	RA_PendingUnlock* conf = malloc(sizeof(RA_PendingUnlock) * RA_OFFLINE_MAX_PENDING);
+	if (!games || !pend || !conf) {
+		free(games);
+		free(pend);
+		free(conf);
 		closedir(d);
 		return 0;
 	}
+	int pend_count = RA_Offline_readJournal(pend, RA_OFFLINE_MAX_PENDING);
+	int conf_count = RA_Offline_readConfirmed(conf, RA_OFFLINE_MAX_PENDING);
+	// a confirmed file past the cap was cut to its newest entries: then each game reads its own (filtered while
+	// reading), as before, so an older game's synced unlocks still count
+	bool conf_full = conf_count >= RA_OFFLINE_MAX_PENDING;
 
 	struct dirent* ent;
 	while ((ent = readdir(d))) {
@@ -234,10 +246,10 @@ int RAT_listGames(RAT_Game** out_games) {
 
 		RAT_ServerUnlock* server_ids = NULL;
 		int server_count = rat_server_unlocks(g->session_game_id, &server_ids);
-		RA_PendingUnlock* pend = NULL;
-		int pend_count = rat_pending_for_hash(g->hash, &pend);
-		RA_PendingUnlock* conf = NULL;
-		int conf_count = rat_confirmed_for_hash(g->hash, &conf);
+		RA_PendingUnlock* game_conf = NULL;
+		int game_conf_count = conf_full ? rat_confirmed_for_hash(g->hash, &game_conf) : 0;
+		const RA_PendingUnlock* use_conf = conf_full ? game_conf : conf;
+		int use_conf_count = conf_full ? game_conf_count : conf_count;
 
 		// counts are derived from the same visible-definition set the
 		// achievement list shows, so they can never disagree with it
@@ -248,8 +260,8 @@ int RAT_listGames(RAT_Game** out_games) {
 					continue;
 				g->total++;
 				time_t when = 0;
-				RAT_AchState state = rat_resolve_unlock(def->id, NULL, server_ids, server_count, pend,
-														pend_count, conf, conf_count, &when);
+				RAT_AchState state = rat_resolve_unlock(def->id, g->hash, server_ids, server_count, pend,
+														pend_count, use_conf, use_conf_count, &when);
 				if (state != RAT_ACH_LOCKED)
 					g->unlocked++;
 				if (state == RAT_ACH_PENDING)
@@ -258,12 +270,13 @@ int RAT_listGames(RAT_Game** out_games) {
 		}
 
 		free(server_ids);
-		free(pend);
-		free(conf);
+		free(game_conf);
 		rc_api_destroy_fetch_game_sets_response(&sets);
 		count++;
 	}
 	closedir(d);
+	free(pend);
+	free(conf);
 
 	// Multi-disc games: every disc (and the .m3u, which hashes as disc 1)
 	// resolves to its own hash but the same RA game, and all of them are

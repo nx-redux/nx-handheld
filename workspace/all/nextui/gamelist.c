@@ -1484,6 +1484,7 @@ static void ctxRefresh(int root_sel) {
 	// the marker probes and the List's art are per path: a pak or art added on the card since must show
 	netplay_cap_path[0] = '\0';
 	emuopts_cap_path[0] = '\0';
+	launchopts_cap_path[0] = '\0';
 	listArtForget();
 	thumbCacheForgetMisses();
 	HomeArt_forgetAll();
@@ -1931,6 +1932,8 @@ void GameList_openContextMenuFor(Entry* entry, bool is_pin, bool is_continue) {
 		return;
 	GameList_contextMenuClosed();
 	ctx_target = Entry_newNamed(entry->path, entry->type, entry->name);
+	if (!ctx_target)
+		return; // out of memory: no menu
 	if (entry->unique)
 		ctx_target->unique = strdup(entry->unique);
 	MenuTabs_leaveFocus(); // the menu opens over lit content

@@ -20,18 +20,34 @@ typedef struct Shortcut {
 ///////////////////////////////////////
 // Shortcut functions
 
-static Shortcut* Shortcut_new(char* path, char* name) {
-	Shortcut* self = malloc(sizeof(Shortcut));
-	self->path = strdup(path);
-	self->name = name ? strdup(name) : NULL;
-	return self;
-}
-
 static void Shortcut_free(Shortcut* self) {
 	free(self->path);
 	if (self->name)
 		free(self->name);
 	free(self);
+}
+
+static Shortcut* Shortcut_new(char* path, char* name) {
+	Shortcut* self = malloc(sizeof(Shortcut));
+	if (!self)
+		return NULL;
+	self->path = strdup(path);
+	self->name = name ? strdup(name) : NULL;
+	if (!self->path || (name && !self->name)) {
+		Shortcut_free(self);
+		return NULL;
+	}
+	return self;
+}
+
+// Appends a fresh Shortcut_new result; false (freeing it) when it's NULL or the array can't grow.
+static bool ShortcutArray_push(Array* self, Shortcut* shortcut) {
+	if (!shortcut)
+		return false;
+	if (Array_push(self, shortcut))
+		return true;
+	Shortcut_free(shortcut);
+	return false;
 }
 
 static int ShortcutArray_indexOf(Array* self, const char* path) {
@@ -120,7 +136,7 @@ static int loadShortcuts(void) {
 			snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, path);
 
 			if (exists(sd_path)) {
-				Array_push(shortcuts, Shortcut_new(path, name));
+				ShortcutArray_push(shortcuts, Shortcut_new(path, name));
 			} else {
 				removed_any = true;
 			}
@@ -188,7 +204,8 @@ void Shortcuts_add(Entry* entry) {
 		LOG_warn("Shortcuts_add: pin limit reached, not adding %s\n", path);
 		return;
 	}
-	Array_push(shortcuts, Shortcut_new(path, entry->name)); // appended: pins keep the order they were added
+	if (!ShortcutArray_push(shortcuts, Shortcut_new(path, entry->name))) // appended: pins keep the order they were added
+		return;
 	saveShortcuts();
 }
 

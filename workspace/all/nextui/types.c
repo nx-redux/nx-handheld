@@ -18,28 +18,28 @@ Array* Array_new(void) {
 	}
 	return self;
 }
-void Array_push(Array* self, void* item) {
+bool Array_push(Array* self, void* item) {
 	if (self->count >= self->capacity) {
 		int new_capacity = self->capacity * 2;
 		void** tmp = realloc(self->items, sizeof(void*) * new_capacity);
 		if (!tmp)
-			return;
+			return false;
 		self->items = tmp;
 		self->capacity = new_capacity;
 	}
 	self->items[self->count++] = item;
+	return true;
 }
-void Array_unshift(Array* self, void* item) {
+bool Array_unshift(Array* self, void* item) {
 	if (self->count == 0)
 		return Array_push(self, item);
-	int prev_count = self->count;
-	Array_push(self, NULL); // ensures we have enough capacity
-	if (self->count == prev_count)
-		return; // push failed (realloc OOM); don't shift out of bounds
+	if (!Array_push(self, NULL)) // ensures we have enough capacity
+		return false;			 // realloc OOM: don't shift out of bounds
 	for (int i = self->count - 2; i >= 0; i--) {
 		self->items[i + 1] = self->items[i];
 	}
 	self->items[0] = item;
+	return true;
 }
 void* Array_pop(Array* self) {
 	if (self->count == 0)
@@ -144,18 +144,31 @@ Entry* Entry_new(const char* path, int type) {
 	char display_name[MAX_PATH];
 	getDisplayName(path, display_name);
 	Entry* self = malloc(sizeof(Entry));
+	if (!self)
+		return NULL;
 	self->path = strdup(path);
 	self->name = strdup(display_name);
 	self->unique = NULL;
 	self->type = type;
 	self->alpha = 0;
+	if (!self->path || !self->name) {
+		Entry_free(self);
+		return NULL;
+	}
 	return self;
 }
 
 Entry* Entry_newNamed(const char* path, int type, const char* displayName) {
 	Entry* self = Entry_new(path, type);
+	if (!self)
+		return NULL;
+	char* name = strdup(displayName);
+	if (!name) {
+		Entry_free(self);
+		return NULL;
+	}
 	free(self->name);
-	self->name = strdup(displayName);
+	self->name = name;
 	return self;
 }
 
@@ -167,6 +180,15 @@ void Entry_free(Entry* self) {
 	if (self->unique)
 		free(self->unique);
 	free(self);
+}
+
+bool EntryArray_push(Array* self, Entry* entry) {
+	if (!entry)
+		return false;
+	if (Array_push(self, entry))
+		return true;
+	Entry_free(entry);
+	return false;
 }
 
 static int EntryArray_sortEntry(const void* a, const void* b) {
