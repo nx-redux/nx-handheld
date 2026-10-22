@@ -7,7 +7,8 @@
 
 #include "sdl.h"
 
-// Fit img_w x img_h into max_w x max_h preserving aspect ratio.
+// Fit img_w x img_h into max_w x max_h preserving aspect ratio (0 x 0 for
+// an empty image).
 void UI_calcImageFit(int img_w, int img_h, int max_w, int max_h,
 					 int* out_w, int* out_h);
 
@@ -16,7 +17,8 @@ void UI_calcImageFit(int img_w, int img_h, int max_w, int max_h,
 SDL_Surface* UI_convertSurface(SDL_Surface* surface, SDL_Surface* screen);
 
 // True when data looks like a fully-downloaded image (JPEG FFD8..FFD9, PNG
-// ..IEND); unknown formats are assumed complete.
+// ..IEND, the end marker within the last few KB so trailing data is fine);
+// unknown formats are assumed complete.
 bool UI_imageDataComplete(const uint8_t* data, size_t size);
 
 // Read + validate + decode an image file (<= max_bytes). Deletes the file

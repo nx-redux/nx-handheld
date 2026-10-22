@@ -841,7 +841,9 @@ void PLAT_bluetoothSetVolume(int vol) {
 
 #define WATCHED_DIR_FMT "%s"
 #define WATCHED_FILE ".asoundrc"
-#define EVENT_BUF_LEN (1024 * (sizeof(struct inotify_event) + NAME_MAX + 1))
+// room for a few events per read (at least one of the largest): the watcher
+// only ever sees a handful, and this buffer lives on the thread's stack
+#define EVENT_BUF_LEN (16 * (sizeof(struct inotify_event) + NAME_MAX + 1))
 
 static pthread_t watcher_thread;
 static int inotify_fd = -1;
@@ -908,7 +910,7 @@ static void remove_file_watch() {
 }
 
 static void* watcher_thread_func(void* arg) {
-	char buffer[EVENT_BUF_LEN];
+	char buffer[EVENT_BUF_LEN] __attribute__((aligned(__alignof__(struct inotify_event))));
 
 	// At start try to watch file if exists
 	add_file_watch();

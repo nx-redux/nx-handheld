@@ -2691,6 +2691,9 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 	static SND_Frame* output_frames = NULL;
 	static int frames_cap = 0;
 
+	// on failure the batch is dropped (a moment of silence): exiting here
+	// would kill the game without saving
+	ResampledFrames resampled = {NULL, 0};
 	double final_ratio = ((double)output_sample_rate / input_sample_rate) * ratio;
 
 	if (!src_state || resetSrcState) {
@@ -2702,7 +2705,7 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 		if (src_state == NULL) {
 			fprintf(stderr, "Error initializing SRC state: %s\n",
 					src_strerror(error));
-			exit(1);
+			return resampled; // tried again with the next batch
 		}
 		// the new converter starts at its default ratio: set ours again
 		previous_ratio = 0.0;
@@ -2712,7 +2715,7 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 		if (src_set_ratio(src_state, final_ratio) != 0) {
 			fprintf(stderr, "Error setting resampling ratio: %s\n",
 					src_strerror(src_error(src_state)));
-			exit(1);
+			return resampled;
 		}
 		previous_ratio = final_ratio;
 	}
@@ -2723,7 +2726,7 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 		!grow_buffer((void**)&output_buffer, &output_cap, max_output_frames * 2, sizeof(float)) ||
 		!grow_buffer((void**)&output_frames, &frames_cap, max_output_frames, sizeof(SND_Frame))) {
 		fprintf(stderr, "Error allocating buffers\n");
-		exit(1);
+		return resampled;
 	}
 
 	for (int i = 0; i < input_frame_count; i++) {
@@ -2742,7 +2745,7 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 	if (src_process(src_state, &src_data) != 0) {
 		fprintf(stderr, "Error resampling: %s\n",
 				src_strerror(src_error(src_state)));
-		exit(1);
+		return resampled;
 	}
 
 	int output_frame_count = src_data.output_frames_gen;
@@ -2758,7 +2761,6 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 		output_frames[i].right = (int16_t)(right * 32767.0f);
 	}
 
-	ResampledFrames resampled;
 	resampled.frames = output_frames;
 	resampled.frame_count = output_frame_count;
 

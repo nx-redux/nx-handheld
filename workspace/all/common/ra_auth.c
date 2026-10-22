@@ -148,16 +148,25 @@ RA_AuthResult RA_authenticateSync(const char* username, const char* password,
 		return response->result;
 	}
 
-	// Build POST data
-	char post_data[512];
-	snprintf(post_data, sizeof(post_data), "r=login&u=%s&p=%s",
-			 enc_username, enc_password);
+	// Build POST data, sized to fit: URL-encoding can triple a password, and
+	// a truncated one would just fail the login as "invalid credentials"
+	size_t post_size = strlen(enc_username) + strlen(enc_password) + sizeof("r=login&u=&p=");
+	char* post_data = malloc(post_size);
+	if (post_data)
+		snprintf(post_data, post_size, "r=login&u=%s&p=%s", enc_username, enc_password);
 
 	free(enc_username);
 	free(enc_password);
+	if (!post_data) {
+		response->result = RA_AUTH_ERROR_UNKNOWN;
+		strncpy(response->error_message, "Memory allocation failed",
+				sizeof(response->error_message) - 1);
+		return response->result;
+	}
 
 	// Make synchronous POST request
 	HTTP_Response* http_response = HTTP_post(RA_API_URL, post_data, NULL);
+	free(post_data);
 
 	if (!http_response) {
 		response->result = RA_AUTH_ERROR_UNKNOWN;

@@ -15,22 +15,9 @@ void UI_handleQuitRequest(SDL_Surface* screen, bool* quit, bool* dirty,
 
 	PAD_reset();
 
-	int confirmed = 0;
-	int done = 0;
-	while (!done) {
-		GFX_startFrame();
-		PAD_poll();
-		if (PAD_justPressed(BTN_A)) {
-			confirmed = 1;
-			done = 1;
-		} else if (PAD_justPressed(BTN_B)) {
-			done = 1;
-		}
-		UI_renderConfirmDialog(screen, title, subtitle);
-		GFX_flip(screen);
-	}
-	PAD_reset();
-	if (confirmed)
+	// UI_confirmModal keeps PWR_update running, so auto-sleep and the power
+	// button still work while the prompt is up
+	if (UI_confirmModal(screen, title, subtitle, NULL, false, true))
 		*quit = true;
 	*dirty = true;
 }

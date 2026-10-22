@@ -4,6 +4,7 @@
 #include "api.h"
 #include "notification.h"
 #include "ra_badge_path.h"
+#include "ra_badge_policy.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,8 +46,10 @@ typedef struct {
 	char badge_name[MAX_BADGE_NAME];
 	bool locked;
 	RA_BadgeState state;
-	SDL_Surface* surface;
-	SDL_Surface* surface_scaled; // Pre-scaled for notifications
+	SDL_Surface* surface;		 // full size, dropped least-recently-used first
+	SDL_Surface* surface_scaled; // Pre-scaled for notifications, kept: they hold it
+	int failures;				 // failed downloads (and unreadable files) so far
+	uint32_t failed_at;			 // SDL_GetTicks() of the last failure
 } BadgeCacheEntry;
 
 /*****************************************************************************
@@ -65,6 +68,11 @@ typedef struct {
 
 static BadgeCacheEntry badge_cache[MAX_CACHED_BADGES];
 static int badge_cache_count = 0;
+// LRU stamps of the entries' full-size surfaces (0 = none loaded), apart from
+// the entries so ra_badge_policy.h can scan them
+static uint32_t badge_last_used[MAX_CACHED_BADGES];
+static uint32_t badge_use_clock = 0;
+static int badge_loaded_count = 0;
 static SDL_mutex* badge_mutex = NULL;
 static int pending_downloads = 0;
 static bool initialized = false;
@@ -128,6 +136,7 @@ static BadgeCacheEntry* find_or_create_entry(uint32_t game_id, const char* badge
 		return NULL;
 	}
 
+	badge_last_used[badge_cache_count] = 0;
 	BadgeCacheEntry* entry = &badge_cache[badge_cache_count++];
 	memset(entry, 0, sizeof(BadgeCacheEntry));
 	entry->game_id = game_id;
@@ -356,6 +365,10 @@ static void badge_download_callback(HTTP_Response* response, void* userdata) {
 	if (entry) {
 		// Mark as cached (on disk) - surfaces will be loaded lazily
 		entry->state = success ? RA_BADGE_STATE_CACHED : RA_BADGE_STATE_FAILED;
+		if (!success) {
+			entry->failures++;
+			entry->failed_at = SDL_GetTicks();
+		}
 	}
 
 	// Start next queued download(s); RA_Badges_update() hides the toast
@@ -409,6 +422,7 @@ void RA_Badges_init(void) {
 
 	badge_mutex = SDL_CreateMutex();
 	badge_cache_count = 0;
+	badge_loaded_count = 0;
 	pending_downloads = 0;
 	download_queue.head = 0;
 	download_queue.tail = 0;
@@ -487,6 +501,8 @@ void RA_Badges_clearMemory(void) {
 		}
 	}
 	badge_cache_count = 0;
+	memset(badge_last_used, 0, sizeof(badge_last_used));
+	badge_loaded_count = 0;
 	if (progress_state == PROGRESS_SHOWN)
 		Notification_hideProgressIndicator();
 	progress_state = PROGRESS_IDLE;
@@ -625,15 +641,47 @@ void RA_Badges_update(void) {
 }
 
 // A badge marked cached failed to load (file deleted or damaged): fetch it
-// again. Must hold mutex.
+// again, as long as it has attempts left (a server that keeps sending an
+// unreadable file would otherwise be asked again on every redraw). Must hold
+// mutex.
 static void handle_missing_cached(BadgeCacheEntry* entry) {
+	entry->failures++;
+	entry->failed_at = SDL_GetTicks();
+	if (entry->failures >= RA_BADGE_MAX_ATTEMPTS) {
+		entry->state = RA_BADGE_STATE_FAILED;
+		return;
+	}
 	entry->state = RA_BADGE_STATE_UNKNOWN;
 	queue_download(entry->game_id, entry->badge_name, entry->locked);
 	process_download_queue();
 }
 
+// Load entry's full-size surface from disk, first dropping the least
+// recently used one when RA_BADGE_MAX_LOADED are loaded. Must hold mutex.
+static void load_entry_surface(BadgeCacheEntry* entry) {
+	int idx = (int)(entry - badge_cache);
+	if (badge_loaded_count >= RA_BADGE_MAX_LOADED) {
+		int victim = RA_BadgePolicy_pickEvict(badge_last_used, badge_cache_count, idx);
+		if (victim >= 0) {
+			SDL_FreeSurface(badge_cache[victim].surface);
+			badge_cache[victim].surface = NULL;
+			badge_last_used[victim] = 0;
+			badge_loaded_count--;
+		}
+	}
+	char cache_path[MAX_PATH];
+	if (!RA_Badges_getCachePath(entry->game_id, entry->badge_name, entry->locked, cache_path,
+								sizeof(cache_path)))
+		return;
+	entry->surface = load_from_cache(cache_path);
+	if (entry->surface)
+		badge_loaded_count++;
+	else
+		handle_missing_cached(entry);
+}
 
-SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked) {
+// RA_Badges_get (full size) and RA_Badges_getNotificationSize (scaled)
+static SDL_Surface* badge_lookup(uint32_t game_id, const char* badge_name, bool locked, bool scaled) {
 	if (!initialized || game_id == 0 || !badge_name || !badge_name[0])
 		return NULL;
 
@@ -645,20 +693,29 @@ SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked
 
 	if (entry) {
 		if (entry->state == RA_BADGE_STATE_CACHED) {
-			// Lazy load from disk if not in memory
-			if (!entry->surface) {
-				char cache_path[MAX_PATH];
-				RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path));
-				entry->surface = load_from_cache(cache_path);
+			if (scaled && entry->surface_scaled) {
+				result = entry->surface_scaled;
+			} else {
+				// Lazy load from disk if not in memory
+				if (!entry->surface)
+					load_entry_surface(entry);
 				if (entry->surface) {
-					entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
-				} else {
-					handle_missing_cached(entry);
+					uint32_t stamp = ++badge_use_clock;
+					if (stamp == 0) // wrapped: 0 means "not loaded"
+						stamp = ++badge_use_clock;
+					badge_last_used[entry - badge_cache] = stamp;
+					if (scaled) {
+						entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
+						result = entry->surface_scaled;
+					} else {
+						result = entry->surface;
+					}
 				}
 			}
-			result = entry->surface;
-		} else if (entry->state == RA_BADGE_STATE_UNKNOWN) {
-			// Trigger download
+		} else if (entry->state == RA_BADGE_STATE_UNKNOWN ||
+				   (entry->state == RA_BADGE_STATE_FAILED &&
+					RA_BadgePolicy_mayRetry(entry->failures, entry->failed_at, SDL_GetTicks()))) {
+			// Trigger download (again, for one that failed a while ago)
 			start_download(game_id, badge_name, locked);
 		}
 	}
@@ -667,44 +724,15 @@ SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked
 		SDL_UnlockMutex(badge_mutex);
 
 	return result;
+}
+
+SDL_Surface* RA_Badges_get(uint32_t game_id, const char* badge_name, bool locked) {
+	return badge_lookup(game_id, badge_name, locked, false);
 }
 
 SDL_Surface* RA_Badges_getNotificationSize(uint32_t game_id, const char* badge_name, bool locked) {
-	if (!initialized || game_id == 0 || !badge_name || !badge_name[0])
-		return NULL;
-
-	if (badge_mutex)
-		SDL_LockMutex(badge_mutex);
-
-	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
-	SDL_Surface* result = NULL;
-
-	if (entry) {
-		if (entry->state == RA_BADGE_STATE_CACHED) {
-			// Lazy load from disk if not in memory (the full-size surface
-			// may already be there with only the scaling failed: keep it)
-			if (!entry->surface) {
-				char cache_path[MAX_PATH];
-				RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path));
-				entry->surface = load_from_cache(cache_path);
-				if (!entry->surface)
-					handle_missing_cached(entry);
-			}
-			if (entry->surface && !entry->surface_scaled)
-				entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
-			result = entry->surface_scaled;
-		} else if (entry->state == RA_BADGE_STATE_UNKNOWN) {
-			// Trigger download
-			start_download(game_id, badge_name, locked);
-		}
-	}
-
-	if (badge_mutex)
-		SDL_UnlockMutex(badge_mutex);
-
-	return result;
+	return badge_lookup(game_id, badge_name, locked, true);
 }
-
 
 bool RA_Badges_getCachePath(uint32_t game_id, const char* badge_name, bool locked, char* buffer,
 							size_t buffer_size) {

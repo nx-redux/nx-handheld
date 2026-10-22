@@ -263,6 +263,73 @@ static void test_can_store(void) {
 	printf("ok test_can_store\n");
 }
 
+// A Library run stores once per rom: past the first few writes in a burst,
+// stores are held in memory (lookups still see them) and written together,
+// not one whole-file rewrite + fsync per rom
+static void test_burst_batches_writes(void) {
+	reset_root();
+	char roms[12][128];
+	for (int i = 0; i < 12; i++) {
+		snprintf(roms[i], sizeof(roms[i]), GBA "/Rom %02d.gba", i);
+		write_file(roms[i], "romdata");
+		assert(RA_HashCache_store(roms[i], 5, HASH_A, (uint32_t)(100 + i)));
+	}
+	char hash[33];
+	uint32_t game;
+	for (int i = 0; i < 12; i++)
+		assert(RA_HashCache_lookup(roms[i], 5, hash, &game) && game == (uint32_t)(100 + i));
+	char* s = read_all(CACHE);
+	assert(strstr(s, "\"Rom 00.gba\""));
+	assert(!strstr(s, "\"Rom 11.gba\"")); // held back
+	free(s);
+	RA_HashCache_flush();
+	s = read_all(CACHE);
+	for (int i = 0; i < 12; i++) {
+		char key[32];
+		snprintf(key, sizeof(key), "\"Rom %02d.gba\"", i);
+		assert(strstr(s, key));
+	}
+	free(s);
+	printf("ok test_burst_batches_writes\n");
+}
+
+// The parsed copy is not trusted over the file: another writer's version is
+// read again, and entries held back are merged onto it, not lost
+static void test_external_writer(void) {
+	reset_root();
+	char roms[8][128];
+	for (int i = 0; i < 8; i++) {
+		snprintf(roms[i], sizeof(roms[i]), GBA "/Rom %d.gba", i);
+		write_file(roms[i], "romdata");
+		assert(RA_HashCache_store(roms[i], 5, HASH_A, 7)); // the last ones held
+	}
+	const char* ext = GBA "/Ext.gba";
+	write_file(ext, "extdata");
+	struct stat st;
+	assert(stat(ext, &st) == 0);
+	char body[512];
+	snprintf(body, sizeof(body),
+			 "{\"version\":1,\"files\":{\"Ext.gba\":{\"size\":7,\"mtime\":%lld,\"console\":5,"
+			 "\"hash\":\"" HASH_B "\",\"game\":42}}}",
+			 (long long)st.st_mtime);
+	write_file(CACHE, body); // in place: same file, new size
+	char hash[33];
+	uint32_t game;
+	assert(RA_HashCache_lookup(ext, 5, hash, &game) && game == 42 && !strcmp(hash, HASH_B));
+	assert(RA_HashCache_lookup(roms[7], 5, hash, &game) && game == 7); // held, still seen
+	RA_HashCache_flush();
+	char* s = read_all(CACHE);
+	assert(strstr(s, "\"Ext.gba\"") && strstr(s, "\"Rom 7.gba\""));
+	free(s);
+	// a held forget survives a reload too
+	for (int i = 0; i < 8; i++)
+		RA_HashCache_forget(roms[i]);
+	RA_HashCache_flush();
+	assert(!RA_HashCache_lookup(roms[7], 5, hash, &game));
+	assert(RA_HashCache_lookup(ext, 5, hash, &game));
+	printf("ok test_external_writer\n");
+}
+
 int main(void) {
 	test_mtime_rule();
 	test_can_store();
@@ -271,6 +338,8 @@ int main(void) {
 	test_keys();
 	test_preserve_and_forget();
 	test_corrupt();
+	test_burst_batches_writes();
+	test_external_writer();
 	assert(system("rm -rf " ROOT) == 0);
 	printf("ALL TESTS PASSED\n");
 	return 0;

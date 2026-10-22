@@ -2,20 +2,11 @@
 #include <stdlib.h>
 
 #include "ui_image.h"
+#include "ui_image_check.h"
 
 void UI_calcImageFit(int img_w, int img_h, int max_w, int max_h,
 					 int* out_w, int* out_h) {
-	double aspect_ratio = (double)img_h / img_w;
-	int new_w = max_w;
-	int new_h = (int)(new_w * aspect_ratio);
-
-	if (new_h > max_h) {
-		new_h = max_h;
-		new_w = (int)(new_h / aspect_ratio);
-	}
-
-	*out_w = new_w;
-	*out_h = new_h;
+	UI_imageFit(img_w, img_h, max_w, max_h, out_w, out_h);
 }
 
 SDL_Surface* UI_convertSurface(SDL_Surface* surface, SDL_Surface* screen) {
@@ -28,22 +19,8 @@ SDL_Surface* UI_convertSurface(SDL_Surface* surface, SDL_Surface* screen) {
 	return surface;
 }
 
-// JPEG: ends with FF D9, PNG: ends with IEND chunk
 bool UI_imageDataComplete(const uint8_t* data, size_t size) {
-	if (size < 4)
-		return false;
-	// JPEG: starts with FF D8, ends with FF D9
-	if (data[0] == 0xFF && data[1] == 0xD8) {
-		return (data[size - 2] == 0xFF && data[size - 1] == 0xD9);
-	}
-	// PNG: starts with 89 50 4E 47, ends with IEND chunk (AE 42 60 82)
-	if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) {
-		return (size >= 8 &&
-				data[size - 4] == 0xAE && data[size - 3] == 0x42 &&
-				data[size - 2] == 0x60 && data[size - 1] == 0x82);
-	}
-	// Unknown format — assume complete
-	return true;
+	return UI_imageComplete(data, size);
 }
 
 SDL_Surface* UI_loadValidatedImage(const char* path, size_t max_bytes) {

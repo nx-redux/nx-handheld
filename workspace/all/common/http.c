@@ -1,9 +1,11 @@
 #include "http.h"
+#include "http_parse.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/wait.h>
 
 // SDL is used here only for threading (SDL_CreateThread/SDL_DetachThread)
 // to run HTTP requests asynchronously without blocking the main loop.
@@ -89,7 +91,9 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 
 	// Build curl command
 	// -s: silent (no progress)
-	// -S: show errors
+	// stderr goes to /dev/null: mixed into stdout, an error line would end up
+	//   in the body (curl still prints the status after a partial transfer);
+	//   the exit code says what failed
 	// TLS: NX Redux ships a CA bundle (the firmware itself carries none), so
 	//   verify against it with --cacert when nx_ca_bundle_path() finds one.
 	//   Only when no bundle exists on the card do we fall back to -k (skip SSL
@@ -101,6 +105,7 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 	// -m: max time
 	// -L: follow redirects
 	char cmd[4096];
+	int cmd_len = -1;
 	char user_agent[256];
 	HTTP_getUserAgent(user_agent, sizeof(user_agent));
 
@@ -148,36 +153,42 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 			return response;
 		}
 
-		snprintf(cmd, sizeof(cmd),
-				 "curl -s -S %s -L --connect-timeout %d -m %d "
-				 "-A %s "
-				 "-H %s "
-				 "-d %s "
-				 "-w '\\n%%{http_code}' "
-				 "%s 2>&1",
-				 tls_opt,
-				 HTTP_TIMEOUT_SECS, HTTP_TIMEOUT_SECS * 2,
-				 escaped_ua,
-				 escaped_ct,
-				 escaped_data,
-				 escaped_url);
+		cmd_len = snprintf(cmd, sizeof(cmd),
+						   "curl -s %s -L --connect-timeout %d -m %d "
+						   "-A %s "
+						   "-H %s "
+						   "-d %s "
+						   "-w '\\n%%{http_code}' "
+						   "%s 2>/dev/null",
+						   tls_opt,
+						   HTTP_TIMEOUT_SECS, HTTP_TIMEOUT_SECS * 2,
+						   escaped_ua,
+						   escaped_ct,
+						   escaped_data,
+						   escaped_url);
 
 		free(escaped_data);
 		free(escaped_ct);
 	} else {
-		snprintf(cmd, sizeof(cmd),
-				 "curl -s -S %s -L --connect-timeout %d -m %d "
-				 "-A %s "
-				 "-w '\\n%%{http_code}' "
-				 "%s 2>&1",
-				 tls_opt,
-				 HTTP_TIMEOUT_SECS, HTTP_TIMEOUT_SECS * 2,
-				 escaped_ua,
-				 escaped_url);
+		cmd_len = snprintf(cmd, sizeof(cmd),
+						   "curl -s %s -L --connect-timeout %d -m %d "
+						   "-A %s "
+						   "-w '\\n%%{http_code}' "
+						   "%s 2>/dev/null",
+						   tls_opt,
+						   HTTP_TIMEOUT_SECS, HTTP_TIMEOUT_SECS * 2,
+						   escaped_ua,
+						   escaped_url);
 	}
 
 	free(escaped_url);
 	free(escaped_ua);
+
+	// a cut-off command would send a truncated body or URL
+	if (cmd_len < 0 || (size_t)cmd_len >= sizeof(cmd)) {
+		response->error = strdup("Request too large");
+		return response;
+	}
 
 	// Execute curl
 	FILE* pipe = popen(cmd, "r");
@@ -205,37 +216,18 @@ static HTTP_Response* execute_curl(const char* url, const char* post_data, const
 		}
 	}
 
-	int exit_code = pclose(pipe);
+	int status = pclose(pipe);
+	int exit_code = (status != -1 && WIFEXITED(status)) ? WEXITSTATUS(status) : -1;
 
-	// Parse HTTP status from end of output
 	// Output format: <body>\n<status_code>
-	if (buf.size > 0) {
-		// Find last newline
-		char* last_newline = NULL;
-		for (size_t i = buf.size; i > 0; i--) {
-			if (buf.data[i - 1] == '\n') {
-				last_newline = &buf.data[i - 1];
-				break;
-			}
-		}
+	response->http_status = HTTP_splitStatus(buf.data, &buf.size);
 
-		if (last_newline) {
-			// Parse status code after newline
-			int status = atoi(last_newline + 1);
-			if (status >= 100 && status < 600) {
-				response->http_status = status;
-				// Truncate buffer to remove status code
-				*last_newline = '\0';
-				buf.size = last_newline - buf.data;
-			}
-		}
-	}
-
-	// Check for curl errors
-	if (exit_code != 0 && response->http_status <= 0) {
-		// Curl failed - the output is likely an error message
-		response->error = buf.data;
-		buf.data = NULL;
+	// A transport failure (timeout, reset, TLS) fails the request even when
+	// a status arrived: the body is cut short
+	if (exit_code != 0) {
+		char msg[96];
+		snprintf(msg, sizeof(msg), "%s (curl %d)", HTTP_curlErrorText(exit_code), exit_code);
+		response->error = strdup(msg);
 		HTTPBuffer_free(&buf);
 		return response;
 	}

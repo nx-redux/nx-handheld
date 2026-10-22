@@ -135,3 +135,9 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_bt_addr test_b
 /tmp/nx_test_bt_addr
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_image_probe ../image_probe.c test_image_probe.c
 /tmp/nx_test_image_probe
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_http_parse test_http_parse.c
+/tmp/nx_test_http_parse
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_image_check test_ui_image_check.c
+/tmp/nx_test_ui_image_check
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ra_badge_policy test_ra_badge_policy.c
+/tmp/nx_test_ra_badge_policy

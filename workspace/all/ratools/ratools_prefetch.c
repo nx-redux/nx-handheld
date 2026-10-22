@@ -864,6 +864,7 @@ static void rat_prefetch(SDL_Surface* screen, const char* folder) {
 			fetched++;
 		}
 	}
+	RA_HashCache_flush(); // the store batches writes; save this run's hashes now, not at exit
 
 	char line1[64], line2[128];
 	snprintf(line1, sizeof(line1), cancelled ? "Cancelled" : "Done");

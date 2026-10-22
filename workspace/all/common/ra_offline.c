@@ -828,6 +828,15 @@ static char* ra_off_merge_unlocks(const char* base, size_t base_len, const char*
 	return out;
 }
 
+// Copy the current game hash. HTTP worker threads update it (under
+// ra_off_mutex, in cacheResponse and handleRequest), so it is read under the
+// lock too.
+static void ra_off_hash_get(char* out, size_t size) {
+	pthread_mutex_lock(&ra_off_mutex);
+	snprintf(out, size, "%s", ra_current_hash);
+	pthread_mutex_unlock(&ra_off_mutex);
+}
+
 // Build an offline startsession body: the cached server response (if any)
 // with the unlocks for (user, current game hash) merged in.
 static char* ra_off_build_session_body(const char* g, const char* user, size_t* out_len) {
@@ -844,7 +853,9 @@ static char* ra_off_build_session_body(const char* g, const char* user, size_t* 
 	static const char* kEmpty = "{\"Success\":true,\"Unlocks\":[],\"HardcoreUnlocks\":[]}";
 	const char* base = cached ? cached : kEmpty;
 	size_t base_len = cached ? cached_len : strlen(kEmpty);
-	char* out = ra_off_merge_unlocks(base, base_len, user, ra_current_hash, out_len, NULL);
+	char hash[64];
+	ra_off_hash_get(hash, sizeof(hash));
+	char* out = ra_off_merge_unlocks(base, base_len, user, hash, out_len, NULL);
 	free(cached);
 	return out;
 }
@@ -857,11 +868,8 @@ char* RA_Offline_mergeSession(const char* post_data, const char* body, size_t bo
 		!RA_Offline_getParam(post_data, "u", u, sizeof(u)))
 		return NULL;
 	// HTTP worker thread: copy the hash under the lock cacheResponse takes
-	if (!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m)) {
-		pthread_mutex_lock(&ra_off_mutex);
-		snprintf(m, sizeof(m), "%s", ra_current_hash);
-		pthread_mutex_unlock(&ra_off_mutex);
-	}
+	if (!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m))
+		ra_off_hash_get(m, sizeof(m));
 	int added = 0;
 	char* out = ra_off_merge_unlocks(body, body_len, u, m, out_len, &added);
 	if (out && added == 0) {
@@ -873,7 +881,7 @@ char* RA_Offline_mergeSession(const char* post_data, const char* body, size_t bo
 
 bool RA_Offline_handleRequest(const char* post_data, char** out_body,
 							  size_t* out_len, int* out_status) {
-	if (ra_mode != RA_NET_OFFLINE || !ra_root[0] || !post_data || !out_body ||
+	if (RA_Offline_getMode() != RA_NET_OFFLINE || !ra_root[0] || !post_data || !out_body ||
 		!out_len || !out_status)
 		return false;
 
@@ -907,7 +915,9 @@ bool RA_Offline_handleRequest(const char* post_data, char** out_body,
 		if (!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m))
 			return ra_off_serve("{\"Success\":false,\"Error\":\"Offline: bad request\"}",
 								out_body, out_len, out_status);
+		pthread_mutex_lock(&ra_off_mutex);
 		snprintf(ra_current_hash, sizeof(ra_current_hash), "%s", m);
+		pthread_mutex_unlock(&ra_off_mutex);
 		char rel[192];
 		snprintf(rel, sizeof(rel), "cache/games/%s/%s.json", m,
 				 (r[0] == 'g') ? "gameid" : "sets");
@@ -944,7 +954,7 @@ bool RA_Offline_handleRequest(const char* post_data, char** out_body,
 			RA_Offline_getParam(post_data, "u", u, sizeof(u))) {
 			uint32_t aid = (uint32_t)strtoul(a, NULL, 10);
 			if (!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m))
-				snprintf(m, sizeof(m), "%s", ra_current_hash);
+				ra_off_hash_get(m, sizeof(m));
 			ra_off_journal_append(u, aid, m, time(NULL));
 			char body[96];
 			snprintf(body, sizeof(body), "{\"Success\":true,\"AchievementID\":%u}", aid);

@@ -74,4 +74,13 @@ bool RA_HashCache_canStore(const char* hashed_path, uint32_t console_id);
 /** Drop rom_path's entry (no-op on a miss). */
 void RA_HashCache_forget(const char* rom_path);
 
+/**
+ * Write out entries held back. Stores in quick succession (a Library run)
+ * are written to disk in batches, about two seconds apart; the rest go
+ * out with the next lookup or store after that, on a switch to another
+ * console folder, at RA_HashCache_init() and at exit. Call this after a run
+ * of stores to have them on disk right away.
+ */
+void RA_HashCache_flush(void);
+
 #endif // __RA_HASH_CACHE_H__
