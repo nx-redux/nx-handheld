@@ -343,10 +343,10 @@ static void build_menu_tree(void) {
 // ============================================
 // Custom main screen
 // ============================================
-#define MAIN_ITEM_COUNT 3
+#define MAIN_ITEM_COUNT 4
 
 static const char* main_item_labels[MAIN_ITEM_COUNT] = {
-	"Achievements", "Sync now", "Settings"};
+	"Achievements", "Sync now", "Library", "Settings"};
 
 static ListView main_view;
 
@@ -426,7 +426,7 @@ static int render_main_header(SDL_Surface* screen) {
 	return y;
 }
 
-// Selectable list of the 3 main actions, drawn by the shared ListView widget
+// Selectable list of the 4 main actions, drawn by the shared ListView widget
 // with its origin pushed below the custom status header.
 static void render_main_screen(SDL_Surface* screen) {
 	GFX_clear(screen);
@@ -537,6 +537,9 @@ int main(int argc, char* argv[]) {
 					RATSync_run(g_screen);
 					break;
 				case 2:
+					RATPrefetch_runLibrary(g_screen);
+					break;
+				case 3:
 					run_settings_menu(&screen);
 					break;
 				}

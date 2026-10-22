@@ -33,8 +33,9 @@
 #include "utils.h"
 #include "ui_downloadprogress.h"
 #include "ui_menubar.h"
-
-#define RAT_MAX_ROMS 4096
+#include "ui_listview.h"
+#include "ui_loadingoverlay.h"
+#include "cjson/cJSON.h"
 
 // An archived rom is unpacked here for hashing, then deleted (/tmp is RAM)
 #define RAT_UNPACK_DIR "/tmp/ratools_unpack"
@@ -47,6 +48,24 @@ typedef struct {
 	char entry[256];
 	int console_id;
 } RAT_RomFile;
+
+// grows as the scan finds roms: no cap on the library size
+typedef struct {
+	RAT_RomFile* items;
+	int count, cap;
+} RAT_RomList;
+
+static RAT_RomFile* rat_rom_add(RAT_RomList* list) {
+	if (list->count == list->cap) {
+		int cap = list->cap ? list->cap * 2 : 256;
+		RAT_RomFile* grown = realloc(list->items, (size_t)cap * sizeof(*grown));
+		if (!grown)
+			return NULL;
+		list->items = grown;
+		list->cap = cap;
+	}
+	return &list->items[list->count++];
+}
 
 // Only prefetch systems whose emulator pak is actually installed, mirroring
 // nxredux's launchability rule (getEmuPath: the system paks first, then SD
@@ -341,9 +360,11 @@ static void rat_pak_core(const char* tag, char* out, size_t n) {
 		snprintf(out, n, "%s", fallback);
 }
 
+// peek: look inside archives for the rom (and its console) the hashing
+// needs; the Library's counts only need the archive itself
 static void rat_scan_dir(const char* dir, const char* tag, const char* core, int depth,
-						 RAT_RomFile* roms, int* count) {
-	if (depth > 2 || *count >= RAT_MAX_ROMS)
+						 RAT_RomList* roms, bool peek) {
+	if (depth > 2)
 		return;
 	// a cue/gdi/ccd/toc in this directory means its bin/img/raw/sub siblings
 	// are disc tracks, not games — skip them so each one doesn't hash as a
@@ -353,7 +374,7 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 	if (!d)
 		return;
 	struct dirent* ent;
-	while ((ent = readdir(d)) && *count < RAT_MAX_ROMS) {
+	while ((ent = readdir(d))) {
 		if (ent->d_name[0] == '.')
 			continue;
 		char path[512];
@@ -362,7 +383,7 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 		if (stat(path, &st) != 0)
 			continue;
 		if (S_ISDIR(st.st_mode)) {
-			rat_scan_dir(path, tag, core, depth + 1, roms, count);
+			rat_scan_dir(path, tag, core, depth + 1, roms, peek);
 		} else if (!rat_skip_extension(ent->d_name) &&
 				   !(has_disc_index && rat_is_track_file(ent->d_name))) {
 			// same resolver as minarch, so prefetch hashes each ROM under
@@ -373,7 +394,7 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 			// minarch unpacks an archive (arcade aside: hashed by name) and
 			// detects and hashes the rom inside, so go by that rom here too
 			char entry[256] = {0};
-			if (console_id != RC_CONSOLE_ARCADE && rat_is_archive(ent->d_name)) {
+			if (peek && console_id != RC_CONSOLE_ARCADE && rat_is_archive(ent->d_name)) {
 				if (!rat_archive_entry(path, entry, sizeof(entry)))
 					continue;
 				char inner[512];
@@ -382,7 +403,9 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 				if (console_id == RC_CONSOLE_UNKNOWN)
 					continue;
 			}
-			RAT_RomFile* r = &roms[(*count)++];
+			RAT_RomFile* r = rat_rom_add(roms);
+			if (!r)
+				break;
 			snprintf(r->path, sizeof(r->path), "%s", path);
 			snprintf(r->entry, sizeof(r->entry), "%s", entry);
 			r->console_id = console_id;
@@ -391,45 +414,46 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 	closedir(d);
 }
 
-static int rat_collect_roms(RAT_RomFile** out) {
-	RAT_RomFile* roms = (RAT_RomFile*)malloc(RAT_MAX_ROMS * sizeof(RAT_RomFile));
-	*out = NULL;
-	if (!roms)
-		return 0;
-	int count = 0;
+// The console folders worth prefetching: an installed emulator pak and a
+// system RA supports (a stock RA tag, or a custom pak whose core
+// RA_detectConsole knows); core gets the pak's core.
+static bool rat_console_folder(const char* name, char* tag, size_t tag_size, char* core,
+							   size_t core_size) {
+	if (name[0] == '.' || !rat_dir_tag(name, tag, tag_size))
+		return false;
+	if (!rat_has_emu(tag))
+		return false; // no emulator installed for this system
+	rat_pak_core(tag, core, core_size);
+	return RA_getConsoleId(tag) != RC_CONSOLE_UNKNOWN || ra_core_family(core);
+}
 
+// every console folder's roms, or only those of `folder` (a Roms/ entry)
+static int rat_collect_roms(RAT_RomFile** out, const char* folder, bool peek) {
+	*out = NULL;
 	DIR* d = opendir(ROMS_PATH);
-	if (!d) {
-		free(roms);
+	if (!d)
 		return 0;
-	}
+	RAT_RomList roms = {0};
 	struct dirent* ent;
 	while ((ent = readdir(d))) {
-		if (ent->d_name[0] == '.')
+		if (folder && strcmp(ent->d_name, folder) != 0)
 			continue;
-		char tag[16];
-		if (!rat_dir_tag(ent->d_name, tag, sizeof(tag)))
-			continue;
-		if (!rat_has_emu(tag))
-			continue; // no emulator installed for this system
-		// a stock RA tag, or any pak whose core RA_detectConsole knows
-		// (custom paks); other folders (Ports, Extras...) aren't scanned
-		char core[64];
-		rat_pak_core(tag, core, sizeof(core));
-		if (RA_getConsoleId(tag) == RC_CONSOLE_UNKNOWN && !ra_core_family(core))
+		// other folders (Ports, Extras...) aren't scanned
+		char tag[16], core[64];
+		if (!rat_console_folder(ent->d_name, tag, sizeof(tag), core, sizeof(core)))
 			continue;
 		char dir[512];
 		snprintf(dir, sizeof(dir), "%s/%s", ROMS_PATH, ent->d_name);
-		rat_scan_dir(dir, tag, core, 0, roms, &count);
+		rat_scan_dir(dir, tag, core, 0, &roms, peek);
 	}
 	closedir(d);
 
-	if (count == 0) {
-		free(roms);
+	if (roms.count == 0) {
+		free(roms.items);
 		return 0;
 	}
-	*out = roms;
-	return count;
+	*out = roms.items;
+	return roms.count;
 }
 
 // ---------------- network helpers (sync, cache-through) ----------------
@@ -586,7 +610,7 @@ static void rat_hash_error(const char* message) {
 	fprintf(stderr, "[prefetch] rc_hash: %s\n", message ? message : "(null)");
 }
 
-void RATPrefetch_run(SDL_Surface* screen) {
+static void rat_prefetch(SDL_Surface* screen, const char* folder) {
 	if (!CFG_getRAAuthenticated() || strlen(CFG_getRAToken()) == 0) {
 		rat_pf_message(screen, "Not authenticated",
 					   "Set credentials in Settings and authenticate first.");
@@ -609,7 +633,7 @@ void RATPrefetch_run(SDL_Surface* screen) {
 	rc_hash_init_error_message_callback(rat_hash_error);
 
 	RAT_RomFile* roms = NULL;
-	int total = rat_collect_roms(&roms);
+	int total = rat_collect_roms(&roms, folder, true);
 	if (total == 0) {
 		rat_pf_message(screen, "No roms found", "Nothing to download.");
 		return;
@@ -828,4 +852,202 @@ void RATPrefetch_run(SDL_Surface* screen) {
 			 fetched, cached, unknown, failed);
 	rat_pf_message(screen, line1, line2);
 	free(roms);
+}
+
+void RATPrefetch_run(SDL_Surface* screen) {
+	rat_prefetch(screen, NULL);
+}
+
+// ---------------- Library ----------------
+
+typedef struct {
+	char folder[256];		   // the Roms/ entry, eg. "Game Boy (GB)"
+	char label[MAX_PATH + 24]; // as the Artwork Manager's Library shows it, eg. "Game Boy (GB)"
+	int done;				   // roms already identified (achievement data cached, or not in RA)
+	int total;
+} RAT_Console;
+
+static int rat_console_cmp(const void* a, const void* b) {
+	return strcasecmp(((const RAT_Console*)a)->folder, ((const RAT_Console*)b)->folder);
+}
+
+// How many of the folder's roms a prefetch has nothing left to do for: a
+// fingerprint in hashes.json that is either unknown to RA (game 0) or has its
+// achievement data cached. One hashes.json read per console, no hashing.
+static void rat_console_progress(RAT_Console* c) {
+	RAT_RomFile* roms = NULL;
+	c->total = rat_collect_roms(&roms, c->folder, false);
+	c->done = 0;
+	if (!c->total)
+		return;
+
+	char dir[512], path[600];
+	if (!RA_HashCache_folderDir(roms[0].path, dir, sizeof(dir))) {
+		free(roms);
+		return;
+	}
+	snprintf(path, sizeof(path), "%s/hashes.json", dir);
+	char* json = NULL;
+	FILE* f = fopen(path, "rb");
+	if (f) {
+		fseek(f, 0, SEEK_END);
+		long len = ftell(f);
+		rewind(f);
+		json = len > 0 ? malloc((size_t)len + 1) : NULL;
+		if (json)
+			json[fread(json, 1, (size_t)len, f)] = '\0';
+		fclose(f);
+	}
+	cJSON* root = json ? cJSON_Parse(json) : NULL;
+	free(json);
+	const cJSON* files = cJSON_GetObjectItemCaseSensitive(root, "files");
+
+	char prefix[600];
+	int plen = snprintf(prefix, sizeof(prefix), "%s/%s/", ROMS_PATH, c->folder);
+	for (int i = 0; files && i < c->total; i++) {
+		if (strncmp(roms[i].path, prefix, (size_t)plen) != 0)
+			continue;
+		const cJSON* e = cJSON_GetObjectItemCaseSensitive(files, roms[i].path + plen);
+		const cJSON* hash = cJSON_GetObjectItemCaseSensitive(e, "hash");
+		const cJSON* game = cJSON_GetObjectItemCaseSensitive(e, "game");
+		if (!cJSON_IsString(hash))
+			continue;
+		if (!cJSON_IsNumber(game) || game->valuedouble == 0) {
+			c->done++; // not in RA: nothing to download
+			continue;
+		}
+		char sets[256];
+		snprintf(sets, sizeof(sets), "%s/%s/sets.json", RA_GAMES_DIR, hash->valuestring);
+		if (exists(sets))
+			c->done++;
+	}
+	cJSON_Delete(root);
+	free(roms);
+}
+
+static int rat_collect_consoles(RAT_Console** out) {
+	*out = NULL;
+	DIR* d = opendir(ROMS_PATH);
+	if (!d)
+		return 0;
+	RAT_Console* list = NULL;
+	int count = 0, cap = 0;
+	struct dirent* ent;
+	while ((ent = readdir(d))) {
+		char tag[16], core[64], dir[512];
+		snprintf(dir, sizeof(dir), "%s/%s", ROMS_PATH, ent->d_name);
+		struct stat st;
+		if (strlen(ent->d_name) >= sizeof(list->folder) || stat(dir, &st) != 0 ||
+			!S_ISDIR(st.st_mode) ||
+			!rat_console_folder(ent->d_name, tag, sizeof(tag), core, sizeof(core)))
+			continue;
+		if (count == cap) {
+			cap = cap ? cap * 2 : 32;
+			RAT_Console* grown = realloc(list, cap * sizeof(*list));
+			if (!grown)
+				break;
+			list = grown;
+		}
+		RAT_Console* c = &list[count];
+		snprintf(c->folder, sizeof(c->folder), "%s", ent->d_name);
+		char display[MAX_PATH];
+		getDisplayName(ent->d_name, display);
+		char* shown = display;
+		trimSortingMeta(&shown); // "01) Game Boy" -> "Game Boy"
+		snprintf(c->label, sizeof(c->label), "%s (%s)", shown, tag);
+		rat_console_progress(c);
+		if (c->total > 0) // an empty folder has nothing to download
+			count++;
+	}
+	closedir(d);
+	// launcher order: by folder name (keeps any "01) " sort prefixes in play)
+	if (count)
+		qsort(list, count, sizeof(*list), rat_console_cmp);
+	*out = list;
+	return count;
+}
+
+static void rat_console_row(void* ctx, int i, bool selected, ListViewRow* out) {
+	(void)selected;
+	static char badge[32];
+	RAT_Console* c = &((RAT_Console*)ctx)[i];
+	snprintf(badge, sizeof(badge), "%d/%d", c->done, c->total);
+	out->label = c->label;
+	out->badge = badge;
+}
+
+static void rat_library_loading(SDL_Surface* screen) {
+	GFX_clear(screen);
+	UI_renderLoadingOverlay(screen, "Scanning library", NULL);
+	GFX_flip(screen);
+}
+
+void RATPrefetch_runLibrary(SDL_Surface* screen) {
+	rat_library_loading(screen);
+	RAT_Console* consoles = NULL;
+	int count = rat_collect_consoles(&consoles);
+
+	// function scope: the hint arrays must outlive UI_listViewRender
+	char* hints_full[] = {"B", "BACK", "Y", "DOWNLOAD ALL", "A", "DOWNLOAD", NULL};
+	char* hints_empty[] = {"B", "BACK", NULL};
+	static ListView view;
+	UI_listViewReset(&view, count, (const void*)&view);
+	view.title = "RetroAchievements | Library";
+	view.font = font.large;
+	view.get_row = rat_console_row;
+	view.list_id = (const void*)&view;
+	view.empty_title = "No consoles found";
+	view.empty_subtitle = "No installed system with roms has achievements.";
+
+	bool done = false, dirty = true;
+	IndicatorType show_setting = INDICATOR_NONE;
+	while (!done) {
+		GFX_startFrame();
+		PAD_poll();
+
+		ListViewAction act = UI_listViewHandleInput(&view);
+		bool ran = false;
+		if (act.type == LISTVIEW_BACK) {
+			done = true;
+		} else if (act.type == LISTVIEW_ACTIVATED && act.index >= 0) {
+			GFX_clearLayers(LAYER_SCROLLTEXT); // a marquee must not outlive the list
+			rat_prefetch(screen, consoles[act.index].folder);
+			ran = true;
+		} else if (act.type == LISTVIEW_BUTTON && act.btn == BTN_Y && count > 0) {
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			rat_prefetch(screen, NULL);
+			ran = true;
+		}
+		if (ran) {
+			// fresh counts; the selection stays on the console just downloaded
+			int keep = view.selected;
+			rat_library_loading(screen);
+			free(consoles);
+			count = rat_collect_consoles(&consoles);
+			view.selected = keep < count ? keep : (count > 0 ? count - 1 : 0);
+			PAD_reset(); // the A/B that closed the summary is still latched
+			dirty = true;
+		}
+		if (UI_listViewBusy(&view))
+			dirty = true;
+
+		PWR_update(&dirty, &show_setting, NULL, NULL);
+		if (UI_statusBarChanged())
+			dirty = true;
+
+		if (dirty) {
+			view.count = count;
+			view.ctx = consoles;
+			view.hint_pairs = count > 0 ? hints_full : hints_empty;
+			GFX_clear(screen);
+			UI_listViewRender(&view, screen);
+			GFX_flip(screen);
+			dirty = false;
+		} else {
+			UI_listViewTickIdle(&view);
+			GFX_sync();
+		}
+	}
+	GFX_clearLayers(LAYER_SCROLLTEXT);
+	free(consoles);
 }
