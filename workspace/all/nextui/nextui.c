@@ -653,7 +653,6 @@ int main(int argc, char* argv[]) {
 				if (!GameList_pillAnimating() && !MenuTabs_underlineGliding() &&
 					!(RowView_consoleBackground() && RowView_animating())) {
 					updateBackgroundLayer(blackBG);
-					renderThumbnail(1, false);
 				}
 
 				GFX_clearLayers(LAYER_TRANSITION);
@@ -725,7 +724,6 @@ int main(int argc, char* argv[]) {
 		} else if (backgroundLayerPending() ||
 				   (GameList_scrollBusy() && !ContextMenu_isOpen())) {
 			updateBackgroundLayer(blackBG);
-			renderThumbnail(1, false);
 			// Same flash as the dirty pass (see gamelist.c / 81a0c40a): the idle
 			// marquee tick presents the screen itself (ScrollText_animateOnly ->
 			// GFX_scrollTextTexture -> PLAT_GPU_Flip), which would blink the

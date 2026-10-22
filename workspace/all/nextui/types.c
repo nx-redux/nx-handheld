@@ -62,12 +62,6 @@ void Array_free(Array* self) {
 	free(self->items);
 	free(self);
 }
-void Array_yoink(Array* self, Array* other) {
-	// append entries to self and take ownership
-	for (int i = 0; i < other->count; i++)
-		Array_push(self, other->items[i]);
-	Array_free(other); // `self` now owns the entries
-}
 
 void StringArray_free(Array* self) {
 	for (int i = 0; i < self->count; i++) {

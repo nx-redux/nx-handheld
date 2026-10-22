@@ -15,7 +15,8 @@ cc $CF -o build/test_opts_launch test_opts_launch.c ../opts_launch.c $OVL
 ./build/test_opts_launch
 # The -D limits must match workspace/all/emu-options/Makefile.
 cc $CF -DEMU_OVL_MAX_SECTIONS=32 -DEMU_OVL_MAX_ITEMS=64 -DEMU_OVL_MAX_DESC=512 \
-	-o build/test_opts_minarch test_opts_minarch.c ../opts_minarch.c ../opts_override.c $OVL
+	-I../../../tg5040/platform -DPLATFORM=\"tg5040\" \
+	-o build/test_opts_minarch test_opts_minarch.c ../opts_minarch.c ../opts_override.c ../../common/utils.c $OVL
 ./build/test_opts_minarch
 cc $CF -o build/test_opts_override test_opts_override.c ../opts_override.c $OVL
 ./build/test_opts_override

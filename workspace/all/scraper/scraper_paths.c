@@ -1,6 +1,7 @@
 // Art-path helpers and the Reset artwork delete (per .media, and across Roms), split into their own TU so host tests
 // can link them without the ScreenScraper API/network stack that scraper_core.c pulls in.
 #include "scraper_core.h"
+#include "scraper_scan.h"
 
 #include <dirent.h>
 #include <stdbool.h>
@@ -60,56 +61,12 @@ int Scraper_deleteMediaArtwork(const char* media_path) {
 	return deleted;
 }
 
-// Same depth cap as the game scan and Optimize images (scraper_scan.h SCAN_MAX_DEPTH).
-#define RESET_MAX_DEPTH 8
-
-static bool isDirEntry(const char* path, const struct dirent* e) {
-	if (e->d_type == DT_DIR)
-		return true;
-	if (e->d_type != DT_UNKNOWN)
-		return false;
-	struct stat st;
-	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
-}
-
-// <dir>/.media, then every sub-folder's, the way Optimize images walks: nested game folders keep their own .media.
-// Hidden names (".", "..", .media itself, dot-folders) are skipped.
-static int deleteArtworkUnder(const char* dir_path, int depth) {
-	char media[MAX_PATH];
-	snprintf(media, sizeof(media), "%s/.media", dir_path);
-	int deleted = Scraper_deleteMediaArtwork(media);
-	if (depth >= RESET_MAX_DEPTH)
-		return deleted;
-	DIR* dir = opendir(dir_path);
-	if (!dir)
-		return deleted;
-	struct dirent* e;
-	while ((e = readdir(dir)) != NULL) {
-		if (e->d_name[0] == '.')
-			continue;
-		char sub[MAX_PATH];
-		snprintf(sub, sizeof(sub), "%s/%s", dir_path, e->d_name);
-		if (isDirEntry(sub, e))
-			deleted += deleteArtworkUnder(sub, depth + 1);
-	}
-	closedir(dir);
-	return deleted;
+static void deleteInMediaDir(const char* media, void* userdata) {
+	*(int*)userdata += Scraper_deleteMediaArtwork(media);
 }
 
 int Scraper_deleteAllArtwork(const char* roms_root) {
 	int deleted = 0;
-	DIR* roms = opendir(roms_root);
-	if (!roms)
-		return 0;
-	struct dirent* e;
-	while ((e = readdir(roms)) != NULL) {
-		if (e->d_name[0] == '.')
-			continue;
-		char sys[MAX_PATH];
-		snprintf(sys, sizeof(sys), "%s/%s", roms_root, e->d_name);
-		if (isDirEntry(sys, e))
-			deleted += deleteArtworkUnder(sys, 1);
-	}
-	closedir(roms);
+	Scan_eachMediaDir(roms_root, deleteInMediaDir, &deleted);
 	return deleted;
 }

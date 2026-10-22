@@ -675,21 +675,6 @@ void updateBackgroundLayer(SDL_Surface* blackBG) {
 	SDL_UnlockMutex(bgMutex);
 }
 
-// Draw the async-loaded thumbnail on its GPU layer, or clear the thumbnail and
-// scroll-text layers when `hide` is set (e.g. a confirmation dialog is open).
-// (moved from nextui.c)
-void renderThumbnail(int reset_changed, bool hide) {
-	SDL_LockMutex(thumbMutex);
-	if (hide) {
-		GFX_clearLayers(LAYER_THUMBNAIL);
-		GFX_clearLayers(LAYER_SCROLLTEXT);
-	}
-	// otherwise nothing: the art lives on LAYER_BACKGROUND, uploaded by updateBackgroundLayer (which runs first and
-	// consumes thumbchanged), so the thumbnail layer stays empty
-	(void)reset_changed;
-	SDL_UnlockMutex(thumbMutex);
-}
-
 int thumbCheckAsyncLoaded(void) {
 	return SDL_AtomicCAS(&thumbAsyncLoaded, 1, 0);
 }

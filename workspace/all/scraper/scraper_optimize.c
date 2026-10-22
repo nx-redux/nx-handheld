@@ -1,4 +1,5 @@
 #include "scraper_optimize.h"
+#include "scraper_scan.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -12,8 +13,6 @@
 #include "png_palette.h"
 #include "sdl.h"
 
-// Same depth cap as the game scan (scraper_scan.h SCAN_MAX_DEPTH).
-#define MAX_DEPTH 8
 // Larger pictures than this are not game art the menus draw; leave them be
 // rather than spend tens of MB on one file (the device has ~1 GB).
 #define MAX_PIXELS (4096 * 4096)
@@ -21,15 +20,6 @@
 static bool isPng(const char* name) {
 	size_t n = strlen(name);
 	return n > 4 && strcasecmp(name + n - 4, ".png") == 0;
-}
-
-static bool isDir(const char* path, const struct dirent* e) {
-	if (e->d_type == DT_DIR)
-		return true;
-	if (e->d_type != DT_UNKNOWN)
-		return false;
-	struct stat st;
-	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
 typedef struct {
@@ -70,7 +60,7 @@ static void addPngsIn(Collector* c, const char* dir_path) {
 			continue;
 		char path[1024];
 		snprintf(path, sizeof(path), "%s/%s", dir_path, e->d_name);
-		if (isDir(path, e))
+		if (Scan_isDirEntry(path, e))
 			continue;
 		addPath(c, path);
 	}
@@ -81,30 +71,13 @@ static void addPngsIn(Collector* c, const char* dir_path) {
 // keep their own .media). The root .media/*.png pictures are the user's own art (Ports, hand-made pictures)
 // and the folder backgrounds: left alone. wheel/ and mix/ are left alone too: the scraper saves them full
 // colour on purpose (a logo's or the mix's gradients band at 256 colours; flat 2D box art holds up).
-static void walk(Collector* c, const char* dir_path, int depth) {
-	char media[1024];
-	snprintf(media, sizeof(media), "%s/.media", dir_path);
+static void addMediaDir(const char* media, void* userdata) {
 	static const char* variants[] = {"screenshot", "boxart", "boxart2d"};
 	for (size_t v = 0; v < sizeof(variants) / sizeof(variants[0]); v++) {
 		char variant[1100];
 		snprintf(variant, sizeof(variant), "%s/%s", media, variants[v]);
-		addPngsIn(c, variant);
+		addPngsIn(userdata, variant);
 	}
-	if (depth >= MAX_DEPTH)
-		return;
-	DIR* dir = opendir(dir_path);
-	if (!dir)
-		return;
-	struct dirent* e;
-	while ((e = readdir(dir)) != NULL) {
-		if (e->d_name[0] == '.')
-			continue; // hidden, ".", "..", and .media itself (done above)
-		char sub[1024];
-		snprintf(sub, sizeof(sub), "%s/%s", dir_path, e->d_name);
-		if (isDir(sub, e))
-			walk(c, sub, depth + 1);
-	}
-	closedir(dir);
 }
 
 static int comparePaths(const void* a, const void* b) {
@@ -115,19 +88,7 @@ bool Optimize_collect(const char* roms_root, OptimizeList* out) {
 	out->paths = NULL;
 	out->count = 0;
 	Collector c = {.list = out};
-	DIR* roms = opendir(roms_root);
-	if (!roms)
-		return true;
-	struct dirent* e;
-	while ((e = readdir(roms)) != NULL) {
-		if (e->d_name[0] == '.')
-			continue;
-		char sys[1024];
-		snprintf(sys, sizeof(sys), "%s/%s", roms_root, e->d_name);
-		if (isDir(sys, e))
-			walk(&c, sys, 1);
-	}
-	closedir(roms);
+	Scan_eachMediaDir(roms_root, addMediaDir, &c);
 	if (c.oom) {
 		Optimize_freeList(out);
 		return false;

@@ -68,6 +68,13 @@ static bool enough_space(void) {
 	return free_kb >= CHEATDB_NEED_KB;
 }
 
+// The download's scratch folder (the zip and its extraction) goes once the install ends, however it ends.
+static void remove_tmpdir(void) {
+	char rm[600];
+	snprintf(rm, sizeof(rm), "rm -rf '%s'", P.tmpdir);
+	system(rm);
+}
+
 // Returns true on a completed install, false on cancel/failure (message shown).
 static bool do_download(void) {
 	if (!enough_space()) {
@@ -100,9 +107,7 @@ static bool do_download(void) {
 	}
 	pthread_join(th, NULL);
 	if (dl.cancel || dl.result < 0) {
-		char rm[600];
-		snprintf(rm, sizeof(rm), "rm -rf '%s'", P.tmpdir);
-		system(rm);
+		remove_tmpdir();
 		if (!dl.cancel)
 			UI_showMessage(screen, "Download failed (check WiFi)", 3000);
 		return false;
@@ -115,9 +120,7 @@ static bool do_download(void) {
 	else
 		snprintf(vcmd, sizeof(vcmd), "'%s' -tq '%s' >/dev/null 2>&1", P.unzip, P.zip);
 	if (system(vcmd) != 0) {
-		char rm[600];
-		snprintf(rm, sizeof(rm), "rm -rf '%s'", P.tmpdir);
-		system(rm);
+		remove_tmpdir();
 		UI_showMessage(screen, "Downloaded archive is corrupt", 3000);
 		return false;
 	}
@@ -138,9 +141,7 @@ static bool do_download(void) {
 	if (Cheatdb_remoteLastModified(nx_ca_bundle_path(), lm, sizeof(lm)) <= 0)
 		snprintf(lm, sizeof(lm), "installed");
 	Cheatdb_writeDbVersion(&P, lm);
-	char rm[600];
-	snprintf(rm, sizeof(rm), "rm -rf '%s'", P.tmpdir);
-	system(rm);
+	remove_tmpdir();
 	UI_showMessage(screen, "Done. Open a game and see Options > Cheats.", 2500);
 	return true;
 }

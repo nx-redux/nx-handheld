@@ -89,9 +89,6 @@ void RowView_drawGameItem(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 // context menu open (it draws over the body on the screen). Its picture, items, caption and edge fade are then sprites
 // and the screen's body holds nothing that moves.
 bool RowView_gameSprites(void);
-// The picture is busy: its screenshot crossfade or B's exit fade is running. Prefetch waits for it (a build would
-// stall the fade's frames), as the row's own does.
-bool RowView_pictureBusy(void);
 // Whether prefetch must wait: B's exit fade, or the picture's crossfade when it runs on the CPU (in sprite mode it is
 // the GPU's, and a held D-pad's steps keep it running).
 bool RowView_prefetchBlocked(void);

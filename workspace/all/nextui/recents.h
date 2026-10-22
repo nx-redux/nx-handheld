@@ -35,8 +35,7 @@ int Recents_load(void); // returns 1 if there are available recents
 int Recents_count(void);
 Recent* Recents_at(int index);
 void Recents_removeAt(int index);
-// Both take SDCARD-relative paths (the stored Recent form).
-void Recents_removeByPath(char* path);
+// Takes an SDCARD-relative path (the stored Recent form).
 void Recents_updateAlias(char* path, char* alias);
 
 // Entry conversion

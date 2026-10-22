@@ -683,10 +683,7 @@ static void blackOver(SDL_Surface* dst, Uint8 a) {
 
 // 32-bit FNV-1a of a cache key.
 static Uint32 keyHash(const char* key) {
-	Uint32 h = 2166136261u;
-	for (const unsigned char* p = (const unsigned char*)key; *p; p++)
-		h = (h ^ *p) * 16777619u;
-	return h;
+	return View_fnv(2166136261u, key, strlen(key));
 }
 
 static bool itemFind(const char* key, SDL_Surface** out) {
@@ -2683,10 +2680,6 @@ bool RowView_exiting(void) {
 	if (exit_fade.active && (!pictureRow() || top->serial != exit_top))
 		MenuTransition_exitCancel(&exit_fade);
 	return exit_fade.active;
-}
-
-bool RowView_pictureBusy(void) {
-	return fade_tw.active || exit_fade.active;
 }
 
 // Whether a build ahead would stall the picture's frames: its crossfade on the CPU (each frame a full-screen pass), or

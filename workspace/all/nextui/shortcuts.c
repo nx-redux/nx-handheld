@@ -2,6 +2,7 @@
 #include "api.h"
 #include "defines.h"
 #include "menutabs_model.h"
+#include "path_list.h"
 #include "utils.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -74,26 +75,15 @@ static Array* shortcuts = NULL;
 ///////////////////////////////////////
 // Save/Load functions
 
+static void Shortcut_get(void* item, const char** path, const char** label) {
+	Shortcut* shortcut = item;
+	*path = shortcut->path;
+	*label = shortcut->name;
+}
+
 static void saveShortcuts(void) {
-	// one buffer, written via writeFileAtomic (tmp + fsync + rename): a crash or a full card mid-write can't
-	// truncate the pins
-	size_t cap = 1, len = 0;
-	for (int i = 0; i < shortcuts->count; i++) {
-		Shortcut* shortcut = shortcuts->items[i];
-		cap += strlen(shortcut->path) + 2 + (shortcut->name ? strlen(shortcut->name) : 0);
-	}
-	char* buf = malloc(cap);
-	if (!buf)
-		return;
-	for (int i = 0; i < shortcuts->count; i++) {
-		Shortcut* shortcut = shortcuts->items[i];
-		len += (size_t)snprintf(buf + len, cap - len, "%s%s%s\n", shortcut->path, shortcut->name ? "\t" : "",
-								shortcut->name ? shortcut->name : "");
-	}
-	buf[len] = '\0';
-	if (!writeFileAtomic(SHORTCUTS_PATH, buf, len))
+	if (!PathList_save(SHORTCUTS_PATH, shortcuts, Shortcut_get))
 		LOG_warn("Shortcuts: couldn't save %s\n", SHORTCUTS_PATH);
-	free(buf);
 }
 
 static int loadShortcuts(void) {
@@ -106,28 +96,8 @@ static int loadShortcuts(void) {
 	FILE* file = fopen(SHORTCUTS_PATH, "r");
 	if (file) {
 		char line[MAX_PATH * 2]; // "path\tname": each up to a path's length
-		while (fgets(line, sizeof(line), file) != NULL) {
-			size_t len = strlen(line);
-			if (len == sizeof(line) - 1 && line[len - 1] != '\n') {
-				// longer than any path plus name: skip the whole line rather than split it, which would read
-				// its tail as a bogus entry (and a re-save would keep only the cut-down head)
-				int c;
-				while ((c = fgetc(file)) != EOF && c != '\n')
-					;
-				continue;
-			}
-			normalizeNewline(line);
-			trimTrailingNewlines(line);
-			if (strlen(line) == 0)
-				continue;
-
-			char* path = line;
-			char* name = NULL;
-			char* tmp = strchr(line, '\t');
-			if (tmp) {
-				tmp[0] = '\0';
-				name = tmp + 1;
-			}
+		char *path, *name;
+		while (PathList_nextLine(file, line, sizeof(line), &path, &name, NULL)) {
 			if (strlen(path) >= MAX_PATH)
 				continue; // no such path on the card
 

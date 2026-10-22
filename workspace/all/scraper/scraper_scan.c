@@ -145,3 +145,48 @@ int Scan_walk(const char* root, ScanGameCb cb, void* userdata) {
 	walk_dir(&w, root, 0);
 	return w.count;
 }
+
+bool Scan_isDirEntry(const char* path, const struct dirent* e) {
+	if (e->d_type == DT_DIR)
+		return true;
+	if (e->d_type != DT_UNKNOWN)
+		return false;
+	return is_dir(path);
+}
+
+static void media_walk(const char* dir_path, int depth, ScanMediaCb cb, void* userdata) {
+	char media[SCAN_PATH_MAX * 2];
+	snprintf(media, sizeof(media), "%s/.media", dir_path);
+	cb(media, userdata);
+	if (depth >= SCAN_MAX_DEPTH)
+		return;
+	DIR* dir = opendir(dir_path);
+	if (!dir)
+		return;
+	struct dirent* e;
+	while ((e = readdir(dir)) != NULL) {
+		if (e->d_name[0] == '.')
+			continue;
+		char sub[SCAN_PATH_MAX * 2];
+		snprintf(sub, sizeof(sub), "%s/%s", dir_path, e->d_name);
+		if (Scan_isDirEntry(sub, e))
+			media_walk(sub, depth + 1, cb, userdata);
+	}
+	closedir(dir);
+}
+
+void Scan_eachMediaDir(const char* roms_root, ScanMediaCb cb, void* userdata) {
+	DIR* roms = opendir(roms_root);
+	if (!roms)
+		return;
+	struct dirent* e;
+	while ((e = readdir(roms)) != NULL) {
+		if (e->d_name[0] == '.')
+			continue;
+		char sys[SCAN_PATH_MAX * 2];
+		snprintf(sys, sizeof(sys), "%s/%s", roms_root, e->d_name);
+		if (Scan_isDirEntry(sys, e))
+			media_walk(sys, 1, cb, userdata);
+	}
+	closedir(roms);
+}

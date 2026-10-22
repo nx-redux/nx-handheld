@@ -51,11 +51,6 @@ static uint64_t last_request_time = 0;
 static char ss_username[64] = "";
 static char ss_password[128] = "";
 
-// Shell-escape a string for safe use in system() calls (wraps in single quotes)
-static char* shell_escape(const char* str) {
-	return shellQuoteAlloc(str);
-}
-
 void ScraperAPI_init(void) {
 	pthread_mutex_lock(&rate_lock);
 	last_request_time = 0;
@@ -281,8 +276,8 @@ bool ScraperAPI_downloadFile(const char* url, const char* dest_path) {
 		return false;
 
 	// Shell-escape both arguments to prevent injection
-	char* escaped_url = shell_escape(url);
-	char* escaped_path = shell_escape(dest_path);
+	char* escaped_url = shellQuoteAlloc(url);
+	char* escaped_path = shellQuoteAlloc(dest_path);
 	if (!escaped_url || !escaped_path) {
 		free(escaped_url);
 		free(escaped_path);
@@ -291,7 +286,7 @@ bool ScraperAPI_downloadFile(const char* url, const char* dest_path) {
 
 	// TLS checked against the shipped CA bundle like every other fetch (-k only when there is none)
 	const char* ca_bundle = nx_ca_bundle_path();
-	char* escaped_ca = ca_bundle ? shell_escape(ca_bundle) : NULL;
+	char* escaped_ca = ca_bundle ? shellQuoteAlloc(ca_bundle) : NULL;
 	char tls_opt[MAX_PATH * 4 + 16];
 	if (escaped_ca)
 		snprintf(tls_opt, sizeof(tls_opt), "--cacert %s", escaped_ca);

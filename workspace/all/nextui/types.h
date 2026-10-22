@@ -22,7 +22,6 @@ bool Array_unshift(Array* self, void* item);
 void* Array_pop(Array* self);
 void Array_remove(Array* self, void* item);
 void Array_free(Array* self);
-void Array_yoink(Array* self, Array* other);
 
 void StringArray_free(Array* self);
 

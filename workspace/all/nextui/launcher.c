@@ -34,6 +34,18 @@ static void queueNext(char* cmd) {
 	CollCount_flush();
 }
 
+// Builds the queued shell command "'a'" or "'a' 'b'" (b may be NULL), each
+// argument single-quote escaped. False if either escape or the command does
+// not fit, so a launch never runs with a truncated or unbalanced argument.
+static bool buildQuotedCommand(char* out, size_t size, const char* a, const char* b) {
+	char ea[MAX_PATH * 4];
+	char eb[MAX_PATH * 4];
+	if (shellEscapeQuotes(ea, sizeof(ea), a) < 0 || (b && shellEscapeQuotes(eb, sizeof(eb), b) < 0))
+		return false;
+	int n = b ? snprintf(out, size, "'%s' '%s'", ea, eb) : snprintf(out, size, "'%s'", ea);
+	return n >= 0 && (size_t)n < size;
+}
+
 // Fire-and-forget launch that leaves this process's SIGCHLD disposition
 // untouched. Double-fork: the grandchild execs the command and is orphaned to
 // init (PID 1), which reaps it on exit — so no zombie accumulates while nextui
@@ -176,19 +188,8 @@ int autoResume(void) {
 	char* gametimectl_argv[] = {"gametimectl.elf", "start", sd_path, NULL};
 	runCommandAsync("gametimectl.elf", gametimectl_argv);
 
-	// Escaped buffers are 4x MAX_PATH so worst-case single-quote escaping
-	// (each ' -> '\'', +3 bytes) of a MAX_PATH source can never overflow and
-	// leave escapeSingleQuotes bailing mid-string with unbalanced quotes.
-	char escaped_emu[MAX_PATH * 4];
-	char escaped_sd[MAX_PATH * 4];
-	strncpy(escaped_emu, emu_path, sizeof(escaped_emu) - 1);
-	escaped_emu[sizeof(escaped_emu) - 1] = '\0';
-	strncpy(escaped_sd, sd_path, sizeof(escaped_sd) - 1);
-	escaped_sd[sizeof(escaped_sd) - 1] = '\0';
-
 	char cmd[MAX_PATH * 8]; // holds two worst-case escaped MAX_PATH strings + quotes
-	int n = snprintf(cmd, sizeof(cmd), "'%s' '%s'", escapeSingleQuotes(escaped_emu, sizeof(escaped_emu)), escapeSingleQuotes(escaped_sd, sizeof(escaped_sd)));
-	if (n < 0 || (size_t)n >= sizeof(cmd)) {
+	if (!buildQuotedCommand(cmd, sizeof(cmd), emu_path, sd_path)) {
 		LOG_error("autoResume: launch command too long, aborting\n");
 		return 0;
 	}
@@ -260,13 +261,10 @@ int pendingLaunch(void) {
 // Queue "<path>/launch.sh" as the next command. Returns false (and stays on
 // the menu) if the escaped command doesn't fit.
 static bool queuePakLaunch(char* path) {
-	char escaped_path[MAX_PATH * 4]; // 4x so worst-case escaping can't overflow
-	strncpy(escaped_path, path, sizeof(escaped_path) - 1);
-	escaped_path[sizeof(escaped_path) - 1] = '\0';
-
+	char launch_path[MAX_PATH + 16];
+	int n = snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", path);
 	char cmd[MAX_PATH * 5]; // worst-case escaped path + quotes + "/launch.sh"
-	int n = snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(escaped_path, sizeof(escaped_path)));
-	if (n < 0 || (size_t)n >= sizeof(cmd)) {
+	if (n < 0 || (size_t)n >= sizeof(launch_path) || !buildQuotedCommand(cmd, sizeof(cmd), launch_path, NULL)) {
 		LOG_error("queuePakLaunch: launch command too long, aborting\n");
 		startgame = false; // keep the launcher on the menu instead of blanking
 		return false;
@@ -327,19 +325,8 @@ void openScript(char* script_path, char* arg, char* last_path) {
 	// position (saveLast is what loadLast() restores from on relaunch).
 	saveLast(last_path);
 
-	// escapeSingleQuotes modifies its buffer, so use separate copies.
-	// 4x MAX_PATH so worst-case escaping can't overflow / unbalance quotes.
-	char escaped_script[MAX_PATH * 4];
-	strncpy(escaped_script, script_path, sizeof(escaped_script) - 1);
-	escaped_script[sizeof(escaped_script) - 1] = '\0';
-
-	char escaped_arg[MAX_PATH * 4];
-	strncpy(escaped_arg, arg, sizeof(escaped_arg) - 1);
-	escaped_arg[sizeof(escaped_arg) - 1] = '\0';
-
 	char cmd[MAX_PATH * 8]; // holds two worst-case escaped MAX_PATH strings + quotes
-	int n = snprintf(cmd, sizeof(cmd), "'%s' '%s'", escapeSingleQuotes(escaped_script, sizeof(escaped_script)), escapeSingleQuotes(escaped_arg, sizeof(escaped_arg)));
-	if (n < 0 || (size_t)n >= sizeof(cmd)) {
+	if (!buildQuotedCommand(cmd, sizeof(cmd), script_path, arg)) {
 		LOG_error("openScript: command too long, aborting\n");
 		return;
 	}
@@ -413,18 +400,8 @@ void openRom(char* path, char* last) {
 
 	// Queue the launch command FIRST to minimize delay — queueNext writes
 	// /tmp/next and sets quit=true so the main loop exits ASAP.
-	// escapeSingleQuotes modifies its buffer, so use separate copies.
-	// 4x MAX_PATH so worst-case escaping can't overflow / unbalance quotes.
-	char escaped_emu[MAX_PATH * 4];
-	char escaped_sd[MAX_PATH * 4];
-	strncpy(escaped_emu, emu_path, sizeof(escaped_emu) - 1);
-	escaped_emu[sizeof(escaped_emu) - 1] = '\0';
-	strncpy(escaped_sd, sd_path, sizeof(escaped_sd) - 1);
-	escaped_sd[sizeof(escaped_sd) - 1] = '\0';
-
 	char cmd[MAX_PATH * 8]; // holds two worst-case escaped MAX_PATH strings + quotes
-	int n = snprintf(cmd, sizeof(cmd), "'%s' '%s'", escapeSingleQuotes(escaped_emu, sizeof(escaped_emu)), escapeSingleQuotes(escaped_sd, sizeof(escaped_sd)));
-	if (n < 0 || (size_t)n >= sizeof(cmd)) {
+	if (!buildQuotedCommand(cmd, sizeof(cmd), emu_path, sd_path)) {
 		LOG_error("openRom: launch command too long, aborting\n");
 		startgame = false; // keep the launcher on the menu instead of blanking
 		return;

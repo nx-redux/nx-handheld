@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stddef.h>
 
-static uint32_t fnv(const char* s) {
+uint32_t PlaceholderArt_seedHash(const char* s) {
 	uint32_t h = 2166136261u;
 	for (; s && *s; s++)
 		h = (h ^ (uint8_t)*s) * 16777619u;
@@ -89,7 +89,7 @@ static void render(uint32_t* px, int w, int h, int pitch, uint32_t hs, float hue
 void PlaceholderArt_render(uint32_t* px, int w, int h, int pitch, const char* seed) {
 	if (!px || w <= 0 || h <= 0)
 		return;
-	uint32_t hs = fnv(seed);
+	uint32_t hs = PlaceholderArt_seedHash(seed);
 	float hue = (hs % 360) / 360.0f;
 	render(px, w, h, pitch, hs, hue, fmodf(hue + (40 + (hs >> 9) % 60) / 360.0f, 1.0f), 1.0f);
 }
@@ -112,5 +112,5 @@ void PlaceholderArt_renderRgb(uint32_t* px, int w, int h, int pitch, const char*
 			hue += 1.0f;
 	}
 	float sat = mx > 0 ? d / mx : 0; // a grey or white accent: a neutral picture
-	render(px, w, h, pitch, fnv(seed), hue, hue, sat);
+	render(px, w, h, pitch, PlaceholderArt_seedHash(seed), hue, hue, sat);
 }

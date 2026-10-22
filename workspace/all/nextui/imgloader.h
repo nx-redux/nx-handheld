@@ -68,6 +68,5 @@ void requestBackgroundReupload(void);
 // True while LAYER_BACKGROUND has something to take: a reupload asked for, or new art (or none) still to show.
 // Safe to poll from the UI thread without the locks.
 bool backgroundLayerPending(void);
-void renderThumbnail(int reset_changed, bool hide);
 
 #endif // IMGLOADER_H

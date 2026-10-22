@@ -46,6 +46,7 @@ for src in \
 	workspace/all/scraper/scraper_compositor.c \
 	workspace/all/scraper/scraper_optimize.c \
 	workspace/all/scraper/scraper_paths.c \
+	workspace/all/scraper/scraper_scan.c \
 	workspace/all/nextui/area_scale.c \
 	workspace/all/common/png_palette.c \
 	workspace/all/common/image_probe.c \

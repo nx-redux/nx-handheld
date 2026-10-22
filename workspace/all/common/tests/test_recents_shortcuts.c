@@ -102,12 +102,12 @@ static void test_recents_add(void) {
 	assert(Recents_count() == MAX_RECENTS);
 	assert(strcmp(recent_path(0), GB "/g29.gb") == 0 && strcmp(recent_path(MAX_RECENTS - 1), GB "/g06.gb") == 0);
 	assert(count_lines(RECENT_PATH) == MAX_RECENTS);
-	// rename: the entry keeps its place under a new alias; remove by path
+	// rename: the entry keeps its place under a new alias; remove by index
 	char g10[] = GB "/g10.gb";
 	char alias[] = "Ten";
 	Recents_updateAlias(g10, alias);
 	assert(strcmp(Recents_at(19)->alias, "Ten") == 0);
-	Recents_removeByPath(g10);
+	Recents_removeAt(19);
 	assert(Recents_count() == MAX_RECENTS - 1 && strcmp(recent_path(19), GB "/g09.gb") == 0);
 	Recents_quit();
 }

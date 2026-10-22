@@ -28,19 +28,27 @@ static bool rat_is_visible_achievement(const rc_api_achievement_definition_t* de
 		   !rat_is_hidden_achievement(def->id);
 }
 
+// A cached server reply (rel: below the RA offline cache) as the input of an rcheevos process_*_server_response;
+// *body is the file's malloc'd contents, freed by the caller once processed.
+static bool rat_cached_response(const char* rel, rc_api_server_response_t* sr, char** body) {
+	size_t len = 0;
+	*body = NULL;
+	if (!RA_Offline_readCacheFile(rel, body, &len))
+		return false;
+	memset(sr, 0, sizeof(*sr));
+	sr->body = *body;
+	sr->body_length = len;
+	sr->http_status_code = 200;
+	return true;
+}
+
 static bool rat_parse_sets(const char* hash, rc_api_fetch_game_sets_response_t* out) {
 	char rel[192];
 	snprintf(rel, sizeof(rel), "cache/games/%s/sets.json", hash);
-	char* body = NULL;
-	size_t len = 0;
-	if (!RA_Offline_readCacheFile(rel, &body, &len))
-		return false;
-
+	char* body;
 	rc_api_server_response_t sr;
-	memset(&sr, 0, sizeof(sr));
-	sr.body = body;
-	sr.body_length = len;
-	sr.http_status_code = 200;
+	if (!rat_cached_response(rel, &sr, &body))
+		return false;
 
 	int rc = rc_api_process_fetch_game_sets_server_response(out, &sr);
 	free(body);
@@ -57,16 +65,10 @@ static int rat_server_unlocks(uint32_t session_game_id, RAT_ServerUnlock** out) 
 	*out = NULL;
 	char rel[128];
 	snprintf(rel, sizeof(rel), "cache/sessions/%u.json", session_game_id);
-	char* body = NULL;
-	size_t len = 0;
-	if (!RA_Offline_readCacheFile(rel, &body, &len))
-		return 0;
-
+	char* body;
 	rc_api_server_response_t sr;
-	memset(&sr, 0, sizeof(sr));
-	sr.body = body;
-	sr.body_length = len;
-	sr.http_status_code = 200;
+	if (!rat_cached_response(rel, &sr, &body))
+		return 0;
 
 	rc_api_start_session_response_t resp;
 	int count = 0;
@@ -357,16 +359,10 @@ void RAT_sortAchievements(RAT_Achievement* achs, int count) {
 }
 
 bool RAT_getCachedScore(uint32_t* score, uint32_t* softcore_score) {
-	char* body = NULL;
-	size_t len = 0;
-	if (!RA_Offline_readCacheFile("cache/login.json", &body, &len))
-		return false;
-
+	char* body;
 	rc_api_server_response_t sr;
-	memset(&sr, 0, sizeof(sr));
-	sr.body = body;
-	sr.body_length = len;
-	sr.http_status_code = 200;
+	if (!rat_cached_response("cache/login.json", &sr, &body))
+		return false;
 
 	rc_api_login_response_t resp;
 	bool ok = false;

@@ -99,6 +99,37 @@ static bool arcadeQualifier(Hash* map, const Entry* entry, const char** qualifie
 	return true;
 }
 
+// The scratch arrays ArcadeNames_disambiguate fills for n rows sharing a title: labels[k] points into one block of
+// n MAX_PATH buffers.
+typedef struct {
+	const char** qualifiers;
+	const char** filenames;
+	char** labels;
+	char* bufs;
+} ArcadeLabels;
+
+static void ArcadeLabels_free(ArcadeLabels* l) {
+	free(l->bufs);
+	free(l->labels);
+	free(l->filenames);
+	free(l->qualifiers);
+}
+
+// False (with nothing left to free) when out of memory.
+static bool ArcadeLabels_alloc(ArcadeLabels* l, int n) {
+	l->qualifiers = calloc(n, sizeof(char*));
+	l->filenames = calloc(n, sizeof(char*));
+	l->labels = calloc(n, sizeof(char*));
+	l->bufs = calloc(n, MAX_PATH);
+	if (!l->qualifiers || !l->filenames || !l->labels || !l->bufs) {
+		ArcadeLabels_free(l);
+		return false;
+	}
+	for (int k = 0; k < n; k++)
+		l->labels[k] = l->bufs + k * MAX_PATH;
+	return true;
+}
+
 // Label each row of a same-folder run of arcade clones sharing one title by
 // region or DAT qualifier: "Alien vs. Predator (Japan)" rather than "avspj";
 // a lone unqualified parent set keeps the bare title, and clones the
@@ -106,33 +137,28 @@ static bool arcadeQualifier(Hash* map, const Entry* entry, const char** qualifie
 // nothing, when any row is not table-named.
 static bool arcadeLabelRun(Directory* self, Hash* map, int start, int end) {
 	int n = end - start;
-	const char** qualifiers = calloc(n, sizeof(char*));
-	const char** filenames = calloc(n, sizeof(char*));
-	char** labels = calloc(n, sizeof(char*));
-	char* bufs = calloc(n, MAX_PATH);
-	bool ok = qualifiers && filenames && labels && bufs;
+	ArcadeLabels l;
+	if (!ArcadeLabels_alloc(&l, n))
+		return false;
+	bool ok = true;
 	for (int k = 0; ok && k < n; k++) {
 		Entry* e = self->entries->items[start + k];
-		labels[k] = bufs + k * MAX_PATH;
-		filenames[k] = baseName(e->path);
-		ok = arcadeQualifier(map, e, &qualifiers[k]);
+		l.filenames[k] = baseName(e->path);
+		ok = arcadeQualifier(map, e, &l.qualifiers[k]);
 	}
 	if (ok)
-		ok = ArcadeNames_disambiguate(qualifiers, filenames, n, labels, MAX_PATH);
+		ok = ArcadeNames_disambiguate(l.qualifiers, l.filenames, n, l.labels, MAX_PATH);
 	for (int k = 0; ok && k < n; k++) {
 		Entry* e = self->entries->items[start + k];
 		char buf[MAX_PATH];
-		if (labels[k][0])
-			snprintf(buf, sizeof(buf), "%s %s", e->name, labels[k]);
+		if (l.labels[k][0])
+			snprintf(buf, sizeof(buf), "%s %s", e->name, l.labels[k]);
 		else
 			snprintf(buf, sizeof(buf), "%s", e->name); // the unqualified parent set
 		free(e->unique);
 		e->unique = strdup(buf);
 	}
-	free(bufs);
-	free(labels);
-	free(filenames);
-	free(qualifiers);
+	ArcadeLabels_free(&l);
 	return ok;
 }
 
@@ -605,6 +631,20 @@ void Content_sourcesChanged(void) {
 
 #define CACHE_FP_PREFIX ENTRY_CACHE_FP_PREFIX
 
+// Doubles *cap until `need` more bytes (and a NUL) fit after len; false (the buffer freed) when out of memory.
+static bool cacheBufReserve(char** buf, size_t* cap, size_t len, size_t need) {
+	while (len + need + 1 > *cap) {
+		char* grown = realloc(*buf, *cap * 2);
+		if (!grown) {
+			free(*buf);
+			return false;
+		}
+		*buf = grown;
+		*cap *= 2;
+	}
+	return true;
+}
+
 // serialize entries as "path\tname\n" lines and stage via writeFileAtomic so a
 // power cut can never leave a truncated cache. Only the rom index uses it, and an empty one is written too (just the
 // "#fp=" header): the Consoles cache written beside it may still list consoles (folders holding no game file), and
@@ -618,16 +658,8 @@ static void writeEntryCache(const char* cache_path, Array* entries, uint64_t fp)
 	len += snprintf(buf, cap, CACHE_FP_PREFIX "%016" PRIx64 "\n", fp);
 	for (int i = 0; i < entries->count; i++) {
 		Entry* entry = entries->items[i];
-		size_t need = strlen(entry->path) + strlen(entry->name) + 2;
-		while (len + need + 1 > cap) {
-			cap *= 2;
-			char* grown = realloc(buf, cap);
-			if (!grown) {
-				free(buf);
-				return;
-			}
-			buf = grown;
-		}
+		if (!cacheBufReserve(&buf, &cap, len, strlen(entry->path) + strlen(entry->name) + 2))
+			return;
 		size_t row = len + strlen(entry->path) + 1;
 		len += snprintf(buf + len, cap - len, "%s\t%s\n", entry->path, entry->name);
 		Emulist_blankField(buf + row, strlen(entry->name)); // a tab or newline in a name would split the row
@@ -705,16 +737,8 @@ static void writeEmulistCache(Array* entries, const int* counts, uint64_t fp) {
 	len += snprintf(buf, cap, CACHE_FP_PREFIX "%016" PRIx64 "\n", fp);
 	for (int i = 0; i < entries->count; i++) {
 		Entry* entry = entries->items[i];
-		size_t need = strlen(entry->path) + strlen(entry->name) + 16;
-		while (len + need + 1 > cap) {
-			cap *= 2;
-			char* grown = realloc(buf, cap);
-			if (!grown) {
-				free(buf);
-				return;
-			}
-			buf = grown;
-		}
+		if (!cacheBufReserve(&buf, &cap, len, strlen(entry->path) + strlen(entry->name) + 16))
+			return;
 		len += Emulist_formatRow(entry->path, entry->name, counts[i], buf + len, cap - len);
 	}
 	writeFileAtomic(EMULIST_CACHE_PATH, buf, len);
@@ -868,16 +892,6 @@ void Content_forgetRom(const char* removed_path, bool caches_were_fresh) {
 	dropEmulistMemo(); // the next read takes the restamped emulist against fp, kept (lib_gen moves on)
 }
 
-// Byte length of the rom-label part of an indexed name ("Zelda (GBA)" -> 5):
-// the offset of the LAST " (" (the tag suffix always starts there and tags
-// never contain parentheses), or the whole string when there is no " (".
-int Content_romLabelLen(const char* indexed_name) {
-	const char* last = NULL;
-	for (const char* p = strstr(indexed_name, " ("); p; p = strstr(p + 1, " ("))
-		last = p;
-	return last ? (int)(last - indexed_name) : (int)strlen(indexed_name);
-}
-
 Array* Content_searchRoms(const char* query) {
 	Array* all_roms = readRomIndexCache();
 	if (!all_roms) {
@@ -941,32 +955,24 @@ static void labelArcadeIndexRows(ArcadeIndexRow* rows, int count, const char* ta
 		while (j < count && exactMatch(rows[i].title, rows[j].title))
 			j++;
 		int n = j - i;
-		if (n > 1) {
-			const char** qualifiers = calloc(n, sizeof(char*));
-			const char** filenames = calloc(n, sizeof(char*));
-			char** labels = calloc(n, sizeof(char*));
-			char* bufs = calloc(n, MAX_PATH);
-			bool ok = qualifiers && filenames && labels && bufs;
-			for (int k = 0; ok && k < n; k++) {
-				qualifiers[k] = rows[i + k].qualifier;
-				filenames[k] = baseName(rows[i + k].entry->path);
-				labels[k] = bufs + k * MAX_PATH;
+		ArcadeLabels l;
+		if (n > 1 && ArcadeLabels_alloc(&l, n)) {
+			for (int k = 0; k < n; k++) {
+				l.qualifiers[k] = rows[i + k].qualifier;
+				l.filenames[k] = baseName(rows[i + k].entry->path);
 			}
-			if (ok && ArcadeNames_disambiguate(qualifiers, filenames, n, labels, MAX_PATH)) {
+			if (ArcadeNames_disambiguate(l.qualifiers, l.filenames, n, l.labels, MAX_PATH)) {
 				for (int k = 0; k < n; k++) {
-					if (!labels[k][0])
+					if (!l.labels[k][0])
 						continue; // the unqualified parent set keeps "<title> (<tag>)"
 					Entry* e = rows[i + k].entry;
 					char name[MAX_PATH];
-					snprintf(name, sizeof(name), "%s %s (%s)", rows[i + k].title, labels[k], tag);
+					snprintf(name, sizeof(name), "%s %s (%s)", rows[i + k].title, l.labels[k], tag);
 					free(e->name);
 					e->name = strdup(name);
 				}
 			}
-			free(bufs);
-			free(labels);
-			free(filenames);
-			free(qualifiers);
+			ArcadeLabels_free(&l);
 		}
 		i = j;
 	}

@@ -171,7 +171,7 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_entry_na
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_entry_cache ../../nextui/entry_cache.c ../../nextui/emulist_model.c ../utils.c test_entry_cache.c
 /tmp/nx_test_entry_cache
 # recents.c/shortcuts.c as built, on a fixture card (-Isdroot) with api.h's logging stubbed (-Istubs)
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -Istubs $SDROOT -o /tmp/nx_test_recents_shortcuts ../../nextui/recents.c ../../nextui/shortcuts.c ../../nextui/types.c ../../nextui/menutabs_model.c ../utils.c test_recents_shortcuts.c
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -Istubs $SDROOT -o /tmp/nx_test_recents_shortcuts ../../nextui/recents.c ../../nextui/shortcuts.c ../../nextui/path_list.c ../../nextui/types.c ../../nextui/menutabs_model.c ../utils.c test_recents_shortcuts.c
 /tmp/nx_test_recents_shortcuts
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_thumbcache_model ../../nextui/thumbcache_model.c test_thumbcache_model.c
 /tmp/nx_test_thumbcache_model

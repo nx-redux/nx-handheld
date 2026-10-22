@@ -784,18 +784,8 @@ static void rat_console_progress(RAT_Console* c) {
 		free(roms);
 		return;
 	}
-	snprintf(path, sizeof(path), "%s/hashes.json", dir);
-	char* json = NULL;
-	FILE* f = fopen(path, "rb");
-	if (f) {
-		fseek(f, 0, SEEK_END);
-		long len = ftell(f);
-		rewind(f);
-		json = len > 0 ? malloc((size_t)len + 1) : NULL;
-		if (json)
-			json[fread(json, 1, (size_t)len, f)] = '\0';
-		fclose(f);
-	}
+	snprintf(path, sizeof(path), "%s/" RA_HASH_CACHE_FILE, dir);
+	char* json = allocFile(path);
 	cJSON* root = json ? cJSON_Parse(json) : NULL;
 	free(json);
 	const cJSON* files = cJSON_GetObjectItemCaseSensitive(root, "files");

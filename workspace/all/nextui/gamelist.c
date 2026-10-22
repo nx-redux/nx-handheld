@@ -166,7 +166,7 @@ static bool prefetchListArt(Uint32 deadline) {
 	bool busy = false;
 	for (int d = 1; d <= LIST_ART_AHEAD; d++) {
 		for (int sign = 1; sign >= -1; sign -= 2) {
-			int i = ((sel + sign * d) % n + n) % n; // the List wraps
+			int i = MenuTabs_wrap(n, sel, sign * d); // the List wraps
 			Entry* e = top->entries->items[i];
 			const char* slash = strrchr(e->path, '/');
 			const char* pad_id = Pad_idForFolder(slash ? slash + 1 : e->path);
@@ -200,7 +200,7 @@ static bool prefetchListInfo(void) {
 	GameInfo info;
 	for (int d = 1; d <= LIST_INFO_AHEAD; d++) {
 		for (int sign = 1; sign >= -1; sign -= 2) {
-			Entry* e = list->entries->items[((sel + sign * d) % n + n) % n]; // the List wraps
+			Entry* e = list->entries->items[MenuTabs_wrap(n, sel, sign * d)]; // the List wraps
 			if (e->type == ENTRY_ROM && !GameInfo_prefetch(e->path, &info))
 				return true; // asked (or on its way): the next idle slot asks for the one after
 		}
@@ -231,7 +231,7 @@ static bool prefetchListPictures(void) {
 	int n = list->entries->count, sel = list->selected;
 	for (int d = 1; d <= LIST_PIC_AHEAD; d++) {
 		for (int sign = 1; sign >= -1; sign -= 2) {
-			int i = ((sel + sign * d) % n + n) % n; // the List wraps
+			int i = MenuTabs_wrap(n, sel, sign * d); // the List wraps
 			Entry* e = list->entries->items[i];
 			if (e->type != ENTRY_ROM)
 				continue;

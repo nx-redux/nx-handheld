@@ -33,6 +33,17 @@ bool Scan_hidden(const char* name);
 // file that makes it a folder game; out receives that file's path.
 bool Scan_folderGameFile(const char* dir_path, char* out, size_t out_size);
 
+// Whether a readdir entry (path is its full path) is a directory: d_type, or a stat when the filesystem leaves
+// it DT_UNKNOWN.
+struct dirent;
+bool Scan_isDirEntry(const char* path, const struct dirent* e);
+
+// Calls cb with "<dir>/.media" for every console folder under roms_root and, SCAN_MAX_DEPTH levels deep, each of
+// its sub-folders (nested game folders keep their own .media). Dot-named entries are skipped (".", "..", .media
+// itself, hidden folders). The Artwork Manager's Optimize images and Reset artwork walk this way.
+typedef void (*ScanMediaCb)(const char* media_dir, void* userdata);
+void Scan_eachMediaDir(const char* roms_root, ScanMediaCb cb, void* userdata);
+
 // Walk root recursively, calling cb for each game. Returns the number of
 // games visited (including the one that stopped the walk).
 int Scan_walk(const char* root, ScanGameCb cb, void* userdata);

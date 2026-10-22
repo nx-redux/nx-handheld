@@ -231,10 +231,7 @@ static void placeholderSeed(const char* rom, bool box, char* seed /* MAX_PATH */
 	char* dot = strrchr(seed, '.');
 	if (dot && dot != seed)
 		*dot = '\0';
-	uint32_t hash = 2166136261u;
-	for (const char* c = seed; *c; c++)
-		hash = (hash ^ (uint8_t)*c) * 16777619u;
-	snprintf(path, MAX_PATH, "%s/%08x%s.png", PLACEHOLDER_DIR, hash, box ? "_box" : "");
+	snprintf(path, MAX_PATH, "%s/%08x%s.png", PLACEHOLDER_DIR, PlaceholderArt_seedHash(seed), box ? "_box" : "");
 }
 
 static SDL_Surface* placeholderFor(const char* rom, bool box, HomeArtRect* keep) {

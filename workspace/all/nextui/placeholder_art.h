@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+// 32-bit FNV-1a of `seed` (NULL = ""): what places the shapes, and the name of a placeholder saved to disk.
+uint32_t PlaceholderArt_seedHash(const char* seed);
 // Fill w×h opaque ARGB8888 pixels (`pitch` pixels per row) for `seed` (any string; NULL = "").
 void PlaceholderArt_render(uint32_t* px, int w, int h, int pitch, const char* seed);
 // The same shapes (placed by `seed`) in one colour: rgb's (0xRRGGBB) hue, its saturation scaling the picture's (a grey

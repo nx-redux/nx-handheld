@@ -6,34 +6,11 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "utils.h"
+
 // Longest line we can parse; anything longer passes through writes verbatim
 // (a schema "key = value" line never gets near this).
 #define LINE_MAX_LEN 1024
-
-// malloc'd file contents or NULL. Same shape as read_file_to_string in
-// emu_overlay_cfg.c; duplicated rather than exported — 20 lines vs a new
-// public symbol in a header three binaries share.
-static char* read_all(const char* path) {
-	FILE* f = fopen(path, "r");
-	if (!f)
-		return NULL;
-	fseek(f, 0, SEEK_END);
-	long len = ftell(f);
-	if (len < 0) {
-		fclose(f);
-		return NULL;
-	}
-	fseek(f, 0, SEEK_SET);
-	char* buf = (char*)malloc((size_t)len + 1);
-	if (!buf) {
-		fclose(f);
-		return NULL;
-	}
-	size_t read_len = fread(buf, 1, (size_t)len, f);
-	buf[read_len] = '\0';
-	fclose(f);
-	return buf;
-}
 
 // Linear scan of ALL sections by item->key: minarch cfg files carry no INI
 // sections, so emu_ovl_cfg_find_item (which matches on resolved section
@@ -332,10 +309,10 @@ int opts_minarch_load(EmuOvlConfig* cfg, OptsMinarchState* st, OptsOverrideState
 
 	// System/default paths arrive pre-resolved from the shell; NULL or a
 	// missing file is simply an empty layer.
-	char* system_content = system_cfg_path ? read_all(system_cfg_path) : NULL;
-	char* default_content = default_cfg_path ? read_all(default_cfg_path) : NULL;
-	st->console_content = read_all(st->console_path);
-	st->game_content = st->per_game ? read_all(st->game_path) : NULL;
+	char* system_content = system_cfg_path ? allocFile((char*)system_cfg_path) : NULL;
+	char* default_content = default_cfg_path ? allocFile((char*)default_cfg_path) : NULL;
+	st->console_content = allocFile((char*)st->console_path);
+	st->game_content = st->per_game ? allocFile((char*)st->game_path) : NULL;
 	st->game_existed = (st->game_content != NULL);
 
 	// Lock pass over all four layers FIRST, then prune, so every value

@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include "utils.h"
 #include "recents.h"
+#include "path_list.h"
 #include "api.h"
 #include "menutabs_model.h"
 
@@ -82,26 +83,16 @@ void RecentArray_free(Array* self) {
 ///////////////////////////////////////
 // Core API
 
+static void Recent_get(void* item, const char** path, const char** label) {
+	Recent* recent = item;
+	*path = recent->path;
+	*label = recent->alias;
+}
+
+// Runs on every launch: written atomically, as the pins are
 static void Recents_save(void) {
-	// one buffer, written via writeFileAtomic (tmp + fsync + rename) as the pins are: this runs on every launch,
-	// and a crash or a full card mid-write can't truncate the list
-	size_t cap = 1, len = 0;
-	for (int i = 0; i < recents->count; i++) {
-		Recent* recent = recents->items[i];
-		cap += strlen(recent->path) + 2 + (recent->alias ? strlen(recent->alias) : 0);
-	}
-	char* buf = malloc(cap);
-	if (!buf)
-		return;
-	for (int i = 0; i < recents->count; i++) {
-		Recent* recent = recents->items[i];
-		len += (size_t)snprintf(buf + len, cap - len, "%s%s%s\n", recent->path, recent->alias ? "\t" : "",
-								recent->alias ? recent->alias : "");
-	}
-	buf[len] = '\0';
-	if (!writeFileAtomic(RECENT_PATH, buf, len))
+	if (!PathList_save(RECENT_PATH, recents, Recent_get))
 		LOG_warn("Recents: couldn't save %s\n", RECENT_PATH);
-	free(buf);
 }
 
 void Recents_add(char* path, char* alias) {
@@ -179,29 +170,9 @@ int Recents_load(void) {
 	FILE* file = fopen(RECENT_PATH, "r"); // newest at top
 	if (file) {
 		char line[MAX_PATH * 2]; // "path\talias": each up to a path's length
-		while (fgets(line, sizeof(line), file) != NULL) {
-			size_t len = strlen(line);
-			if (len == sizeof(line) - 1 && line[len - 1] != '\n') {
-				// longer than any path plus name: skip the whole line rather than split it, which would read
-				// its tail as a bogus entry (and a re-save would keep only the cut-down head)
-				int c;
-				while ((c = fgetc(file)) != EOF && c != '\n')
-					;
-				changed = true;
-				continue;
-			}
-			normalizeNewline(line);
-			trimTrailingNewlines(line);
-			if (strlen(line) == 0)
-				continue; // skip empty lines
-
-			char* path = line;
-			char* alias = NULL;
-			char* tmp = strchr(line, '\t');
-			if (tmp) {
-				tmp[0] = '\0';
-				alias = tmp + 1;
-			}
+		char *path, *alias;
+		int long_lines = 0;
+		while (PathList_nextLine(file, line, sizeof(line), &path, &alias, &long_lines)) {
 			if (strlen(path) >= MAX_PATH) {
 				changed = true; // no such path on the card (and too long for the buffers below)
 				continue;
@@ -257,6 +228,8 @@ int Recents_load(void) {
 				has += 1;
 		}
 		fclose(file);
+		if (long_lines)
+			changed = true;
 	}
 
 	if (changed)
@@ -288,18 +261,8 @@ void Recents_removeAt(int index) {
 	Recents_save();
 }
 
-void Recents_removeByPath(char* path) {
-	if (!recents)
-		return;
-	int index = RecentArray_indexOf(recents, path);
-	if (index < 0)
-		return;
-	Recents_removeAt(index);
-}
-
-// A real file rename: keep the Recently Played entry pointing at the new path.
-// The stored alias came from the old filename (only non-aliased renames get
-// here), so drop it and let the new filename supply the display name.
+// A rename (a new map.txt alias): replace the entry's stored alias snapshot
+// so Recently Played shows the new name before the game's next launch.
 void Recents_updateAlias(char* path, char* alias) {
 	if (!recents)
 		return;
@@ -346,11 +309,7 @@ Entry* Recents_firstRom(void) {
 		return NULL;
 	for (int i = 0; i < recents->count; i++) {
 		Recent* recent = recents->items[i];
-		if (!recent || !recent->available)
-			continue;
-		char sd_path[MAX_PATH]; // the same full path (and .pak test) Recents_entryFromRecent uses
-		snprintf(sd_path, sizeof(sd_path), "%s%s", SDCARD_PATH, recent->path);
-		if (suffixMatch(".pak", sd_path))
+		if (!recent || !recent->available || suffixMatch(".pak", recent->path)) // Recents_entryFromRecent's .pak test
 			continue;
 		return Recents_entryFromRecent(recent);
 	}
