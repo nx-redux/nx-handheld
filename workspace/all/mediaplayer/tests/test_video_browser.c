@@ -4,7 +4,7 @@
 // only, nothing links SDL):
 //   cc -std=gnu99 -Wall -Werror -fsanitize=address -g -DUSE_SDL2 -I. -I../common -I../../tg5040/platform \
 //      -DPLATFORM='"tg5040"' $(sdl2-config --cflags) -I$(sdl2-config --prefix)/include \
-//      video_browser.c tests/test_video_browser.c -o /tmp/t && /tmp/t
+//      video_browser.c ../common/dir_list.c tests/test_video_browser.c -o /tmp/t && /tmp/t
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -157,7 +157,7 @@ static void test_load_directory(void) {
 	assert(strcmp(ctx.entries[0].name, "..") == 0 && strcmp(ctx.entries[0].path, DIR_) == 0);
 	assert(strcmp(ctx.entries[1].name, "adir") == 0 && ctx.entries[1].is_dir);
 	assert(strcmp(ctx.entries[2].name, "Zdir") == 0 && ctx.entries[2].is_dir);
-	assert(strcmp(ctx.entries[3].name, "A.mkv") == 0 && ctx.entries[3].format == VIDEO_FORMAT_MKV);
+	assert(strcmp(ctx.entries[3].name, "A.mkv") == 0 && VideoBrowser_detectFormat(ctx.entries[3].name) == VIDEO_FORMAT_MKV);
 	assert(strcmp(ctx.entries[4].name, "b.mp4") == 0);
 
 	// At the root: no ".." entry

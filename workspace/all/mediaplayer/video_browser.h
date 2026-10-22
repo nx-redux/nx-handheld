@@ -3,13 +3,9 @@
 
 #include <stdbool.h>
 #include "vp_defines.h"
+#include "dir_list.h"
 
-typedef struct {
-	char name[256];
-	char path[512];
-	bool is_dir;
-	VideoFormat format;
-} VideoFileEntry;
+typedef DirListEntry VideoFileEntry; // format: VideoBrowser_detectFormat(name)
 
 typedef struct {
 	char current_path[512];

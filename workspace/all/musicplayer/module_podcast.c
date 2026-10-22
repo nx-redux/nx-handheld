@@ -5,6 +5,7 @@
 #include "platform.h"
 #include "../common/defines.h"
 #include "module_common.h"
+#include "ui_toast.h"
 #include "../common/sdl.h"
 #include "module_podcast.h"
 #include "podcast.h"
@@ -242,19 +243,19 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				int cl = (cl_raw > PODCAST_CONTINUE_LISTENING_DISPLAY) ? PODCAST_CONTINUE_LISTENING_DISPLAY : cl_raw;
 				int subs = Podcast_getSubscriptionCount();
 				if (podcast_menu_selected >= cl && podcast_menu_selected < cl + subs)
-					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Unsubscribe", PODCAST_CTX_UNSUBSCRIBE);
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manage Podcasts", PODCAST_CTX_MANAGE);
+					ContextMenu_addItem(ctx_items, &ctx_count, "Unsubscribe", PODCAST_CTX_UNSUBSCRIBE);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Manage Podcasts", PODCAST_CTX_MANAGE);
 				break;
 			}
 			case PODCAST_INTERNAL_TOP_SHOWS:
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh List", PODCAST_CTX_REFRESH_LIST);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Refresh List", PODCAST_CTX_REFRESH_LIST);
 				break;
 			case PODCAST_INTERNAL_EPISODES: {
 				PodcastFeed* feed = Podcast_getSubscription(podcast_current_feed_index);
 				if (feed) {
-					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh Episodes", PODCAST_CTX_REFRESH_EPISODES);
+					ContextMenu_addItem(ctx_items, &ctx_count, "Refresh Episodes", PODCAST_CTX_REFRESH_EPISODES);
 					if (feed->episode_count > 0)
-						ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Mark Played/Unplayed", PODCAST_CTX_MARK_PLAYED);
+						ContextMenu_addItem(ctx_items, &ctx_count, "Mark Played/Unplayed", PODCAST_CTX_MARK_PLAYED);
 				}
 				break;
 			}
@@ -262,16 +263,16 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 				int qc = 0;
 				Podcast_getDownloadQueue(&qc);
 				if (qc > 0)
-					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Remove Download", PODCAST_CTX_REMOVE_DOWNLOAD);
+					ContextMenu_addItem(ctx_items, &ctx_count, "Remove Download", PODCAST_CTX_REMOVE_DOWNLOAD);
 				break;
 			}
 			case PODCAST_INTERNAL_PLAYING:
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Playback Controls", CTX_ID_CONTROLS);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Playback Controls", CTX_ID_CONTROLS);
 				break;
 			default: // MANAGE, SEARCH_RESULTS, SEEKING
 				break;
 			}
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
 																	  ctx_items, ctx_count);
@@ -1092,7 +1093,7 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 			dirty = 0;
 
 			// Toast refresh
-			ModuleCommon_tickToast(podcast_toast_message, podcast_toast_time, &dirty);
+			UI_tickToast(podcast_toast_message, podcast_toast_time, &dirty);
 		} else if (!screen_off) {
 			GFX_sync();
 		}

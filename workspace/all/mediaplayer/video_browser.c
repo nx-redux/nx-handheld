@@ -69,21 +69,6 @@ void VideoBrowser_freeEntries(VideoBrowserContext* ctx) {
 	ctx->entry_count = 0;
 }
 
-// Compare function for sorting entries (directories first, then alphabetical)
-static int compare_entries(const void* a, const void* b) {
-	const VideoFileEntry* ea = (const VideoFileEntry*)a;
-	const VideoFileEntry* eb = (const VideoFileEntry*)b;
-
-	// Directories come first
-	if (ea->is_dir && !eb->is_dir)
-		return -1;
-	if (!ea->is_dir && eb->is_dir)
-		return 1;
-
-	// Alphabetical (case-insensitive)
-	return strcasecmp(ea->name, eb->name);
-}
-
 // Load directory contents (video files + directories)
 void VideoBrowser_loadDirectory(VideoBrowserContext* ctx, const char* path, const char* root) {
 	VideoBrowser_freeEntries(ctx);
@@ -96,115 +81,9 @@ void VideoBrowser_loadDirectory(VideoBrowserContext* ctx, const char* path, cons
 		mkdir(path, 0755);
 	}
 
-	DIR* dir = opendir(path);
-	if (!dir) {
+	ctx->entries = DirList_load(path, root, VideoBrowser_isVideoFile, &ctx->entry_count);
+	if (!ctx->entries)
 		LOG_error("Failed to open directory: %s\n", path);
-		return;
-	}
-
-	// First pass: count entries
-	int dir_count = 0;
-	int video_count = 0;
-	struct dirent* ent;
-	while ((ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.')
-			continue; // Skip hidden files
-
-		char full_path[1024];
-		int path_len = snprintf(full_path, sizeof(full_path), "%s/%s", path, ent->d_name);
-		if (path_len < 0 || path_len >= (int)sizeof(full_path)) {
-			continue; // Path too long, skip
-		}
-
-		struct stat st;
-		if (stat(full_path, &st) != 0)
-			continue;
-
-		if (S_ISDIR(st.st_mode)) {
-			dir_count++;
-		} else if (VideoBrowser_isVideoFile(ent->d_name)) {
-			video_count++;
-		}
-	}
-
-	int count = dir_count + video_count;
-
-	// Add parent directory entry if not at root
-	bool has_parent = (strcmp(path, root) != 0);
-	if (has_parent)
-		count++;
-
-	// Allocate entries
-	ctx->entries = malloc(sizeof(VideoFileEntry) * (count > 0 ? count : 1));
-	if (!ctx->entries) {
-		closedir(dir);
-		return;
-	}
-
-	int idx = 0;
-
-	// Add parent directory entry
-	if (has_parent) {
-		strncpy(ctx->entries[idx].name, "..", sizeof(ctx->entries[idx].name) - 1);
-		ctx->entries[idx].name[sizeof(ctx->entries[idx].name) - 1] = '\0';
-		char* last_slash = strrchr(ctx->current_path, '/');
-		if (last_slash) {
-			strncpy(ctx->entries[idx].path, ctx->current_path, last_slash - ctx->current_path);
-			ctx->entries[idx].path[last_slash - ctx->current_path] = '\0';
-		} else {
-			strncpy(ctx->entries[idx].path, root, sizeof(ctx->entries[idx].path) - 1);
-			ctx->entries[idx].path[sizeof(ctx->entries[idx].path) - 1] = '\0';
-		}
-		ctx->entries[idx].is_dir = true;
-		ctx->entries[idx].format = VIDEO_FORMAT_UNKNOWN;
-		idx++;
-	}
-
-	// Second pass: fill entries. Bounded by the first pass's count: a file
-	// added (or a directory made) in between must not write past entries[].
-	rewinddir(dir);
-	while (idx < count && (ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.')
-			continue;
-
-		char full_path[1024];
-		int path_len = snprintf(full_path, sizeof(full_path), "%s/%s", path, ent->d_name);
-		if (path_len < 0 || path_len >= (int)sizeof(full_path)) {
-			continue;
-		}
-
-		struct stat st;
-		if (stat(full_path, &st) != 0)
-			continue;
-
-		bool is_dir = S_ISDIR(st.st_mode);
-		VideoFormat fmt = VIDEO_FORMAT_UNKNOWN;
-
-		if (!is_dir) {
-			fmt = VideoBrowser_detectFormat(ent->d_name);
-			if (fmt == VIDEO_FORMAT_UNKNOWN)
-				continue;
-		}
-
-		strncpy(ctx->entries[idx].name, ent->d_name, sizeof(ctx->entries[idx].name) - 1);
-		ctx->entries[idx].name[sizeof(ctx->entries[idx].name) - 1] = '\0';
-		strncpy(ctx->entries[idx].path, full_path, sizeof(ctx->entries[idx].path) - 1);
-		ctx->entries[idx].path[sizeof(ctx->entries[idx].path) - 1] = '\0';
-		ctx->entries[idx].is_dir = is_dir;
-		ctx->entries[idx].format = fmt;
-		idx++;
-	}
-
-	closedir(dir);
-
-	// Sort entries (keep ".." at top if present)
-	int sort_start = has_parent ? 1 : 0;
-	if (idx > sort_start + 1) {
-		qsort(&ctx->entries[sort_start], idx - sort_start,
-			  sizeof(VideoFileEntry), compare_entries);
-	}
-
-	ctx->entry_count = idx;
 }
 
 // Get display name for file (without extension)

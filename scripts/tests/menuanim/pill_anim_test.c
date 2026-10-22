@@ -13,7 +13,8 @@
 uint32_t RGB_WHITE, THEME_COLOR1, THEME_COLOR2, THEME_COLOR4_255, THEME_COLOR5_255;
 GFX_Fonts font;
 // tg5040 platform.h globals behind FIXED_SCALE and the input maps.
-int is_brick, is_brickpro, ui_scale;
+int is_brick, is_brickpro;
+float ui_scale;
 
 // Stand-in for config.c: the test flips this to model the user's setting.
 static bool g_menu_animations = true;

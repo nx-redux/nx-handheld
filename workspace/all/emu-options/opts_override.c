@@ -1,4 +1,5 @@
 #include "opts_override.h"
+#include "../common/str_trim.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -16,15 +17,6 @@ void opts_snapshot_globals(const EmuOvlConfig* cfg, OptsOverrideState* st) {
 			st->global_value[s][i] = cfg->sections[s].items[i].current_value;
 }
 
-static char* trim(char* s) {
-	while (isspace((unsigned char)*s))
-		s++;
-	char* end = s + strlen(s);
-	while (end > s && isspace((unsigned char)end[-1]))
-		*--end = '\0';
-	return s;
-}
-
 int opts_read_override(EmuOvlConfig* cfg, OptsOverrideState* st, const char* override_path) {
 	if (!cfg || !st || !override_path)
 		return 0;
@@ -35,7 +27,7 @@ int opts_read_override(EmuOvlConfig* cfg, OptsOverrideState* st, const char* ove
 	char section[EMU_OVL_MAX_STR] = "";
 	int applied = 0;
 	while (fgets(line, sizeof(line), f)) {
-		char* p = trim(line);
+		char* p = strTrimSpace(line);
 		if (*p == '\0' || *p == '#' || *p == ';')
 			continue;
 		size_t len = strlen(p);
@@ -48,8 +40,8 @@ int opts_read_override(EmuOvlConfig* cfg, OptsOverrideState* st, const char* ove
 		if (!eq || section[0] == '\0')
 			continue;
 		*eq = '\0';
-		char* key = trim(p);
-		char* val = trim(eq + 1);
+		char* key = strTrimSpace(p);
+		char* val = strTrimSpace(eq + 1);
 		int s = -1, i = -1;
 		EmuOvlItem* item = emu_ovl_cfg_find_item(cfg, section, key, &s, &i);
 		if (!item)

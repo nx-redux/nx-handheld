@@ -2,6 +2,7 @@
 // SDL-free, host-tested by common/tests/test_menulogo.c.
 
 #include "menulogo.h"
+#include "../common/folder_tag.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -80,13 +81,9 @@ static const struct {
 const char* MenuLogo_idForFolder(const char* folder_name) {
 	if (!folder_name)
 		return NULL;
-	const char* open = strrchr(folder_name, '(');
-	const char* close = open ? strchr(open, ')') : NULL;
-	if (!open || !close || close - open - 1 <= 0 || close - open - 1 >= 16)
-		return NULL;
 	char tag[16];
-	memcpy(tag, open + 1, (size_t)(close - open - 1));
-	tag[close - open - 1] = '\0';
+	if (!folderTag(folder_name, tag, sizeof(tag), 0))
+		return NULL;
 
 	if (strcasecmp(tag, "GPGX") == 0) {
 		for (size_t i = 0; i < sizeof(gpgx_logos) / sizeof(gpgx_logos[0]); i++)

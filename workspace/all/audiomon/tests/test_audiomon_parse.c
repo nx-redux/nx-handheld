@@ -1,5 +1,5 @@
-// Host-compiled unit test for audiomon_parse.h: BlueZ object path -> MAC, and
-// the key=value settings lookup.
+// Host-compiled unit test for audiomon_parse.h: BlueZ object path -> MAC (the
+// settings lookup is common/settings_kv.h, tested in common/tests).
 // Build & run (from workspace/all/audiomon):
 //   cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I. tests/test_audiomon_parse.c -o /tmp/t && /tmp/t
 #include <assert.h>
@@ -7,8 +7,6 @@
 #include <string.h>
 
 #include "../audiomon_parse.h"
-
-#define CFG "/tmp/nx_test_audiomon_parse.txt"
 
 static void test_path_to_mac(void) {
 	char mac[18];
@@ -32,36 +30,8 @@ static void test_path_to_mac(void) {
 	assert(strcmp(big, "AA:BB:CC:DD:EE:FF") == 0 && big[18] == 'X');
 }
 
-static void write_cfg(const char* body) {
-	FILE* f = fopen(CFG, "w");
-	assert(f);
-	fputs(body, f);
-	fclose(f);
-}
-
-static void test_cfg_int(void) {
-	remove(CFG);
-	assert(audiomon_cfg_int(CFG, "btMaxRate", 48000) == 48000); // no file
-
-	write_cfg("audioRateNegotiationX=5\n"
-			  "audioRateNegotiation=0\n"
-			  "xbtMaxRate=1\n"
-			  "btMaxRateLimit=22050\n"
-			  "btMaxRate=44100\n"
-			  "btMaxRate=32000\n"
-			  "empty=\n");
-	// a key is not matched by a longer key it is a prefix of (or one that ends with it)
-	assert(audiomon_cfg_int(CFG, "btMaxRate", 48000) == 44100);	   // first match wins
-	assert(audiomon_cfg_int(CFG, "audioRateNegotiation", 1) == 0); // not the "X" key
-	assert(audiomon_cfg_int(CFG, "btMax", 7) == 7);
-	assert(audiomon_cfg_int(CFG, "missing", -3) == -3);
-	assert(audiomon_cfg_int(CFG, "empty", 9) == 9);
-	remove(CFG);
-}
-
 int main(void) {
 	test_path_to_mac();
-	test_cfg_int();
 	printf("test_audiomon_parse: all tests passed\n");
 	return 0;
 }

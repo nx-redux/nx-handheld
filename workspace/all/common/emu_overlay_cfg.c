@@ -5,9 +5,12 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <limits.h>
 #include <unistd.h>
 
 #include "cjson/cJSON.h"
+#include "file_util.h"
+#include "str_trim.h"
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -44,45 +47,7 @@ static bool json_get_bool(const cJSON* obj, const char* key, bool fallback) {
 	return fallback;
 }
 
-static char* read_file_to_string(const char* path) {
-	FILE* f = fopen(path, "r");
-	if (!f)
-		return NULL;
-
-	fseek(f, 0, SEEK_END);
-	long len = ftell(f);
-	if (len < 0) {
-		fclose(f);
-		return NULL;
-	}
-	fseek(f, 0, SEEK_SET);
-
-	char* buf = (char*)malloc((size_t)len + 1);
-	if (!buf) {
-		fclose(f);
-		return NULL;
-	}
-
-	size_t read_len = fread(buf, 1, (size_t)len, f);
-	buf[read_len] = '\0';
-	fclose(f);
-	return buf;
-}
-
 // Strip leading/trailing whitespace in-place, return pointer into same buffer.
-static char* strip(char* s) {
-	if (!s)
-		return s;
-	while (*s && isspace((unsigned char)*s))
-		s++;
-	if (*s == '\0')
-		return s;
-	char* end = s + strlen(s) - 1;
-	while (end > s && isspace((unsigned char)*end))
-		*end-- = '\0';
-	return s;
-}
-
 // Case-insensitive string comparison for bool parsing.
 static bool str_eq_nocase(const char* a, const char* b) {
 	if (!a || !b)
@@ -281,7 +246,7 @@ int emu_ovl_cfg_load(EmuOvlConfig* cfg, const char* json_path) {
 
 	memset(cfg, 0, sizeof(*cfg));
 
-	char* json_str = read_file_to_string(json_path);
+	char* json_str = allocFileCapped(json_path, LONG_MAX, NULL);
 	if (!json_str) {
 		printf("[emu_ovl_cfg] failed to read %s\n", json_path);
 		return -1;
@@ -514,7 +479,7 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 
 	while (fgets(line, sizeof(line), f)) {
 		// Strip trailing newline / whitespace
-		char* trimmed = strip(line);
+		char* trimmed = strTrimSpace(line);
 
 		// Section header?
 		if (trimmed[0] == '[') {
@@ -541,8 +506,8 @@ int emu_ovl_cfg_read_ini(EmuOvlConfig* cfg, const char* ini_path) {
 			continue;
 
 		*eq = '\0';
-		char* ini_key = strip(trimmed);
-		char* ini_val = strip(eq + 1);
+		char* ini_key = strTrimSpace(trimmed);
+		char* ini_val = strTrimSpace(eq + 1);
 
 		// Match against items whose INI section matches the current section
 		for (int s = 0; s < cfg->section_count; s++) {
@@ -671,7 +636,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		return -1;
 
 	// Read the entire original file into memory
-	char* original = read_file_to_string(ini_path);
+	char* original = allocFileCapped(ini_path, LONG_MAX, NULL);
 	if (!original) {
 		printf("[emu_ovl_cfg] failed to read INI %s for writing\n", ini_path);
 		return -1;
@@ -748,7 +713,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		memcpy(line_buf, cursor, copy_len);
 		line_buf[copy_len] = '\0';
 
-		char* trimmed = strip(line_buf);
+		char* trimmed = strTrimSpace(line_buf);
 
 		// Check for section header
 		if (trimmed[0] == '[') {
@@ -795,7 +760,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		char parse_buf[1024];
 		memcpy(parse_buf, cursor, copy_len);
 		parse_buf[copy_len] = '\0';
-		char* parse_trimmed = strip(parse_buf);
+		char* parse_trimmed = strTrimSpace(parse_buf);
 
 		// Skip comments and blank lines — write as-is
 		if (parse_trimmed[0] == '#' || parse_trimmed[0] == ';' || parse_trimmed[0] == '\0') {
@@ -813,7 +778,7 @@ int emu_ovl_cfg_write_ini(EmuOvlConfig* cfg, const char* ini_path) {
 		}
 
 		*eq = '\0';
-		char* ini_key = strip(parse_trimmed);
+		char* ini_key = strTrimSpace(parse_trimmed);
 
 		// Search for a dirty item with this key in the current INI section
 		int matched_idx = -1;

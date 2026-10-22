@@ -18,6 +18,7 @@
 #include "ui_loadingoverlay.h"
 #include "ui_message.h"
 #include "ui_contextmenu.h"
+#include "ui_contextmenu_add.h"
 #include "ui_keyboard.h"
 #include "ui_accent.h"
 #include "ui_list.h"
@@ -1792,11 +1793,7 @@ void GameList_openTab(MenuTabId id, bool* dirty) {
 // Context-menu items
 
 static void addItem(ContextMenuItem* items, int* idx, const char* label, int id) {
-	if (*idx >= CONTEXTMENU_MAX_ITEMS)
-		return;
-	snprintf(items[*idx].label, CONTEXTMENU_MAX_TEXT, "%s", label);
-	items[*idx].id = id;
-	(*idx)++;
+	ContextMenu_addItemCapped(items, idx, CONTEXTMENU_MAX_ITEMS, label, id);
 }
 
 // A game's items, as in a ROM listing. allow_pin false leaves out Pin/Unpin Item.

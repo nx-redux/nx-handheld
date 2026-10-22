@@ -1,13 +1,9 @@
 #ifndef IV_BROWSER_H
 #define IV_BROWSER_H
 #include <stdbool.h>
+#include "dir_list.h"
 
-typedef struct {
-	char name[256];
-	char path[512];
-	bool is_dir;
-	long size_bytes; // 0 for dirs; from stat during loadDirectory
-} ImageEntry;
+typedef DirListEntry ImageEntry; // size_bytes: 0 for dirs; from stat during loadDirectory
 
 typedef struct {
 	char current_path[512];

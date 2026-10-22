@@ -72,23 +72,6 @@ static void sigHandler(int sig) {
 		quit = true;
 }
 
-// Keeps `message`'s GPU toast layer in sync with its lifetime: forces a
-// redraw every frame it's visible, then once more on the expiry edge
-// (clearing the message) so the next render call actually wipes the layer -
-// otherwise UI_renderToast only re-clears when called again, and nothing
-// would call it once the loop goes idle. Mirrors ModuleCommon_tickToast in
-// workspace/all/mediaplayer/module_common.c.
-static void tick_toast(char* message, uint32_t toast_time, bool* dirty) {
-	if (message[0] == '\0')
-		return;
-	if (SDL_GetTicks() - toast_time < TOAST_DURATION) {
-		*dirty = true;
-	} else {
-		message[0] = '\0';
-		*dirty = true;
-	}
-}
-
 static void load_image_directory(const char* path) {
 	ImageBrowser_loadDirectory(&browser, path, IMAGES_ROOT);
 	UI_listViewReset(&browser_view, browser.entry_count, browser.entries);
@@ -200,7 +183,7 @@ static void render_browser(void) {
 
 	// Unconditional: UI_renderToast clears its GPU layer itself when the
 	// message is empty or expired, which is what actually makes the toast
-	// disappear once tick_toast() clears the message on the expiry edge.
+	// disappear once UI_tickToast() clears the message on the expiry edge.
 	UI_renderToast(screen, browser_toast, browser_toast_time);
 
 	if (ContextMenu_isOpen())
@@ -466,9 +449,8 @@ int main(int argc, char* argv[]) {
 				// Toast tick: keeps redrawing while a browser toast is
 				// visible, then once more on the expiry edge (clearing the
 				// message) so that one last render call wipes the GPU
-				// layer. Mirrors ModuleCommon_tickToast in
-				// workspace/all/mediaplayer/module_common.c.
-				tick_toast(browser_toast, browser_toast_time, &dirty);
+				// layer.
+				UI_tickToast(browser_toast, browser_toast_time, &dirty);
 			}
 		} else { // SCREEN_VIEWER
 			IvViewerStatus st = IvViewer_update(screen, &dirty);

@@ -204,15 +204,15 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 		if (state == PLAYLIST_INTERNAL_LIST) {
 			ListView* lv = PlaylistList_view();
 			if (playlist_count > 0 && lv->selected >= 0 && lv->selected < playlist_count) {
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Rename Playlist", PLAYLIST_CTX_RENAME);
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Delete Playlist", PLAYLIST_CTX_DELETE);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Rename Playlist", PLAYLIST_CTX_RENAME);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Delete Playlist", PLAYLIST_CTX_DELETE);
 			}
 		} else {
 			ListView* dv = PlaylistDetail_view();
 			if (detail_track_count > 0 && dv->selected >= 0 && dv->selected < detail_track_count)
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Remove from Playlist", PLAYLIST_CTX_REMOVE_TRACK);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Remove from Playlist", PLAYLIST_CTX_REMOVE_TRACK);
 		}
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input
 		int app_state_for_help = (state == PLAYLIST_INTERNAL_LIST) ? PLAYLIST_LIST_HELP_STATE : PLAYLIST_DETAIL_HELP_STATE;
@@ -361,7 +361,7 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 			GFX_flip(screen);
 			dirty = 0;
 
-			ModuleCommon_tickToast(playlist_toast_message, playlist_toast_time, &dirty);
+			UI_tickToast(playlist_toast_message, playlist_toast_time, &dirty);
 		} else {
 			// Idle marquee tick for the active list view (activate-after-
 			// delay + steady GPU scroll happen here, not via dirty).

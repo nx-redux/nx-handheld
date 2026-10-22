@@ -49,7 +49,7 @@ static void browser_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 		if (entry->is_dir)
 			out->icon = Icons_getFolder(selected);
 		else
-			out->icon = Icons_getForFormat(entry->format, selected);
+			out->icon = Icons_getForFormat(VideoBrowser_detectFormat(entry->name), selected);
 	}
 }
 

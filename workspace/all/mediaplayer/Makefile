@@ -36,7 +36,7 @@ INCDIR += -I../include -I../include/mbedtls_lib
 # mbedTLS source files (for HTTPS support)
 MBEDTLS_SRC = $(wildcard ../include/mbedtls_lib/*.c)
 
-SOURCE = $(TARGET).c ffplay_engine.c video_browser.c positions.c \
+SOURCE = $(TARGET).c ffplay_engine.c video_browser.c ../common/dir_list.c positions.c \
          iptv.c iptv_curated.c iptv_curated_sort.c \
          m3u.c \
          module_common.c module_menu.c module_player.c module_iptv.c \
@@ -44,7 +44,7 @@ SOURCE = $(TARGET).c ffplay_engine.c video_browser.c positions.c \
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../common/stream_probe.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_contextmenu.c $(UI_LISTVIEW_SRCS) \
+         ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../common/stream_probe.c ../common/indicator_autohide.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_DIR)/ui_contextmenu.c $(UI_LISTVIEW_SRCS) \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

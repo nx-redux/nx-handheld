@@ -34,26 +34,4 @@ static inline int audiomon_path_to_mac(const char* path, char* out, size_t out_s
 	return i;
 }
 
-// Parse one integer key from a key=value settings file (the shared NX Redux
-// minuisettings.txt): the first line that starts with exactly "key=" wins.
-// Returns fallback when the file or the key is missing.
-static inline int audiomon_cfg_int(const char* path, const char* key, int fallback) {
-	FILE* f = fopen(path, "r");
-	if (!f)
-		return fallback;
-	char line[256];
-	char pattern[64];
-	snprintf(pattern, sizeof(pattern), "%s=%%i", key);
-	int value = fallback;
-	while (fgets(line, sizeof(line), f)) {
-		int v;
-		if (sscanf(line, pattern, &v) == 1) {
-			value = v;
-			break;
-		}
-	}
-	fclose(f);
-	return value;
-}
-
 #endif

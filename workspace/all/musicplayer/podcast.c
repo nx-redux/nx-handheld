@@ -9,6 +9,7 @@
 #endif
 #include "podcast.h"
 #include "../common/wget_fetch.h"
+#include "../common/tz_country.h"
 #ifndef MUSIC_UI_BUILD
 #include "player.h"
 #endif
@@ -38,86 +39,6 @@
 // JSON library
 #include "../include/parson/parson.h"
 
-// Timezone to country code mapping for Apple Podcast charts
-typedef struct {
-	const char* timezone; // Timezone name or city
-	const char* country;  // ISO 3166-1 alpha-2 country code
-} TimezoneCountryMap;
-
-static const TimezoneCountryMap tz_country_map[] = {
-	// Asia
-	{"Kuala_Lumpur", "my"},
-	{"Singapore", "sg"},
-	{"Jakarta", "id"},
-	{"Bangkok", "th"},
-	{"Ho_Chi_Minh", "vn"},
-	{"Saigon", "vn"},
-	{"Manila", "ph"},
-	{"Tokyo", "jp"},
-	{"Seoul", "kr"},
-	{"Shanghai", "cn"},
-	{"Hong_Kong", "hk"},
-	{"Taipei", "tw"},
-	{"Kolkata", "in"},
-	{"Calcutta", "in"},
-	{"Mumbai", "in"},
-	{"Dubai", "ae"},
-	{"Riyadh", "sa"},
-	{"Jerusalem", "il"},
-	{"Tel_Aviv", "il"},
-	// Europe
-	{"London", "gb"},
-	{"Paris", "fr"},
-	{"Berlin", "de"},
-	{"Rome", "it"},
-	{"Madrid", "es"},
-	{"Amsterdam", "nl"},
-	{"Brussels", "be"},
-	{"Vienna", "at"},
-	{"Zurich", "ch"},
-	{"Stockholm", "se"},
-	{"Oslo", "no"},
-	{"Copenhagen", "dk"},
-	{"Helsinki", "fi"},
-	{"Warsaw", "pl"},
-	{"Prague", "cz"},
-	{"Budapest", "hu"},
-	{"Athens", "gr"},
-	{"Moscow", "ru"},
-	{"Dublin", "ie"},
-	{"Lisbon", "pt"},
-	// Americas
-	{"New_York", "us"},
-	{"Los_Angeles", "us"},
-	{"Chicago", "us"},
-	{"Denver", "us"},
-	{"Phoenix", "us"},
-	{"Anchorage", "us"},
-	{"Honolulu", "us"},
-	{"Toronto", "ca"},
-	{"Vancouver", "ca"},
-	{"Montreal", "ca"},
-	{"Mexico_City", "mx"},
-	{"Sao_Paulo", "br"},
-	{"Buenos_Aires", "ar"},
-	{"Lima", "pe"},
-	{"Bogota", "co"},
-	{"Santiago", "cl"},
-	// Oceania
-	{"Sydney", "au"},
-	{"Melbourne", "au"},
-	{"Brisbane", "au"},
-	{"Perth", "au"},
-	{"Adelaide", "au"},
-	{"Auckland", "nz"},
-	// Africa
-	{"Cairo", "eg"},
-	{"Johannesburg", "za"},
-	{"Lagos", "ng"},
-	{"Nairobi", "ke"},
-	{"Casablanca", "ma"},
-	{NULL, NULL}};
-
 // Apple Podcast supported countries (subset of most common ones)
 // Full list: https://rss.marketingtools.apple.com/
 static const char* apple_podcast_countries[] = {
@@ -141,27 +62,6 @@ static bool is_apple_podcast_country(const char* country) {
 		}
 	}
 	return false;
-}
-
-// Get country code from timezone path like /usr/share/zoneinfo/Asia/Kuala_Lumpur
-static const char* get_country_from_timezone(const char* tz_path) {
-	if (!tz_path)
-		return NULL;
-
-	// Find the last component (city name)
-	const char* city = strrchr(tz_path, '/');
-	if (city)
-		city++;
-	else
-		city = tz_path;
-
-	// Look up in mapping table
-	for (int i = 0; tz_country_map[i].timezone != NULL; i++) {
-		if (strcmp(city, tz_country_map[i].timezone) == 0) {
-			return tz_country_map[i].country;
-		}
-	}
-	return NULL;
 }
 
 // Paths
@@ -734,19 +634,13 @@ static int podcast_init_internal(bool enable_catalog_and_downloads) {
 		mkdir(download_dir, 493);
 	}
 
-	// Detect country code from system timezone
-	// /etc/localtime symlinks to /tmp/localtime which resolves to the actual timezone
-	char tz_path[256] = {0};
-	ssize_t len = readlink("/tmp/localtime", tz_path, sizeof(tz_path) - 1);
-	if (len > 0) {
-		tz_path[len] = '\0';
-		const char* country = get_country_from_timezone(tz_path);
-		if (country) {
-			strncpy(charts_country_code, country, sizeof(charts_country_code) - 1);
-			charts_country_code[sizeof(charts_country_code) - 1] = '\0';
-		}
+	// Detect country code from system timezone, else the LANG environment variable
+	char country[8];
+	if (TZ_currentCountryCode(country, sizeof(country)) && strlen(country) == 2) {
+		charts_country_code[0] = tolower((unsigned char)country[0]);
+		charts_country_code[1] = tolower((unsigned char)country[1]);
+		charts_country_code[2] = '\0';
 	} else {
-		// Fallback: try LANG environment variable
 		const char* lang = getenv("LANG");
 		if (lang && strlen(lang) >= 5 && lang[2] == '_') {
 			charts_country_code[0] = tolower(lang[3]);

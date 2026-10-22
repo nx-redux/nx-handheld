@@ -55,7 +55,7 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 		// Context menu for this page
 		ContextMenuItem ctx_items[1];
 		int ctx_count = 0;
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input first
 		int app_state = SETTINGS_INTERNAL_MENU;

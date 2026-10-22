@@ -775,7 +775,7 @@ static void rat_console_progress(RAT_Console* c) {
 		return;
 	}
 	snprintf(path, sizeof(path), "%s/" RA_HASH_CACHE_FILE, dir);
-	char* json = allocFile(path);
+	char* json = allocFileCapped(path, 16 * 1024 * 1024, NULL); // ra_hash_cache.c's cap for the file
 	cJSON* root = json ? cJSON_Parse(json) : NULL;
 	free(json);
 	const cJSON* files = cJSON_GetObjectItemCaseSensitive(root, "files");

@@ -4,34 +4,16 @@
 #include "api.h"
 #include "audio_manager.h"
 #include "module_common.h"
+#include "indicator_autohide.h"
 #include "ui_menubar.h"
 #include "ui_quitrequest.h"
-#include "ui_toast.h"
 #include "ui_contextmenu.h"
 
 static bool autosleep_disabled = false;
 
-// Overlay state tracking - force hide after button release
-static bool overlay_buttons_were_active = false;
-static uint32_t overlay_release_time = 0;
-#define OVERLAY_VISIBLE_AFTER_RELEASE_MS 800 // How long overlay stays visible after release
-#define OVERLAY_FORCE_HIDE_DURATION_MS 500	 // How long to keep forcing hide
-
-void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty) {
-	if (message[0] == '\0')
-		return;
-	if (SDL_GetTicks() - toast_time < TOAST_DURATION) {
-		*dirty = 1;
-	} else {
-		message[0] = '\0';
-		*dirty = 1;
-	}
-}
-
 void ModuleCommon_init(void) {
 	autosleep_disabled = false;
-	overlay_buttons_were_active = false;
-	overlay_release_time = 0;
+	IndicatorAutoHide_reset();
 }
 
 static volatile sig_atomic_t quit_requested = 0;
@@ -130,14 +112,6 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	return result;
 }
 
-void ModuleCommon_ctxAdd(ContextMenuItem* items, int* count, const char* label, int id) {
-	if (*count >= CONTEXTMENU_MAX_ITEMS)
-		return;
-	snprintf(items[*count].label, CONTEXTMENU_MAX_TEXT, "%s", label);
-	items[*count].id = id;
-	(*count)++;
-}
-
 void ModuleCommon_setAutosleepDisabled(bool disabled) {
 	if (disabled && !autosleep_disabled) {
 		PWR_disableAutosleep();
@@ -162,38 +136,5 @@ void ModuleCommon_quit(void) {
 void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
 	// Poll for audio device changes (keeps AudioManager state current)
 	AudioMgr_pollEvents();
-
-	// Track overlay-triggering buttons for auto-hide (check BEFORE PWR_update):
-	// SELECT = brightness, START = color temp, PLUS/MINUS = volume. START must be
-	// here too or the color-temp indicator never force-hides after release.
-	bool overlay_buttons_active = PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS) || PAD_isPressed(BTN_SELECT) || PAD_isPressed(BTN_START);
-
-	if (overlay_buttons_were_active && !overlay_buttons_active) {
-		// Buttons just released - start timer
-		overlay_release_time = SDL_GetTicks();
-	}
-
-	// Call platform PWR_update
-	PWR_update(dirty, show_setting, NULL, NULL);
-
-	// Redraw when the menu-bar wifi/bt status changes (the pages only render
-	// on input, so without this the wifi icon stays stale until a keypress)
-	if (UI_statusBarChanged())
-		*dirty = 1;
-
-	// After visible period, force hide overlay
-	if (overlay_release_time > 0) {
-		uint32_t elapsed = SDL_GetTicks() - overlay_release_time;
-		if (elapsed >= OVERLAY_VISIBLE_AFTER_RELEASE_MS) {
-			// Visible period passed, now force hide
-			*show_setting = INDICATOR_NONE;
-			*dirty = 1;
-			// Stop forcing after the duration
-			if (elapsed >= OVERLAY_VISIBLE_AFTER_RELEASE_MS + OVERLAY_FORCE_HIDE_DURATION_MS) {
-				overlay_release_time = 0;
-			}
-		}
-	}
-
-	overlay_buttons_were_active = overlay_buttons_active;
+	IndicatorAutoHide_pwrUpdate(dirty, show_setting);
 }

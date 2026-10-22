@@ -3,6 +3,7 @@
 
 #include "api.h"
 #include "module_common.h"
+#include "ui_toast.h"
 #include "module_menu.h"
 #include "ui_main.h"
 #include "ui_listview.h"
@@ -43,7 +44,7 @@ int MenuModule_run(SDL_Surface* screen) {
 		// Context menu for this page (MENU tap)
 		ContextMenuItem ctx_items[1];
 		int ctx_count = 0;
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input first (quit chord, MENU context menu, power)
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
@@ -84,7 +85,7 @@ int MenuModule_run(SDL_Surface* screen) {
 			dirty = 0;
 
 			// Keep refreshing while toast is visible
-			ModuleCommon_tickToast(menu_toast_message, menu_toast_time, &dirty);
+			UI_tickToast(menu_toast_message, menu_toast_time, &dirty);
 		} else {
 			UI_listViewTickIdle(v);
 			GFX_sync();

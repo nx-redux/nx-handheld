@@ -19,10 +19,12 @@
 #include <linux/fb.h>
 
 #include "../common/drm_scanout.h"
+#include "../common/capture_defs.h"
+#include "../common/file_util.h"
+#include "../common/proc_spawn.h"
 
 #define PID_FILE "/tmp/screenshot.pid"
 #define SCREENSHOT_DIR "/mnt/SDCARD/Images/Screenshots"
-#define FFMPEG_PATH "/usr/bin/ffmpeg"
 #define OSD_TOAST_PATH "/tmp/trimui_osd/osd_toast_msg"
 #define INPUT_COUNT 5
 
@@ -47,21 +49,6 @@ static void cleanup(void) {
 	}
 }
 
-static void mkdir_p(const char* path) {
-	char tmp[512];
-	snprintf(tmp, sizeof(tmp), "%s", path);
-	for (char* p = tmp + 1; *p; p++) {
-		if (*p == '/') {
-			*p = '\0';
-			mkdir(tmp, 0755);
-			*p = '/';
-		}
-	}
-	mkdir(tmp, 0755);
-}
-
-#define FB_MIRROR_PATH "/tmp/fb_mirror.raw"
-#define FB_MIRROR_INFO_PATH "/tmp/fb_mirror.info"
 #define FB_MIRROR_VIDEO_SIZE_FALLBACK "1280x720"
 
 // Toast size:1 draws the 400px-wide bg_msg_w2.png background
@@ -132,13 +119,6 @@ static void mirror_video_size(char* out, size_t n) {
 			snprintf(out, n, "%dx%d", w, h);
 		fclose(f);
 	}
-}
-
-// On tg5050 the display engine never scans out of fb0 — apps render through
-// GL/DRM and fb0 stays black (its only writer is the zeroing in
-// PLAT_quitVideo) — so an fbdev grab is guaranteed to produce an empty JPEG.
-static int fbdev_usable(void) {
-	return strcmp(PLATFORM, "tg5050") != 0;
 }
 
 // Returns 1 if the visible fb0 pane holds any non-black RGB pixel. On tg5040
@@ -299,17 +279,6 @@ static int drm_capture_raw(char* video_size, size_t vn, char* pixfmt, size_t pn)
 	return ok;
 }
 
-// Directory part of path, created if missing (output may be any CLI path)
-static void mkdir_parent(const char* path) {
-	char dir[512];
-	snprintf(dir, sizeof(dir), "%s", path);
-	char* slash = strrchr(dir, '/');
-	if (slash && slash != dir) {
-		*slash = '\0';
-		mkdir_p(dir);
-	}
-}
-
 static int has_suffix(const char* s, const char* suffix) {
 	size_t n = strlen(s), m = strlen(suffix);
 	return n >= m && strcasecmp(s + n - m, suffix) == 0;
@@ -391,58 +360,42 @@ static int capture_screenshot(const char* output_arg, int notify) {
 		for (int n = 2; access(output, F_OK) == 0 && n < 1000; n++)
 			snprintf(output, sizeof(output), SCREENSHOT_DIR "/%s_%d.jpg", stamp, n);
 	}
-	mkdir_parent(output);
+	mkdir_parent_mode(output, 0755); // output may be any CLI path
 	const char* codec = has_suffix(output, ".bmp") ? "bmp" : "mjpeg";
 
-	pid_t pid = fork();
-	if (pid < 0) {
-		remove(drm_raw_path);
-		remove(disp_raw_path);
-		return 0;
-	}
+	char* q = (char*)codec;
+	// glReadPixels frames are bottom-to-top RGBA: vflip at encode
+	char* mirror_argv[] = {FFMPEG_PATH, "-nostdin",
+						   "-f", "rawvideo", "-pixel_format", "rgba",
+						   "-video_size", video_size,
+						   "-i", FB_MIRROR_PATH,
+						   "-vf", "vflip",
+						   "-frames:v", "1", "-c:v", q, "-q:v", "2",
+						   "-y", output,
+						   NULL};
+	// scanout / write-back buffers are top-down: no flip
+	char* raw_argv[] = {FFMPEG_PATH, "-nostdin",
+						"-f", "rawvideo", "-pixel_format", pixfmt,
+						"-video_size", video_size,
+						"-i", src == SRC_DRM ? drm_raw_path : disp_raw_path,
+						"-frames:v", "1", "-c:v", q, "-q:v", "2",
+						"-y", output,
+						NULL};
+	char* fbdev_argv[] = {FFMPEG_PATH, "-nostdin",
+						  "-f", "fbdev", "-i", "/dev/fb0",
+						  "-frames:v", "1", "-c:v", q, "-q:v", "2",
+						  "-y", output,
+						  NULL};
+	char** argv = src == SRC_MIRROR						? mirror_argv
+				  : (src == SRC_DRM || src == SRC_DISP) ? raw_argv
+														: fbdev_argv;
 
-	if (pid == 0) {
-		setsid();
-		freopen("/dev/null", "r", stdin);
-		freopen("/dev/null", "w", stdout);
-		freopen("/dev/null", "w", stderr);
-		if (src == SRC_MIRROR) {
-			// glReadPixels frames are bottom-to-top RGBA: vflip at encode
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
-				  "-f", "rawvideo", "-pixel_format", "rgba",
-				  "-video_size", video_size,
-				  "-i", FB_MIRROR_PATH,
-				  "-vf", "vflip",
-				  "-frames:v", "1", "-c:v", codec, "-q:v", "2",
-				  "-y", output,
-				  (char*)NULL);
-		} else if (src == SRC_DRM || src == SRC_DISP) {
-			// scanout / write-back buffers are top-down: no flip
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
-				  "-f", "rawvideo", "-pixel_format", pixfmt,
-				  "-video_size", video_size,
-				  "-i", src == SRC_DRM ? drm_raw_path : disp_raw_path,
-				  "-frames:v", "1", "-c:v", codec, "-q:v", "2",
-				  "-y", output,
-				  (char*)NULL);
-		} else {
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin",
-				  "-f", "fbdev", "-i", "/dev/fb0",
-				  "-frames:v", "1", "-c:v", codec, "-q:v", "2",
-				  "-y", output,
-				  (char*)NULL);
-		}
-		_exit(1);
-	}
-
-	// Wait for ffmpeg to finish (single frame capture is fast)
-	int status = 0;
-	waitpid(pid, &status, 0);
+	// Run ffmpeg detached and silent, and wait (single frame capture is fast)
+	int ok = spawn_quiet_wait(argv, true);
 	if (src == SRC_DRM)
 		remove(drm_raw_path);
 	if (src == SRC_DISP)
 		remove(disp_raw_path);
-	int ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
 	if (notify)
 		osd_toast(ok ? "Screenshot saved" : "Screenshot failed", 1500);
 	if (ok && !notify)

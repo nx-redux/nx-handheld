@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "api.h"
 #include "ui_contextmenu.h"
+#include "ui_contextmenu_add.h"
 
 // Screen off hint duration (time hint is shown before screen turns off)
 #define SCREEN_OFF_HINT_DURATION_MS 4000
@@ -46,14 +47,6 @@ void ModuleCommon_init(void);
 GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting, int app_state,
 												 const ContextMenuItem* menu_items, int menu_count);
 
-// Append one item to a context-menu items array, bounds-checked against the
-// array's real capacity. The macro derives the capacity from the passed array
-// (which must be a real array in scope, not a pointer), so a caller can't add
-// past the end of its own small stack array.
-void ModuleCommon_ctxAdd_impl(ContextMenuItem* items, int* count, int cap, const char* label, int id);
-#define ModuleCommon_ctxAdd(items, count, label, id) \
-	ModuleCommon_ctxAdd_impl((items), (count), (int)(sizeof(items) / sizeof((items)[0])), (label), (id))
-
 // Disable/enable autosleep (for modules with active playback)
 void ModuleCommon_setAutosleepDisabled(bool disabled);
 
@@ -91,9 +84,6 @@ void ModuleCommon_recordInputTime(void);
 // If timed out: starts screen off hint and returns true.
 // Caller is responsible for clearing GPU layers after this returns true.
 bool ModuleCommon_checkAutoScreenOffTimeout(void);
-
-// Check toast state: if active and not expired, sets dirty=1; if expired, clears message and sets dirty=1.
-void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty);
 
 // Confirm leaving the Music Player app. A loaded source can either remain
 // owned by musicplayerd, be stopped before detach, or cancel the exit.

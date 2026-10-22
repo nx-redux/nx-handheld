@@ -5,8 +5,8 @@
 #include "defines.h"
 #include "api.h"
 #include "module_common.h"
+#include "indicator_autohide.h"
 #include "ui_menubar.h"
-#include "ui_toast.h"
 #include "module_player.h"
 #include "settings.h"
 #include "ui_main.h"
@@ -27,12 +27,6 @@ static time_t screen_off_hint_start_wallclock = 0;
 
 // Dialog states
 static bool show_controls_help = false;
-
-// Overlay state tracking - force hide after button release
-static bool overlay_buttons_were_active = false;
-static uint32_t overlay_release_time = 0;
-#define OVERLAY_VISIBLE_AFTER_RELEASE_MS 800 // How long overlay stays visible after release
-#define OVERLAY_FORCE_HIDE_DURATION_MS 500	 // How long to keep forcing hide
 
 bool ModuleCommon_confirmAppExit(SDL_Surface* screen) {
 	MusicClient_update();
@@ -55,24 +49,12 @@ bool ModuleCommon_confirmAppExit(SDL_Surface* screen) {
 	return true;
 }
 
-void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty) {
-	if (message[0] == '\0')
-		return;
-	if (SDL_GetTicks() - toast_time < TOAST_DURATION) {
-		*dirty = 1;
-	} else {
-		message[0] = '\0';
-		*dirty = 1;
-	}
-}
-
 void ModuleCommon_init(void) {
 	autosleep_disabled = false;
 	last_input_time = SDL_GetTicks();
 	screen_off_hint_active = false;
 	show_controls_help = false;
-	overlay_buttons_were_active = false;
-	overlay_release_time = 0;
+	IndicatorAutoHide_reset();
 }
 
 // app_state of the music Now Playing page (see module_player.c): the only
@@ -192,17 +174,6 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 	return result;
 }
 
-void ModuleCommon_ctxAdd_impl(ContextMenuItem* items, int* count, int cap, const char* label, int id) {
-	// Bound against BOTH the caller's array capacity and the widget's copy cap.
-	if (cap > CONTEXTMENU_MAX_ITEMS)
-		cap = CONTEXTMENU_MAX_ITEMS;
-	if (*count >= cap)
-		return;
-	snprintf(items[*count].label, CONTEXTMENU_MAX_TEXT, "%s", label);
-	items[*count].id = id;
-	(*count)++;
-}
-
 void ModuleCommon_setAutosleepDisabled(bool disabled) {
 	if (disabled && !autosleep_disabled) {
 		PWR_disableAutosleep();
@@ -314,43 +285,7 @@ void ModuleCommon_quit(void) {
 
 
 void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting) {
-	// Track overlay-triggering buttons for auto-hide (check BEFORE PWR_update):
-	// SELECT = brightness, START = color temp, PLUS/MINUS = volume. START must be
-	// here too or the color-temp indicator never force-hides after release.
-	bool overlay_buttons_active = PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS) || PAD_isPressed(BTN_SELECT) || PAD_isPressed(BTN_START);
-
-	if (overlay_buttons_were_active && !overlay_buttons_active) {
-		// Buttons just released - start timer
-		overlay_release_time = SDL_GetTicks();
-	}
-
-	// Call platform PWR_update
-	bool dirty_bool = *dirty != 0;
-	IndicatorType indicator = (IndicatorType)*show_setting;
-	PWR_update(&dirty_bool, &indicator, NULL, NULL);
-	*dirty = dirty_bool ? 1 : 0;
-	*show_setting = (int)indicator;
-
-	// Redraw when the menu-bar wifi/bt status changes (the pages only render
-	// on input, so without this the wifi icon stays stale until a keypress)
-	if (UI_statusBarChanged())
-		*dirty = 1;
-
-	// After visible period, force hide overlay
-	if (overlay_release_time > 0) {
-		uint32_t elapsed = SDL_GetTicks() - overlay_release_time;
-		if (elapsed >= OVERLAY_VISIBLE_AFTER_RELEASE_MS) {
-			// Visible period passed, now force hide
-			*show_setting = INDICATOR_NONE;
-			*dirty = 1;
-			// Stop forcing after the duration
-			if (elapsed >= OVERLAY_VISIBLE_AFTER_RELEASE_MS + OVERLAY_FORCE_HIDE_DURATION_MS) {
-				overlay_release_time = 0;
-			}
-		}
-	}
-
-	overlay_buttons_were_active = overlay_buttons_active;
+	IndicatorAutoHide_pwrUpdate(dirty, show_setting);
 
 	// Refresh copied daemon state. Decode, EOF, queue policy, HID, and progress
 	// persistence stay in the long-lived owner.

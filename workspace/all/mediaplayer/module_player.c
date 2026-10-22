@@ -128,8 +128,8 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		ContextMenuItem ctx_items[2];
 		int ctx_count = 0;
 		if (sel_resume_sec > 0)
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Play from Start", PLAYER_CTX_PLAY_START);
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Play from Start", PLAYER_CTX_PLAY_START);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input (quit chord, MENU context menu, power)
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);

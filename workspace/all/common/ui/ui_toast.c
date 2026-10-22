@@ -1,6 +1,7 @@
 #include "ui_toast.h"
 #include "api.h"
 #include "defines.h"
+#include "toast_tick.h"
 
 // Toast is rendered to GPU layer 5 (highest) to appear above all content
 #define LAYER_TOAST 5
@@ -61,6 +62,10 @@ void UI_renderToast(SDL_Surface* screen, const char* message, uint32_t toast_tim
 		}
 		SDL_FreeSurface(toast_text);
 	}
+}
+
+void UI_tickToast(char* message, uint32_t toast_time, bool* dirty) {
+	UI_toastTickAt(message, toast_time, SDL_GetTicks(), TOAST_DURATION, dirty);
 }
 
 void UI_clearToast(void) {

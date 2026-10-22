@@ -4,18 +4,11 @@
 #include <string.h>
 
 #include "utils.h" // trimSortingMeta
+#include "../common/folder_tag.h"
 
 void Scraper_extractTag(const char* dirname, char* tag_out, int tag_size) {
-	tag_out[0] = '\0';
-	const char* open = strrchr(dirname, '(');
-	const char* close = strrchr(dirname, ')');
-	if (open && close && close > open) {
-		int len = (int)(close - open - 1);
-		if (len > 0 && len < tag_size) {
-			strncpy(tag_out, open + 1, len);
-			tag_out[len] = '\0';
-		}
-	}
+	// up to the name's last ')'; a tag too long for tag_out is dropped
+	folderTag(dirname, tag_out, (size_t)tag_size, FOLDER_TAG_LAST_CLOSE);
 }
 
 void Scraper_extractDisplayName(const char* dirname, char* name_out, int name_size) {

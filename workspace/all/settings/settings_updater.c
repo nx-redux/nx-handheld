@@ -288,56 +288,11 @@ static void* extract_thread(void* arg) {
 // Download state (shared with download thread)
 // ============================================
 
-typedef struct {
-	char url[512];
-	char filepath[256];
-	volatile int progress;
-	volatile bool cancel;
-	volatile int speed;
-	volatile int eta;
-	volatile bool done;
-	int result;
-} DownloadContext;
-
-static DownloadContext dl_ctx;
-
-static void* download_thread_func(void* arg) {
-	(void)arg;
-	dl_ctx.result = wget_download_file(
-		dl_ctx.url, dl_ctx.filepath,
-		&dl_ctx.progress, &dl_ctx.cancel,
-		&dl_ctx.speed, &dl_ctx.eta);
-	dl_ctx.done = true;
-	return NULL;
-}
+static WgetDownloadJob dl_ctx;
 
 // ============================================
 // Full-screen update page helpers
 // ============================================
-
-static void format_speed(int speed_bps, char* out, size_t out_size) {
-	if (speed_bps >= 1024 * 1024)
-		snprintf(out, out_size, "%.1f MB/s", speed_bps / (1024.0 * 1024.0));
-	else if (speed_bps >= 1024)
-		snprintf(out, out_size, "%.0f KB/s", speed_bps / 1024.0);
-	else if (speed_bps > 0)
-		snprintf(out, out_size, "%d B/s", speed_bps);
-	else
-		out[0] = '\0';
-}
-
-static void format_eta(int eta_sec, char* out, size_t out_size) {
-	if (eta_sec <= 0) {
-		out[0] = '\0';
-		return;
-	}
-	if (eta_sec >= 3600)
-		snprintf(out, out_size, "%d:%02d:%02d", eta_sec / 3600, (eta_sec % 3600) / 60, eta_sec % 60);
-	else if (eta_sec >= 60)
-		snprintf(out, out_size, "%d:%02d", eta_sec / 60, eta_sec % 60);
-	else
-		snprintf(out, out_size, "%ds", eta_sec);
-}
 
 static void render_update_page(SDL_Surface* screen, const char* title,
 							   const char* status, int progress_pct,
@@ -626,11 +581,7 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 	unlink(DOWNLOAD_PATH);
 
 	// Start download in background thread via wget_download_file
-	memset(&dl_ctx, 0, sizeof(dl_ctx));
-	snprintf(dl_ctx.url, sizeof(dl_ctx.url), "%s", release->download_url);
-	snprintf(dl_ctx.filepath, sizeof(dl_ctx.filepath), "%s", DOWNLOAD_PATH);
-
-	if (pthread_create(&tid, NULL, download_thread_func, NULL) != 0) {
+	if (!wget_job_start(&dl_ctx, release->download_url, DOWNLOAD_PATH, 0)) {
 		PWR_enableSleep();
 		PWR_enableAutosleep();
 		system("iw dev wlan0 set power_save on 2>/dev/null");
@@ -648,7 +599,7 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 		// Cancel
 		if (PAD_justPressed(BTN_B)) {
 			dl_ctx.cancel = true;
-			pthread_join(tid, NULL);
+			wget_job_join(&dl_ctx);
 			unlink(DOWNLOAD_PATH);
 			cancelled = 1;
 			break;
@@ -667,15 +618,15 @@ static void do_install(SDL_Surface* screen, ReleaseInfo* release) {
 
 		char speed_str[32] = "";
 		char eta_str[32] = "";
-		format_speed(speed_bps, speed_str, sizeof(speed_str));
-		format_eta(eta_sec, eta_str, sizeof(eta_str));
+		wget_format_speed(speed_bps, speed_str, sizeof(speed_str));
+		wget_format_eta(eta_sec, eta_str, sizeof(eta_str));
 
 		render_update_page(screen, "Downloading Update",
 						   dl_status, progress_pct, speed_str, eta_str, 1);
 	}
 
 	if (!cancelled) {
-		pthread_join(tid, NULL);
+		wget_job_join(&dl_ctx);
 		dl_success = (dl_ctx.result > 0);
 	}
 

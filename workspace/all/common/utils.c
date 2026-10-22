@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <signal.h>
 #include <stdint.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -600,17 +601,7 @@ void trimSortingMeta(char** str) { // eg. `001) `
 ///////////////////////////////////////
 
 void mkdir_p(const char* path) {
-	char tmp[MAX_PATH];
-	strncpy(tmp, path, sizeof(tmp) - 1);
-	tmp[sizeof(tmp) - 1] = '\0';
-	for (char* p = tmp + 1; *p; p++) {
-		if (*p == '/') {
-			*p = '\0';
-			mkdir(tmp, 0777);
-			*p = '/';
-		}
-	}
-	mkdir(tmp, 0777);
+	mkdir_p_mode(path, 0777);
 }
 
 bool exists(char* path) {
@@ -638,9 +629,12 @@ void putFile(char* path, char* contents) {
 int writeFileAtomic(const char* path, const char* data, size_t len) {
 	// stage to a sibling tmp then rename so a power cut or ENOSPC mid-write
 	// can never leave a truncated file at path; rename also refreshes the
-	// mtime that cache-staleness checks rely on
-	char tmp[MAX_PATH + 16];
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	// mtime that cache-staleness checks rely on. Data is fsync'd before the
+	// rename; callers that must also persist the rename itself (a launch-time
+	// power cut) sync() afterwards.
+	char tmp[PATH_MAX + 8];
+	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+		return 0; // the temp name would be cut: never write a stray file
 	FILE* file = fopen(tmp, "wb");
 	if (!file)
 		return 0;
@@ -673,24 +667,7 @@ void getFile(char* path, char* buffer, size_t buffer_size) {
 	}
 }
 char* allocFile(char* path) { // caller must free!
-	char* contents = NULL;
-	FILE* file = fopen(path, "r");
-	if (file) {
-		fseek(file, 0L, SEEK_END);
-		long size = ftell(file);
-		if (size < 0) { // unseekable file / ftell error — fail cleanly
-			fclose(file);
-			return NULL;
-		}
-		contents = calloc(size + 1, sizeof(char));
-		if (contents) {
-			fseek(file, 0L, SEEK_SET);
-			fread(contents, sizeof(char), size, file);
-			contents[size] = '\0';
-		}
-		fclose(file);
-	}
-	return contents;
+	return allocFileCapped(path, LONG_MAX, NULL);
 }
 bool SimpleMode_readPin(char pin_out[5]) {
 	char buf[16] = {0};
@@ -782,10 +759,6 @@ uint64_t getMicroseconds(void) {
 	})
 
 int clamp(int x, int lower, int upper) {
-	return min(upper, max(x, lower));
-}
-
-double clampd(double x, double lower, double upper) {
 	return min(upper, max(x, lower));
 }
 

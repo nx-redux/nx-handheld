@@ -3,6 +3,7 @@
 
 #include "api.h"
 #include "ui_contextmenu.h"
+#include "ui_contextmenu_add.h"
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 
@@ -33,16 +34,12 @@ void ModuleCommon_init(void);
 GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting,
 												 const ContextMenuItem* menu_items, int menu_count);
 
-// Append one item to a context-menu items array (bounds-checked).
-void ModuleCommon_ctxAdd(ContextMenuItem* items, int* count, const char* label, int id);
-
 // SIGTERM/SIGINT: the handler calls requestQuit (async-signal-safe), and the
 // module loops leave through their quit path once quitRequested is true
 void ModuleCommon_requestQuit(void);
 bool ModuleCommon_quitRequested(void);
 
 void ModuleCommon_setAutosleepDisabled(bool disabled);
-void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty);
 void ModuleCommon_quit(void);
 void ModuleCommon_PWR_update(bool* dirty, IndicatorType* show_setting);
 

@@ -18,6 +18,7 @@
 
 extern uint32_t SDL_GetTicks(void);
 #include "module_common.h"
+#include "ui_toast.h"
 #include "module_player.h"
 #include "music_client.h"
 #include "spectrum.h"
@@ -669,15 +670,15 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 					FileEntry* e = &browser.entries[v->selected];
 					bool is_parent = e->is_dir && strcmp(e->name, "..") == 0;
 					if (!e->is_play_all && !is_parent) {
-						ModuleCommon_ctxAdd(ctx_items, &ctx_count,
+						ContextMenu_addItem(ctx_items, &ctx_count,
 											e->is_dir ? "Rename Folder" : "Rename File", PLAYER_CTX_RENAME);
-						ModuleCommon_ctxAdd(ctx_items, &ctx_count,
+						ContextMenu_addItem(ctx_items, &ctx_count,
 											e->is_dir ? "Delete Folder" : "Delete File", PLAYER_CTX_DELETE);
-						ModuleCommon_ctxAdd(ctx_items, &ctx_count,
+						ContextMenu_addItem(ctx_items, &ctx_count,
 											e->is_dir ? "Add Folder to Playlist" : "Add to Playlist", PLAYER_CTX_ADD);
 					}
 				}
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 			}
 
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
@@ -781,7 +782,7 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 			GFX_flip(screen);
 			dirty = 0;
 
-			ModuleCommon_tickToast(player_toast_message, player_toast_time, &dirty);
+			UI_tickToast(player_toast_message, player_toast_time, &dirty);
 		} else if (!screen_off) {
 			// Idle marquee tick for the browser view (activate-after-delay +
 			// steady GPU scroll happen here, not via dirty).

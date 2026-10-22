@@ -6,6 +6,7 @@
 #include "platform.h"
 #include "../common/defines.h"
 #include "module_common.h"
+#include "ui_toast.h"
 #include "../common/sdl.h"
 #include "module_radio.h"
 #include "music_client.h"
@@ -258,26 +259,26 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			int ctx_count = 0;
 			switch (state) {
 			case RADIO_INTERNAL_LIST: {
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manage Stations", RADIO_CTX_MANAGE);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Manage Stations", RADIO_CTX_MANAGE);
 				RadioStation* st;
 				int sc = Radio_getStations(&st);
 				int sel = RadioList_view()->selected;
 				if (sc > 0 && sel >= 0 && sel < sc)
-					ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Delete Station", RADIO_CTX_DELETE);
+					ContextMenu_addItem(ctx_items, &ctx_count, "Delete Station", RADIO_CTX_DELETE);
 				break;
 			}
 			case RADIO_INTERNAL_PLAYING:
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Playback Controls", CTX_ID_CONTROLS);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Playback Controls", CTX_ID_CONTROLS);
 				break;
 			case RADIO_INTERNAL_ADD_COUNTRY:
 			case RADIO_INTERNAL_ADD_STATIONS:
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh List", RADIO_CTX_REFRESH);
-				ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Manual Setup Help", RADIO_CTX_HELP);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Refresh List", RADIO_CTX_REFRESH);
+				ContextMenu_addItem(ctx_items, &ctx_count, "Manual Setup Help", RADIO_CTX_HELP);
 				break;
 			default:
 				break;
 			}
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, app_state_for_help,
 																	  ctx_items, ctx_count);
@@ -669,7 +670,7 @@ ModuleExitReason RadioModule_run(SDL_Surface* screen) {
 			// Keep refreshing while toast is visible
 			if (state == RADIO_INTERNAL_LIST || state == RADIO_INTERNAL_ADD_COUNTRY ||
 				state == RADIO_INTERNAL_ADD_STATIONS) {
-				ModuleCommon_tickToast(radio_toast_message, radio_toast_time, &dirty);
+				UI_tickToast(radio_toast_message, radio_toast_time, &dirty);
 			}
 		} else if (!screen_off) {
 			// Idle marquee tick for the active list view (activate-after-

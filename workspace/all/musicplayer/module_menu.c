@@ -4,6 +4,7 @@
 #include "defines.h"
 #include "api.h"
 #include "module_common.h"
+#include "ui_toast.h"
 #include "module_menu.h"
 #include "ui_listview.h"
 #include "ui_main.h"
@@ -82,10 +83,10 @@ int MenuModule_run(SDL_Surface* screen) {
 		ContextMenuItem ctx_items[2];
 		int ctx_count = 0;
 		if (first_item_mode == MENU_FIRST_NOW_PLAYING)
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Stop Playback", MENU_CTX_CLEAR);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Stop Playback", MENU_CTX_CLEAR);
 		else if (first_item_mode == MENU_FIRST_RESUME)
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Clear History", MENU_CTX_CLEAR);
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Clear History", MENU_CTX_CLEAR);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input first (context menu, power while it is open)
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, 0, ctx_items, ctx_count);
@@ -139,7 +140,7 @@ int MenuModule_run(SDL_Surface* screen) {
 			dirty = 0;
 
 			// Keep refreshing while toast is visible
-			ModuleCommon_tickToast(menu_toast_message, menu_toast_time, &dirty);
+			UI_tickToast(menu_toast_message, menu_toast_time, &dirty);
 		} else {
 			UI_listViewTickIdle(v);
 			GFX_sync();

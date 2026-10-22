@@ -176,3 +176,24 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -Istubs $SDROOT -o /tmp/nx_tes
 /tmp/nx_test_recents_shortcuts
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g $PLAT -o /tmp/nx_test_thumbcache_model ../../nextui/thumbcache_model.c test_thumbcache_model.c
 /tmp/nx_test_thumbcache_model
+# shared helpers (dependency-free headers and small modules)
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_dir_list ../dir_list.c test_dir_list.c
+/tmp/nx_test_dir_list
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_toast_tick test_toast_tick.c
+/tmp/nx_test_toast_tick
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_indicator_autohide test_indicator_autohide.c
+/tmp/nx_test_indicator_autohide
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_proc_spawn ../proc_spawn.c test_proc_spawn.c
+/tmp/nx_test_proc_spawn
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_settings_kv test_settings_kv.c
+/tmp/nx_test_settings_kv
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_proc_util test_proc_util.c
+/tmp/nx_test_proc_util
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_wget_format test_wget_format.c
+/tmp/nx_test_wget_format
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_folder_tag test_folder_tag.c
+/tmp/nx_test_folder_tag
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_file_util test_file_util.c
+/tmp/nx_test_file_util
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_str_trim test_str_trim.c
+/tmp/nx_test_str_trim

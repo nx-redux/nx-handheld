@@ -1,6 +1,6 @@
 // Host-compiled unit test for iv_browser.c (no device toolchain needed).
 // Build & run (from workspace/all/imageviewer):
-//   cc -std=gnu99 iv_browser.c tests/test_iv_browser.c -o /tmp/test_iv_browser && /tmp/test_iv_browser
+//   cc -std=gnu99 -I../common iv_browser.c ../common/dir_list.c tests/test_iv_browser.c -o /tmp/test_iv_browser && /tmp/test_iv_browser
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

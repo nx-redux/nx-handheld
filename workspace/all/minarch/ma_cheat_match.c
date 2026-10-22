@@ -1,4 +1,5 @@
 #include "ma_cheat_match.h"
+#include "../common/str_trim.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -29,17 +30,6 @@ static void cm_lower(char* s) {
 		*s = (char)tolower((unsigned char)*s);
 }
 
-static void cm_trim(char* s) {
-	size_t n = strlen(s);
-	while (n && isspace((unsigned char)s[n - 1]))
-		s[--n] = '\0';
-	size_t i = 0;
-	while (s[i] && isspace((unsigned char)s[i]))
-		i++;
-	if (i)
-		memmove(s, s + i, strlen(s + i) + 1);
-}
-
 // A parsed filename: stem plus classified tokens.
 typedef struct {
 	char stem[CM_STEM_LEN];				   // text before first " (", trimmed
@@ -59,7 +49,7 @@ static void cm_strip_cht(char* s) {
 static void cm_add_token(CmParsed* p, const char* raw) {
 	char tok[CM_TOK_LEN];
 	snprintf(tok, sizeof(tok), "%s", raw);
-	cm_trim(tok);
+	strTrimSpaceInPlace(tok);
 	if (tok[0] == '\0')
 		return;
 	char lc[CM_TOK_LEN];
@@ -92,7 +82,7 @@ static const char* cm_region_word(const char* lc) {
 static void cm_add_bracket(CmParsed* p, const char* raw) {
 	char lc[CM_TOK_LEN];
 	snprintf(lc, sizeof(lc), "%s", raw);
-	cm_trim(lc);
+	strTrimSpaceInPlace(lc);
 	cm_lower(lc);
 	if (lc[0] == '\0')
 		return;
@@ -132,7 +122,7 @@ static void cm_parse(const char* basename, CmParsed* p) {
 	} else {
 		snprintf(p->stem, sizeof(p->stem), "%s", work);
 	}
-	cm_trim(p->stem);
+	strTrimSpaceInPlace(p->stem);
 
 	// walk each "( ... )" group; split its contents on ", "
 	const char* s = work;
@@ -239,7 +229,7 @@ int CheatMatch_select(const char* rom_display, const char* rom_fullname,
 	// authoritative stem for the exact-match gate.
 	char rom_stem[CM_STEM_LEN];
 	snprintf(rom_stem, sizeof(rom_stem), "%s", rom_display);
-	cm_trim(rom_stem);
+	strTrimSpaceInPlace(rom_stem);
 
 	// Parse candidates; qualify those whose stem == rom_display (case-insensitive).
 	CmParsed* cp = calloc((size_t)n, sizeof(CmParsed));

@@ -65,7 +65,7 @@ SOURCE = $(TARGET).c music_client.c music_balance.c music_service_client.c music
          ../include/parson/parson.c \
          ../include/mbedtls_entropy_alt.c \
          $(MBEDTLS_SRC) \
-         ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../common/stream_probe.c \
+         ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c ../common/display_helper.c ../common/wifi.c ../common/indicator_autohide.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_toast.c $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) $(UI_DIR)/ui_listdialog.c $(UI_DIR)/ui_keyboard.c $(UI_DIR)/ui_contextmenu.c ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../common/stream_probe.c \
          ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc

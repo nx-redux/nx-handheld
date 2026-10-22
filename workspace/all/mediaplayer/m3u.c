@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "m3u.h"
+#include "../common/str_trim.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,12 +25,6 @@ static int extinf_attr(const char* line, const char* attr, char* out, int out_sz
 	return 1;
 }
 
-static void rtrim(char* s) {
-	int len = (int)strlen(s);
-	while (len > 0 && (s[len - 1] == '\n' || s[len - 1] == '\r' || s[len - 1] == ' '))
-		s[--len] = '\0';
-}
-
 // Display name = text after the last comma on the #EXTINF line, with the
 // surrounding whitespace dropped (a leading space would otherwise sort the
 // channel to the top of the list as its own first-letter group).
@@ -39,7 +34,7 @@ static void extinf_name(const char* line, char* out, int out_sz) {
 	while (*name == ' ' || *name == '\t')
 		name++;
 	snprintf(out, out_sz, "%s", name);
-	rtrim(out);
+	strTrimRight(out, "\n\r ");
 }
 
 // fgets that also swallows the rest of an over-long line, so a line longer
@@ -108,7 +103,7 @@ int M3U_parseFile(const char* path, CuratedTVChannel** out, const char* country_
 		} else if (line[0] == '#') {
 			continue; // other directives (#EXTM3U, #EXTVLCOPT, ...)
 		} else {
-			rtrim(line);
+			strTrimRight(line, "\n\r ");
 			if (line[0] == '\0')
 				continue; // blank
 			if (!have_meta)

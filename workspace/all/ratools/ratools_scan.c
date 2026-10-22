@@ -1,4 +1,5 @@
 #include "ratools_scan.h"
+#include "../common/folder_tag.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -6,18 +7,7 @@
 
 // "Game Boy (GB)" -> "GB"
 bool rat_dir_tag(const char* dirname, char* tag, size_t n) {
-	const char* o = strrchr(dirname, '(');
-	if (!o)
-		return false;
-	const char* c = strchr(o, ')');
-	if (!c || c <= o + 1)
-		return false;
-	size_t len = (size_t)(c - o - 1);
-	if (len >= n)
-		len = n - 1;
-	memcpy(tag, o + 1, len);
-	tag[len] = '\0';
-	return true;
+	return folderTag(dirname, tag, n, FOLDER_TAG_TRUNCATE);
 }
 
 bool rat_skip_extension(const char* name) {

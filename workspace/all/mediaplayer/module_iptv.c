@@ -232,8 +232,8 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 		if (state == IPTV_STATE_CURATED_COUNTRIES) {
 			ContextMenuItem ctx_items[2];
 			int ctx_count = 0;
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh List", IPTV_CTX_REFRESH);
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Refresh List", IPTV_CTX_REFRESH);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 			if (global.should_quit)
@@ -299,7 +299,7 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 											  curated_toast_message, curated_toast_time);
 				GFX_flip(screen);
 				dirty = 0;
-				ModuleCommon_tickToast(curated_toast_message, curated_toast_time, &dirty);
+				UI_tickToast(curated_toast_message, curated_toast_time, &dirty);
 			} else {
 				UI_listViewTickIdle(v);
 				GFX_sync();
@@ -311,8 +311,8 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 		if (state == IPTV_STATE_CURATED_CHANNELS) {
 			ContextMenuItem ctx_items[2];
 			int ctx_count = 0;
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Refresh List", IPTV_CTX_REFRESH);
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Refresh List", IPTV_CTX_REFRESH);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 			GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 			if (global.should_quit)
@@ -416,7 +416,7 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 				GFX_flip(screen);
 				dirty = 0;
 
-				ModuleCommon_tickToast(curated_toast_message, curated_toast_time, &dirty);
+				UI_tickToast(curated_toast_message, curated_toast_time, &dirty);
 			} else {
 				GFX_sync();
 			}
@@ -432,10 +432,10 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 		// remove the selected channel, quit.
 		ContextMenuItem ctx_items[3];
 		int ctx_count = 0;
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Browse Channels", IPTV_CTX_BROWSE);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Browse Channels", IPTV_CTX_BROWSE);
 		if (user_count > 0 && v->selected >= 0 && v->selected < user_count)
-			ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Remove Channel", IPTV_CTX_REMOVE);
-		ModuleCommon_ctxAdd(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
+			ContextMenu_addItem(ctx_items, &ctx_count, "Remove Channel", IPTV_CTX_REMOVE);
+		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		GlobalInputResult global = ModuleCommon_handleGlobalInput(screen, &show_setting, ctx_items, ctx_count);
 		if (global.should_quit)
@@ -548,7 +548,7 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 			render_iptv_user_channels(screen, show_setting, user_toast_message, user_toast_time);
 			GFX_flip(screen);
 			dirty = 0;
-			ModuleCommon_tickToast(user_toast_message, user_toast_time, &dirty);
+			UI_tickToast(user_toast_message, user_toast_time, &dirty);
 		} else {
 			UI_listViewTickIdle(v);
 			GFX_sync();

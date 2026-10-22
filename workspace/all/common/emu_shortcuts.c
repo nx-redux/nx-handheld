@@ -1,4 +1,6 @@
 #include "emu_shortcuts.h"
+#include "file_util.h"
+#include "str_trim.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,12 +77,6 @@ int EmuShortcuts_getPath(char* out, size_t size, const char* dir, const char* de
 }
 
 // trims trailing spaces/CR in place
-static void rtrim(char* s) {
-	size_t n = strlen(s);
-	while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t' || s[n - 1] == '\r'))
-		s[--n] = '\0';
-}
-
 void EmuShortcuts_parse(const char* text, int labels[SHORTCUT_COUNT]) {
 	if (!text)
 		return;
@@ -97,8 +93,8 @@ void EmuShortcuts_parse(const char* text, int labels[SHORTCUT_COUNT]) {
 				*eq = '\0';
 				char* name = buf + 5;
 				char* value = eq + 3;
-				rtrim(name);
-				rtrim(value);
+				strTrimRight(name, " \t\r");
+				strTrimRight(value, " \t\r");
 				int id = EmuShortcuts_find(name);
 				if (id >= 0) {
 					int label = EmuShortcuts_labelIndex(value);
@@ -116,24 +112,9 @@ int EmuShortcuts_read(const char* path, int labels[SHORTCUT_COUNT]) {
 	for (int i = 0; i < SHORTCUT_COUNT; i++)
 		labels[i] = 0;
 
-	FILE* file = fopen(path, "rb");
-	if (!file)
+	char* text = allocFileCapped(path, 64 * 1024, NULL);
+	if (!text)
 		return 0;
-	fseek(file, 0, SEEK_END);
-	long size = ftell(file);
-	fseek(file, 0, SEEK_SET);
-	if (size < 0 || size > 64 * 1024) {
-		fclose(file);
-		return 0;
-	}
-	char* text = calloc(1, size + 1);
-	if (!text) {
-		fclose(file);
-		return 0;
-	}
-	size_t got = fread(text, 1, size, file);
-	text[got] = '\0';
-	fclose(file);
 
 	EmuShortcuts_parse(text, labels);
 	free(text);

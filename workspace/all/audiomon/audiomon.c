@@ -22,6 +22,7 @@
 #include "defines.h"
 #include "spk_guard.h"
 #include "audiomon_parse.h"
+#include "settings_kv.h"
 
 #define AUDIO_FILE USERDATA_PATH "/.asoundrc"
 #define UUID_A2DP "0000110b-0000-1000-8000-00805f9b34fb"
@@ -269,7 +270,7 @@ static void spk_guard_poll(void) {
 static int read_cfg_int(const char* key, int fallback) {
 	char path[512];
 	snprintf(path, sizeof(path), "%s/minuisettings.txt", SHARED_USERDATA_PATH);
-	return audiomon_cfg_int(path, key, fallback);
+	return settings_kv_int(path, key, fallback);
 }
 
 // A2DP negotiated rate: the raw bluealsa PCM (not via plug) constrains

@@ -189,28 +189,12 @@ static void prune_locked(EmuOvlConfig* cfg,
 	cfg->section_count = w;
 }
 
-// "<path>.tmp" -> fputs -> rename -> sync: a launch-time power cut leaves
-// either the old file or the new one, never a torn half.
+// writeFileAtomic ("<path>.tmp" -> fsync -> rename), then sync so the rename
+// is on the card too: a launch-time power cut leaves either the old file or
+// the new one, never a torn half.
 static int write_atomic(const char* path, const char* content) {
-	char tmp[1024 + 8];
-	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+	if (!writeFileAtomic(path, content, strlen(content)))
 		return -1;
-	FILE* f = fopen(tmp, "w");
-	if (!f)
-		return -1;
-	if (fputs(content, f) < 0) {
-		fclose(f);
-		unlink(tmp);
-		return -1;
-	}
-	if (fclose(f) != 0) {
-		unlink(tmp);
-		return -1;
-	}
-	if (rename(tmp, path) != 0) {
-		unlink(tmp);
-		return -1;
-	}
 	sync();
 	return 0;
 }

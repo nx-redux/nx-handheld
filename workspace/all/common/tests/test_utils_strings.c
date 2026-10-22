@@ -139,6 +139,40 @@ static void test_put_int(void) {
 	unlink(path);
 }
 
+// writeFileAtomic + allocFile, including a path past the old MAX_PATH temp
+// buffer (which used to cut the ".tmp" name).
+static void test_write_file_atomic(void) {
+	char dir[700];
+	int n = snprintf(dir, sizeof(dir), "/tmp/nx_test_wfa_%d", (int)getpid());
+	for (int part = 0; part < 6; part++) { // 6 x 100-character components
+		dir[n++] = '/';
+		for (int i = 0; i < 99; i++)
+			dir[n++] = 'd';
+	}
+	dir[n] = '\0';
+	char mk[720];
+	snprintf(mk, sizeof(mk), "mkdir -p '%s'", dir);
+	assert(system(mk) == 0);
+	char path[800];
+	snprintf(path, sizeof(path), "%s/file.cfg", dir);
+	assert(strlen(path) > 512);
+	assert(writeFileAtomic(path, "abc", 3));
+	char* s = allocFile(path);
+	assert(s && strcmp(s, "abc") == 0);
+	free(s);
+	char tmp[820];
+	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	assert(access(tmp, F_OK) != 0); // renamed away
+	assert(writeFileAtomic(path, "", 0));
+	s = allocFile(path);
+	assert(s && s[0] == '\0');
+	free(s);
+	unlink(path);
+	char rm[760];
+	snprintf(rm, sizeof(rm), "rm -rf /tmp/nx_test_wfa_%d", (int)getpid());
+	assert(system(rm) == 0);
+}
+
 int main(void) {
 	test_replace_string();
 	test_escape_single_quotes();
@@ -146,6 +180,7 @@ int main(void) {
 	test_trim_string();
 	test_remove_extension();
 	test_put_int();
+	test_write_file_atomic();
 	printf("test_utils_strings: OK\n");
 	return 0;
 }

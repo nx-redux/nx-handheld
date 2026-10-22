@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "file_util.h" // mkdir_p_mode, mkdir_parent_mode, allocFileCapped
 
 extern volatile bool app_quit;
 void sig_handler(int sig);
@@ -77,7 +78,6 @@ int run_cmd_capture(const char* cmd, char* output, size_t output_len);
 uint64_t getMicroseconds(void);
 
 int clamp(int x, int lower, int upper);
-double clampd(double x, double lower, double upper);
 
 
 // Percent-encode src into dst (form style: space -> '+', unreserved kept, rest

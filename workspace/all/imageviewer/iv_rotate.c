@@ -6,9 +6,8 @@
 
 #include "iv_rotate.h"
 
-#ifndef FFMPEG_PATH
-#define FFMPEG_PATH "/usr/bin/ffmpeg"
-#endif
+#include "capture_defs.h"
+#include "proc_spawn.h"
 
 SDL_Surface* IvRotate_surface(SDL_Surface* src, int turns) {
 	turns = ((turns % 4) + 4) % 4;
@@ -74,26 +73,14 @@ static bool rotate_png(const char* path, const char* tmp, int turns) {
 static bool rotate_ffmpeg(const char* path, const char* tmp, int turns, bool is_jpg) {
 	const char* vf = turns == 1 ? "transpose=1" : turns == 2 ? "transpose=1,transpose=1"
 															 : "transpose=2";
-	pid_t pid = fork();
-	if (pid < 0)
-		return false;
-	if (pid == 0) {
-		freopen("/dev/null", "r", stdin);
-		freopen("/dev/null", "w", stdout);
-		freopen("/dev/null", "w", stderr);
-		// GIF keeps every frame; the still formats write exactly one.
-		if (is_jpg)
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin", "-i", path, "-vf", vf,
-				  "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2", "-y", tmp, (char*)NULL);
-		else
-			execl(FFMPEG_PATH, "ffmpeg", "-nostdin", "-i", path, "-vf", vf,
-				  "-y", tmp, (char*)NULL);
-		_exit(1);
-	}
-	int status = 0;
-	if (waitpid(pid, &status, 0) < 0)
-		return false;
-	return WIFEXITED(status) && WEXITSTATUS(status) == 0 && access(tmp, F_OK) == 0;
+	char* src = (char*)path;
+	char* dst = (char*)tmp;
+	char* filter = (char*)vf;
+	// GIF keeps every frame; the still formats write exactly one.
+	char* jpg_argv[] = {FFMPEG_PATH, "-nostdin", "-i", src, "-vf", filter,
+						"-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2", "-y", dst, NULL};
+	char* other_argv[] = {FFMPEG_PATH, "-nostdin", "-i", src, "-vf", filter, "-y", dst, NULL};
+	return spawn_quiet_wait(is_jpg ? jpg_argv : other_argv, false) && access(tmp, F_OK) == 0;
 }
 
 bool IvRotate_file(const char* path, int turns) {

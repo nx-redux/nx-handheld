@@ -474,3 +474,22 @@ int wget_download_file(const char* url, const char* filepath,
 
 	return result;
 }
+
+static void* wget_job_thread(void* arg) {
+	WgetDownloadJob* job = arg;
+	job->result = wget_download_file(job->url, job->filepath, &job->progress, &job->cancel, &job->speed, &job->eta);
+	job->done = true;
+	return NULL;
+}
+
+bool wget_job_start(WgetDownloadJob* job, const char* url, const char* filepath, int initial_progress) {
+	memset(job, 0, sizeof(*job));
+	snprintf(job->url, sizeof(job->url), "%s", url);
+	snprintf(job->filepath, sizeof(job->filepath), "%s", filepath);
+	job->progress = initial_progress;
+	return pthread_create(&job->thread, NULL, wget_job_thread, job) == 0;
+}
+
+void wget_job_join(WgetDownloadJob* job) {
+	pthread_join(job->thread, NULL);
+}

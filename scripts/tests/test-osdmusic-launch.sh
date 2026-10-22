@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# launch.sh checks the widget's liveness through /proc/<pid>: Linux only (it
+# passes in a container, e.g. docker run --rm -v "$PWD":/w alpine:3.19 with
+# bash + coreutils). macOS has no /proc, so every readiness check would fail.
+if [ ! -d /proc/self ]; then
+    echo "SKIP test-osdmusic-launch: needs Linux /proc"
+    exit 0
+fi
 TMP=$(mktemp -d)
 trap 'kill "${first_pid:-}" "${second_pid:-}" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
