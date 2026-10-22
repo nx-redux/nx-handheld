@@ -1,4 +1,5 @@
 #include "ratools_prefetch.h"
+#include "ratools_scan.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -81,56 +82,6 @@ static bool rat_has_emu(const char* tag) {
 	return exists(pak_path);
 }
 
-// "Game Boy (GB)" -> "GB"
-static bool rat_dir_tag(const char* dirname, char* tag, size_t n) {
-	const char* o = strrchr(dirname, '(');
-	if (!o)
-		return false;
-	const char* c = strchr(o, ')');
-	if (!c || c <= o + 1)
-		return false;
-	size_t len = (size_t)(c - o - 1);
-	if (len >= n)
-		len = n - 1;
-	memcpy(tag, o + 1, len);
-	tag[len] = '\0';
-	return true;
-}
-
-static bool rat_skip_extension(const char* name) {
-	const char* ext = strrchr(name, '.');
-	if (!ext)
-		return true;
-	ext++;
-	// raw/sub are only ever disc tracks (CD-DA / subchannel), never a game
-	static const char* deny[] = {"txt", "dat", "png", "jpg", "jpeg", "bmp", "xml",
-								 "db", "sav", "srm", "st", "cfg", "log", "bak",
-								 "raw", "sub", NULL};
-	for (int i = 0; deny[i]; i++)
-		if (strcasecmp(ext, deny[i]) == 0)
-			return true;
-	return false;
-}
-
-// true if `name` is a raw disc track (bin/img/raw/sub) that belongs to a
-// cue/gdi/ccd/toc index rather than being a game on its own.
-static bool rat_is_track_file(const char* name) {
-	const char* ext = strrchr(name, '.');
-	if (!ext)
-		return false;
-	ext++;
-	static const char* tracks[] = {"bin", "img", "raw", "sub", NULL};
-	for (int i = 0; tracks[i]; i++)
-		if (strcasecmp(ext, tracks[i]) == 0)
-			return true;
-	return false;
-}
-
-static bool rat_is_archive(const char* name) {
-	const char* ext = strrchr(name, '.');
-	return ext && (!strcasecmp(ext, ".zip") || !strcasecmp(ext, ".7z"));
-}
-
 // The rom an archive holds, the way minarch picks it: the first file that
 // isn't a directory, an archive or a skipped extension. Its path within the
 // archive goes to `entry`, its uncompressed size to *size.
@@ -145,12 +96,7 @@ static bool rat_zip_entry(const char* path, char* entry, size_t n, long long* si
 		zip_stat_t sb;
 		if (zip_stat_index(za, i, 0, &sb) != 0 || !(sb.valid & ZIP_STAT_NAME))
 			continue;
-		size_t len = strlen(sb.name);
-		if (!len || sb.name[len - 1] == '/' || len >= n)
-			continue;
-		const char* base = strrchr(sb.name, '/');
-		base = base ? base + 1 : sb.name;
-		if (rat_skip_extension(base) || rat_is_archive(base))
+		if (!rat_entry_is_rom(sb.name, n))
 			continue;
 		snprintf(entry, n, "%s", sb.name);
 		*size = (sb.valid & ZIP_STAT_SIZE) ? (long long)sb.size : 0;
@@ -180,46 +126,16 @@ static bool rat_run_7z(char** argv, int out_fd) {
 	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-// rat_zip_entry for a .7z, from 7zzs' technical listing ("Path = ...",
-// "Size = ...", "Attributes = D..." per entry, blank line between entries).
+// rat_zip_entry for a .7z, from 7zzs' technical listing.
 static bool rat_7z_entry(const char* path, char* entry, size_t n, long long* size) {
 	FILE* tmp = tmpfile();
 	if (!tmp)
 		return false;
 	char* argv[] = {NULL, "l", "-ba", "-slt", "-sccUTF-8", "--", (char*)path, NULL};
-	bool ok = rat_run_7z(argv, fileno(tmp));
 	bool found = false;
-	if (ok) {
+	if (rat_run_7z(argv, fileno(tmp))) {
 		rewind(tmp);
-		char line[512], name[256] = {0};
-		long long sz = 0;
-		bool dir = false;
-		// the trailing "" flushes the last entry
-		while (!found) {
-			bool more = fgets(line, sizeof(line), tmp) != NULL;
-			line[strcspn(line, "\r\n")] = '\0';
-			if (!more || !line[0]) {
-				const char* base = strrchr(name, '/');
-				base = base ? base + 1 : name;
-				if (name[0] && !dir && !rat_skip_extension(base) && !rat_is_archive(base)) {
-					snprintf(entry, n, "%s", name);
-					*size = sz;
-					found = true;
-				}
-				name[0] = '\0';
-				sz = 0;
-				dir = false;
-				if (!more)
-					break;
-			} else if (!strncmp(line, "Path = ", 7)) {
-				if (strlen(line + 7) < sizeof(name) && strlen(line + 7) < n)
-					snprintf(name, sizeof(name), "%s", line + 7);
-			} else if (!strncmp(line, "Size = ", 7)) {
-				sz = atoll(line + 7);
-			} else if (!strncmp(line, "Attributes = ", 13)) {
-				dir = strchr(line + 13, 'D') != NULL;
-			}
-		}
+		found = rat_7z_pick_entry(tmp, entry, n, size);
 	}
 	fclose(tmp);
 	return found;
@@ -332,49 +248,11 @@ static bool rat_dir_has_disc_index(const char* dir) {
 	return found;
 }
 
-// The libretro core a system's pak launches, as minarch's core.name: the
-// EMU_EXE= value (stock and most community paks), else the name in front of
-// the first "_libretro.so". Empty when the pak names neither (e.g. a
-// standalone emulator) - RA_detectConsole then goes by tag and extension.
+// The libretro core a system's pak launches (see rat_launch_core).
 static void rat_pak_core(const char* tag, char* out, size_t n) {
-	out[0] = '\0';
 	char launch[512];
 	getEmuPath((char*)tag, launch);
-	FILE* f = fopen(launch, "r");
-	if (!f)
-		return;
-	char line[512];
-	char fallback[64] = {0};
-	while (fgets(line, sizeof(line), f)) {
-		const char* p = line;
-		while (*p == ' ' || *p == '\t')
-			p++;
-		if (strncmp(p, "EMU_EXE=", 8) == 0) {
-			p += 8;
-			if (*p == '"' || *p == '\'')
-				p++;
-			size_t len = strcspn(p, "\"' \t\r\n;");
-			if (len && len < n && !memchr(p, '$', len)) {
-				memcpy(out, p, len);
-				out[len] = '\0';
-				break;
-			}
-		}
-		const char* so = strstr(line, "_libretro.so");
-		if (so && !fallback[0]) {
-			const char* b = so;
-			while (b > line && b[-1] != '/' && b[-1] != '"' && b[-1] != '\'' && b[-1] != ' ')
-				b--;
-			size_t len = (size_t)(so - b);
-			if (len && len < sizeof(fallback) && !memchr(b, '$', len)) {
-				memcpy(fallback, b, len);
-				fallback[len] = '\0';
-			}
-		}
-	}
-	fclose(f);
-	if (!out[0] && fallback[0])
-		snprintf(out, n, "%s", fallback);
+	rat_launch_core(launch, out, n);
 }
 
 // peek: look inside archives for the rom (and its console) the hashing

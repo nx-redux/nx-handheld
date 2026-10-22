@@ -173,9 +173,15 @@ void Cheatdb_removeAll(const CheatdbPaths* p) {
 		// Collect unique parent dirs to prune afterwards (bounded, 64 tags).
 		char dirs[64][512];
 		int ndirs = 0;
+		// A line longer than the buffer arrives in pieces: skip all of them,
+		// so a tail piece is never removed as a path of its own.
+		bool in_long_line = false;
 		while (fgets(line, sizeof(line), f)) {
+			bool whole = strchr(line, '\n') || feof(f);
+			bool skip = in_long_line || !whole;
+			in_long_line = !whole;
 			line[strcspn(line, "\r\n")] = '\0';
-			if (!line[0])
+			if (skip || !line[0])
 				continue;
 			remove(line);
 			char d[512];

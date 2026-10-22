@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "cheatdb_data.h"
 
 static int fails = 0;
@@ -53,6 +55,46 @@ int main(void) {
 	CHECK(f != NULL, "hand-made cheat preserved by removeAll");
 	if (f)
 		fclose(f);
+
+	// A manifest naming more than 64 folders, plus a line longer than removeAll's 600-byte read
+	// buffer whose tail is the path of a file that is not in the manifest.
+	char sentinel[700];
+	snprintf(sentinel, sizeof(sentinel), "%s/keep-me.cht", p.cheats_dir);
+	f = fopen(sentinel, "w");
+	if (f)
+		fclose(f);
+	FILE* man = fopen(p.manifest, "w");
+	char path[700];
+	for (int i = 0; i < 70 && man; i++) {
+		snprintf(path, sizeof(path), "%s/T%02d", p.cheats_dir, i);
+		mkdir(path, 0755);
+		snprintf(path, sizeof(path), "%s/T%02d/x.cht", p.cheats_dir, i);
+		f = fopen(path, "w");
+		if (f)
+			fclose(f);
+		fprintf(man, "%s\n", path);
+	}
+	if (man) {
+		char head[600];
+		size_t pad = 599 - strlen(p.cheats_dir) - 1;
+		memset(head, 'x', pad);
+		head[pad] = '\0';
+		fprintf(man, "%s/%s%s\n", p.cheats_dir, head, sentinel);
+		fclose(man);
+	}
+	Cheatdb_removeAll(&p);
+	int left = 0, dirs_left = 0;
+	for (int i = 0; i < 70; i++) {
+		snprintf(path, sizeof(path), "%s/T%02d/x.cht", p.cheats_dir, i);
+		left += access(path, F_OK) == 0;
+		snprintf(path, sizeof(path), "%s/T%02d", p.cheats_dir, i);
+		dirs_left += access(path, F_OK) == 0;
+		rmdir(path);
+	}
+	CHECK(left == 0, "removeAll removes every listed file past 64 folders");
+	CHECK(dirs_left == 6, "removeAll prunes the first 64 folders and keeps the rest");
+	CHECK(access(sentinel, F_OK) == 0, "tail of an over-long manifest line is not removed as a path");
+	remove(sentinel);
 
 	// mapping sanity
 	CHECK(CHEATDB_MAP_COUNT == 36, "36 tag mappings");

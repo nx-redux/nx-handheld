@@ -13,3 +13,6 @@ cc -std=gnu99 -Wall -Wextra -Werror -I"$D" "$D/network_common.c" "$D/tests/test_
 OUT_GS=${TMPDIR:-/tmp}/test_gbalink_stream
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/network_common.c" "$D/tests/test_gbalink_stream.c" -o "$OUT_GS"
 "$OUT_GS"
+OUT_DISC=${TMPDIR:-/tmp}/test_discovery
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/network_common.c" "$D/tests/test_discovery.c" -o "$OUT_DISC"
+"$OUT_DISC"

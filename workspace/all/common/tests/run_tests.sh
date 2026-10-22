@@ -141,3 +141,7 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_image_check
 /tmp/nx_test_ui_image_check
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ra_badge_policy test_ra_badge_policy.c
 /tmp/nx_test_ra_badge_policy
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -o /tmp/nx_test_scraper_parse ../../scraper/scraper_parse.c ../cjson/cJSON.c test_scraper_parse.c
+/tmp/nx_test_scraper_parse
+cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_scraper_names ../../scraper/scraper_names.c ../utils.c test_scraper_names.c
+/tmp/nx_test_scraper_names

@@ -444,6 +444,57 @@ static void test_merge_lines(void) {
 	sync_names_free(&theirs);
 }
 
+static void test_progress2(void) {
+	int xfr = -1, done = -1, total = -1;
+	assert(sync_parse_progress2("  1,234,567  42%  1.2MB/s  0:00:03 (xfr#3, to-chk=7/10)", &xfr, &done, &total) ==
+		   (SYNC_PROGRESS_XFR | SYNC_PROGRESS_CHK));
+	assert(xfr == 3 && done == 3 && total == 10);
+
+	// older rsync: to-check=
+	xfr = done = total = -1;
+	assert(sync_parse_progress2("  100%  (xfr#12, to-check=0/12)", &xfr, &done, &total) ==
+		   (SYNC_PROGRESS_XFR | SYNC_PROGRESS_CHK));
+	assert(xfr == 12 && done == 12 && total == 12);
+
+	// scanning: to-chk only (ir-chk lines say nothing)
+	xfr = done = total = -1;
+	assert(sync_parse_progress2("  0   0%  0.00kB/s  0:00:00 (xfr#0, ir-chk=1000/1200)", &xfr, &done, &total) ==
+		   SYNC_PROGRESS_XFR);
+	assert(xfr == 0 && done == -1 && total == -1);
+
+	// a zero total is not progress; outputs not reported stay as they were
+	assert(sync_parse_progress2("(to-chk=0/0)", &xfr, &done, &total) == 0);
+	assert(done == -1 && total == -1);
+	assert(sync_parse_progress2("sending incremental file list", &xfr, &done, &total) == 0);
+	assert(sync_parse_progress2("xfr#", &xfr, &done, &total) == 0);
+	assert(sync_parse_progress2("to-chk=x/5", &xfr, &done, &total) == 0);
+	assert(xfr == 0);
+}
+
+static void test_read_line_cr(void) {
+	FILE* fp = tmpfile();
+	assert(fp);
+	fputs("\r\nfirst\r  50%\r 100%\nlast line\n\n\nabcdefghij", fp);
+	rewind(fp);
+	char buf[8];
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, "first")); // leading breaks skipped
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, "  50%"));
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, " 100%"));
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, "last li")); // cut at size - 1
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, "ne"));		// the rest of it
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, "abcdefg")); // empty lines skipped
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) && !strcmp(buf, "hij"));		// last line, no newline
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) == NULL);
+	fclose(fp);
+
+	fp = tmpfile();
+	assert(fp);
+	fputs("\n\r\n", fp);
+	rewind(fp);
+	assert(sync_read_line_cr(buf, sizeof(buf), fp) == NULL); // only breaks: nothing
+	fclose(fp);
+}
+
 int main(void) {
 	// BIOS never carries Dreamcast memory cards (they live in Saves/DC*).
 	assert(!strcmp(SYNC_BIOS_EXCLUDE_PATTERN, "vmu_save_*.bin"));
@@ -471,6 +522,8 @@ int main(void) {
 	test_names_find_ci();
 	test_text_is_lines();
 	test_read_capped();
+	test_progress2();
+	test_read_line_cr();
 	printf("sync_proto: all tests passed\n");
 	return 0;
 }

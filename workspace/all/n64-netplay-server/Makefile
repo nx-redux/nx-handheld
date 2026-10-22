@@ -6,7 +6,7 @@ PLATFORM=$(UNION_PLATFORM)
 endif
 
 TARGET  = m64p-server
-SOURCE  = main.c tcp.c udp.c
+SOURCE  = main.c tcp.c udp.c state.c
 CFLAGS  += -O2 -std=gnu99 -Wall -Wextra
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 

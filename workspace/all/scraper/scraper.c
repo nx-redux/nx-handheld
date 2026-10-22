@@ -24,6 +24,7 @@
 #include "utils.h"
 
 #include "scraper_api.h"
+#include "scraper_names.h"
 #include "scraper_systems.h"
 #include "scraper_core.h"
 #include "scraper_fetch.h"
@@ -151,43 +152,6 @@ static bool settings_mix_on_entry = false; // Generate mix when Settings opened
 // System Scanner
 // ============================================
 
-static void extractTag(const char* dirname, char* tag_out, int tag_size) {
-	tag_out[0] = '\0';
-	const char* open = strrchr(dirname, '(');
-	const char* close = strrchr(dirname, ')');
-	if (open && close && close > open) {
-		int len = (int)(close - open - 1);
-		if (len > 0 && len < tag_size) {
-			strncpy(tag_out, open + 1, len);
-			tag_out[len] = '\0';
-		}
-	}
-}
-
-static void extractDisplayName(const char* dirname, char* name_out, int name_size) {
-	const char* open = strrchr(dirname, '(');
-	if (open && open > dirname) {
-		int len = (int)(open - dirname);
-		while (len > 0 && dirname[len - 1] == ' ')
-			len--;
-		if (len > 0 && len < name_size) {
-			strncpy(name_out, dirname, len);
-			name_out[len] = '\0';
-		} else {
-			snprintf(name_out, name_size, "%s", dirname);
-		}
-	} else {
-		snprintf(name_out, name_size, "%s", dirname);
-	}
-
-	// Drop the numeric sort prefix nextui folders use ("1) Game Boy" ->
-	// "Game Boy"), the same way the main menu title does (trimSortingMeta).
-	char* trimmed = name_out;
-	trimSortingMeta(&trimmed);
-	if (trimmed != name_out)
-		memmove(name_out, trimmed, strlen(trimmed) + 1);
-}
-
 typedef struct {
 	int roms;
 	int scraped;
@@ -246,7 +210,7 @@ static void scanSystems(void) {
 			continue;
 
 		char tag[64];
-		extractTag(entry->d_name, tag, sizeof(tag));
+		Scraper_extractTag(entry->d_name, tag, sizeof(tag));
 		if (tag[0] == '\0' || isLibraryExcludedTag(tag))
 			continue;
 
@@ -255,7 +219,7 @@ static void scanSystems(void) {
 		int sid = ScraperSystems_getId(tag);
 
 		SystemEntry* sys = &systems[system_count];
-		extractDisplayName(entry->d_name, sys->name, sizeof(sys->name));
+		Scraper_extractDisplayName(entry->d_name, sys->name, sizeof(sys->name));
 		snprintf(sys->tag, sizeof(sys->tag), "%s", tag);
 		snprintf(sys->path, sizeof(sys->path), "%s/%s", ROMS_PATH, entry->d_name);
 		sys->system_id = sid;
@@ -356,32 +320,6 @@ static const char* mapAliasFor(const char* dir, const char* key) {
 	return NULL;
 }
 
-// Fill dir + key with the parent directory and basename nextui uses to alias
-// this game in a map.txt (see mapAliasFor).
-static void mapKeyForGame(const ScanGame* g, char* dir, size_t dir_size,
-						  char* key, size_t key_size) {
-	if (g->folder_game) {
-		// g->path is <parent>/<folder>/<folder>.cue; the listed entry is the
-		// folder, so key on the folder name and look in <parent>/map.txt.
-		char folder[SCAN_PATH_MAX];
-		snprintf(folder, sizeof(folder), "%s", g->path);
-		char* slash = strrchr(folder, '/');
-		if (slash)
-			*slash = '\0'; // -> <parent>/<folder>
-		slash = strrchr(folder, '/');
-		snprintf(key, key_size, "%s", slash ? slash + 1 : folder);
-		if (slash)
-			*slash = '\0'; // -> <parent>
-		snprintf(dir, dir_size, "%s", folder);
-	} else {
-		snprintf(key, key_size, "%s", g->filename);
-		snprintf(dir, dir_size, "%s", g->path);
-		char* slash = strrchr(dir, '/');
-		if (slash)
-			*slash = '\0'; // -> parent dir of the ROM file
-	}
-}
-
 static void refreshRomArt(ROMEntry* rom);
 
 static bool scan_rom_cb(const ScanGame* g, void* ud) {
@@ -402,7 +340,7 @@ static bool scan_rom_cb(const ScanGame* g, void* ud) {
 	// Show the map.txt alias (nextui "Rename Rom") when the game has one,
 	// otherwise the filename-derived label — matching the main game list.
 	char map_dir[SCAN_PATH_MAX], map_key[SCAN_NAME_MAX];
-	mapKeyForGame(g, map_dir, sizeof(map_dir), map_key, sizeof(map_key));
+	Scraper_mapKeyForGame(g, map_dir, sizeof(map_dir), map_key, sizeof(map_key));
 	const char* alias = mapAliasFor(map_dir, map_key);
 	snprintf(rom->label, sizeof(rom->label), "%s", (alias && alias[0]) ? alias : g->label);
 	snprintf(rom->art_png, sizeof(rom->art_png), "%s", g->art_png);
@@ -735,7 +673,7 @@ static void systems_get_row(void* ctx, int i, bool selected, ListViewRow* out) {
 	(void)selected;
 	SystemEntry* sys = &systems[i];
 	// Show "Game Boy (GB)": the display name (sort prefix already stripped in
-	// extractDisplayName) with the emulator tag kept, so the console is
+	// Scraper_extractDisplayName) with the emulator tag kept, so the console is
 	// identifiable without the numeric sort prefix.
 	if (sys->tag[0])
 		snprintf(systems_label_buf, sizeof(systems_label_buf), "%s (%s)",
@@ -1131,7 +1069,7 @@ static void optimizeSystemName(const char* path, char* out, int out_size) {
 	const char* slash = strchr(folder, '/');
 	char dirname[256];
 	snprintf(dirname, sizeof(dirname), "%.*s", slash ? (int)(slash - folder) : (int)strlen(folder), folder);
-	extractDisplayName(dirname, out, out_size);
+	Scraper_extractDisplayName(dirname, out, out_size);
 }
 
 static void renderOptimizeProgress(void) {

@@ -634,54 +634,14 @@ static bool phase_unknown_module = false;
 
 // Parse "xfr#N, to-chk=X/Y" from rsync --info=progress2 output.
 static void parse_progress2(const char* line) {
-	// Parse xfr#N (actual files transferred)
-	const char* x = strstr(line, "xfr#");
-	if (x) {
-		int n = 0;
-		if (sscanf(x + 4, "%d", &n) == 1)
-			phase_files_transferred = n;
-	}
-
-	// Parse to-chk=X/Y (remaining/total scanned)
-	const char* p = strstr(line, "to-chk=");
-	if (!p)
-		p = strstr(line, "to-check=");
-	if (!p)
-		return;
-
-	p = strchr(p, '=');
-	if (!p)
-		return;
-	p++;
-
-	int remaining = 0, total = 0;
-	if (sscanf(p, "%d/%d", &remaining, &total) == 2 && total > 0) {
+	int xfr, done, total;
+	int got = sync_parse_progress2(line, &xfr, &done, &total);
+	if (got & SYNC_PROGRESS_XFR)
+		phase_files_transferred = xfr;
+	if (got & SYNC_PROGRESS_CHK) {
 		phase_files_total = total;
-		phase_files_done = total - remaining;
+		phase_files_done = done;
 	}
-}
-
-// Read a line delimited by \r or \n from a FILE stream.
-// rsync --info=progress2 uses \r to update progress in-place.
-static char* read_line_cr(char* buf, int size, FILE* fp) {
-	int i = 0;
-	int c;
-	while (i < size - 1) {
-		c = fgetc(fp);
-		if (c == EOF) {
-			if (i == 0)
-				return NULL;
-			break;
-		}
-		if (c == '\r' || c == '\n') {
-			if (i > 0)
-				break;
-			continue; // skip leading \r\n
-		}
-		buf[i++] = (char)c;
-	}
-	buf[i] = '\0';
-	return buf;
 }
 
 // The top-level entries of a local folder (only its folders when dirs_only);
@@ -914,7 +874,7 @@ static int run_rsync_cmd(const char* cmd) {
 		return -1;
 
 	char line[512];
-	while (read_line_cr(line, sizeof(line), fp) != NULL) {
+	while (sync_read_line_cr(line, sizeof(line), fp) != NULL) {
 		if (sync_cancel)
 			break;
 

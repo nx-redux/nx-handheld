@@ -39,4 +39,23 @@ int updater_build_fallback_url(const char* owner, const char* repo,
 							   const char* tag, const char* device,
 							   char* out, size_t out_size);
 
+/**
+ * Find the release asset whose browser_download_url ends in "-<asset_suffix>"
+ * in a GitHub releases API JSON body and copy that URL into out (truncated
+ * to out_size). When digest_out is given, it receives that same asset's
+ * lowercase "sha256:" hex digest, or "" when the asset has none.
+ *
+ * @return out on a match, NULL otherwise.
+ */
+const char* updater_find_zip_asset_url(const char* json, const char* asset_suffix, char* out, size_t out_size,
+									   char* digest_out, size_t digest_size);
+
+/**
+ * Copy the first paragraph of a JSON-escaped release body (literal "\n"
+ * sequences) into out: single line breaks become spaces, "\n\n" or
+ * "\n\r\n" ends the paragraph, '#' heading markers are dropped and
+ * trailing whitespace is trimmed.
+ */
+void updater_extract_first_paragraph(const char* body, char* out, size_t out_size);
+
 #endif // UPDATER_URL_H

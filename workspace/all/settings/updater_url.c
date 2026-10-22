@@ -74,3 +74,115 @@ int updater_build_fallback_url(const char* owner, const char* repo,
 	}
 	return 0;
 }
+
+const char* updater_find_zip_asset_url(const char* json, const char* asset_suffix, char* out, size_t out_size,
+									   char* digest_out, size_t digest_size) {
+	if (digest_out && digest_size > 0)
+		digest_out[0] = '\0';
+	if (!json || !asset_suffix || !out || out_size == 0)
+		return NULL;
+
+	char suffix[96];
+	snprintf(suffix, sizeof(suffix), "-%s", asset_suffix);
+
+	const char* assets = strstr(json, "\"assets\"");
+	if (!assets)
+		return NULL;
+
+	const char* pos = assets;
+	while ((pos = strstr(pos, "\"browser_download_url\"")) != NULL) {
+		pos = strchr(pos + 21, '"');
+		if (!pos)
+			break;
+
+		if (*(pos - 1) == ':') {
+			// pos points to opening quote of value
+		} else {
+			pos++;
+			while (*pos == ' ' || *pos == ':')
+				pos++;
+			if (*pos != '"')
+				continue;
+		}
+
+		pos++;
+		const char* end = strchr(pos, '"');
+		if (!end)
+			break;
+
+		size_t len = end - pos;
+		size_t suf_len = strlen(suffix);
+		if (len > suf_len && strncmp(end - suf_len, suffix, suf_len) == 0) {
+			if (len >= out_size)
+				len = out_size - 1;
+			strncpy(out, pos, len);
+			out[len] = '\0';
+
+			// Extract this asset's SHA-256 digest if present. GitHub emits
+			// "digest": "sha256:<hex>" earlier in the same asset object, so
+			// scan backward from the matched URL. Stop at the first '}' so we
+			// never pick up a different asset's digest.
+			if (digest_out && digest_size > 0) {
+				for (const char* q = pos; q > assets; q--) {
+					if (*q == '}')
+						break;
+					if (strncmp(q, "\"digest\"", 8) == 0) {
+						const char* s = strstr(q, "sha256:");
+						if (s && s < pos) {
+							s += 7;
+							size_t k = 0;
+							while (k < digest_size - 1 && isxdigit((unsigned char)*s))
+								digest_out[k++] = (char)tolower((unsigned char)*s++);
+							digest_out[k] = '\0';
+						}
+						break;
+					}
+				}
+			}
+			return out;
+		}
+
+		pos = end + 1;
+	}
+
+	return NULL;
+}
+
+void updater_extract_first_paragraph(const char* body, char* out, size_t out_size) {
+	if (!body || !out || out_size == 0)
+		return;
+
+	out[0] = '\0';
+	size_t j = 0;
+
+	for (size_t i = 0; body[i] && j < out_size - 1; i++) {
+		if (body[i] == '\\' && body[i + 1] == 'r') {
+			i++;
+			continue;
+		}
+		if (body[i] == '\\' && body[i + 1] == 'n') {
+			// Check for paragraph break: \n followed by optional \r then \n
+			size_t k = i + 2;
+			if (body[k] == '\\' && body[k + 1] == 'r')
+				k += 2;
+			if (body[k] == '\\' && body[k + 1] == 'n')
+				break;
+			out[j++] = ' ';
+			i++;
+			continue;
+		}
+		if (body[i] == '#') {
+			while (body[i] == '#')
+				i++;
+			if (body[i] == ' ')
+				i++;
+			i--;
+			continue;
+		}
+		out[j++] = body[i];
+	}
+
+	out[j] = '\0';
+	while (j > 0 && (out[j - 1] == ' ' || out[j - 1] == '\n' || out[j - 1] == '\r'))
+		out[--j] = '\0';
+}

@@ -194,4 +194,16 @@ bool sync_phase_skippable(int phase, int exit_code, bool unknown_module);
 int sync_shared_client_args(char* out, size_t size);
 int sync_shared_daemon_filter(char* out, size_t size);
 
+// One rsync --info=progress2 line: "xfr#N" sets *transferred (SYNC_PROGRESS_XFR in the result),
+// "to-chk=X/Y" (or older rsync's "to-check=") with Y > 0 sets *total = Y and *done = Y - X
+// (SYNC_PROGRESS_CHK). Outputs not named in the result are left as they were.
+#define SYNC_PROGRESS_XFR 1
+#define SYNC_PROGRESS_CHK 2
+int sync_parse_progress2(const char* line, int* transferred, int* done, int* total);
+
+// One line from rsync's output, ended by \r (progress2 redraws in place) or \n. Leading line
+// breaks are skipped, so empty lines never come back; a line longer than size - 1 comes back in
+// pieces. NULL at EOF with nothing read.
+char* sync_read_line_cr(char* buf, int size, FILE* fp);
+
 #endif

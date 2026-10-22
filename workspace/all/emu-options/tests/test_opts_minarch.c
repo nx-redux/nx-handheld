@@ -285,6 +285,32 @@ static void test_crlf(void) {
 	emu_ovl_cfg_free(&cfg);
 }
 
+// 11. A line longer than the parser's 1024-byte line buffer (a frontend value the
+// editor does not own) is copied through a save byte for byte, and the lines
+// after it still parse.
+static void test_long_line_passthrough(void) {
+	reset_root();
+	static char content[4096];
+	char longval[2000];
+	memset(longval, 'v', sizeof(longval) - 1);
+	longval[sizeof(longval) - 1] = '\0';
+	snprintf(content, sizeof(content), "minarch_long = %s\ntc_frameskip = auto\n", longval);
+	write_file(ROOT "/cfgdir/minarch.cfg", content);
+	static EmuOvlConfig cfg;
+	static OptsMinarchState st;
+	static OptsOverrideState ost;
+	load(&cfg, &st, &ost, NULL, NULL, NULL);
+	assert(cfg.sections[0].items[0].current_value == 1); // auto, read past the long line
+	cfg.sections[0].items[0].staged_value = 2;			 // manual
+	assert(opts_minarch_save(&cfg, &st, &ost) == 0);
+	char* out = slurp(ROOT "/cfgdir/minarch.cfg");
+	char want[4096];
+	snprintf(want, sizeof(want), "minarch_long = %s\ntc_frameskip = manual\n", longval);
+	assert(strcmp(out, want) == 0);
+	opts_minarch_free(&st);
+	emu_ovl_cfg_free(&cfg);
+}
+
 int main(void) {
 	test_layering();
 	test_game_replaces_console();
@@ -296,6 +322,7 @@ int main(void) {
 	test_unknown_value_roundtrip();
 	test_duplicate_first_wins();
 	test_crlf();
+	test_long_line_passthrough();
 	printf("test_opts_minarch: all tests passed\n");
 	return 0;
 }

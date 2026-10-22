@@ -26,7 +26,7 @@ INCDIR = -I. -I../common/ -I../settings/ -I../minarch/ -I../../$(PLATFORM)/platf
 COMMON_PATH = ../common
 
 include ../common/ui/ui.mk
-SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefetch.c ratools_reset.c \
+SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefetch.c ratools_scan.c ratools_logic.c ratools_reset.c \
          ../settings/settings_menu.c \
          $(COMMON_PATH)/utils.c $(COMMON_PATH)/api.c $(COMMON_PATH)/text_shape.c $(COMMON_PATH)/audio_manager.c \
          $(COMMON_PATH)/config.c $(COMMON_PATH)/scaler.c \

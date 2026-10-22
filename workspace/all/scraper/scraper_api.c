@@ -1,4 +1,5 @@
 #include "scraper_api.h"
+#include "scraper_parse.h"
 #include "http.h"
 #include "cjson/cJSON.h"
 #include "utils.h"
@@ -99,54 +100,6 @@ bool ScraperAPI_isOnline(void) {
 	return Wifi_isConnected();
 }
 
-// Region priority: us > wor > eu > any
-static const char* region_priority[] = {"us", "wor", "eu", NULL};
-
-// Extract preferred media URL from medias array
-// Tries types in preference order, then regions by priority
-static void extractMediaURL(cJSON* medias, const char** types, int type_count,
-							char* out_url, int url_size) {
-	out_url[0] = '\0';
-
-	for (int t = 0; t < type_count; t++) {
-		// First pass: try each preferred region in priority order
-		for (int r = 0; region_priority[r] != NULL; r++) {
-			cJSON* media;
-			cJSON_ArrayForEach(media, medias) {
-				cJSON* type = cJSON_GetObjectItem(media, "type");
-				if (!type || !cJSON_IsString(type))
-					continue;
-				if (strcmp(type->valuestring, types[t]) != 0)
-					continue;
-				cJSON* region = cJSON_GetObjectItem(media, "region");
-				cJSON* url = cJSON_GetObjectItem(media, "url");
-				if (!url || !cJSON_IsString(url))
-					continue;
-				if (region && cJSON_IsString(region) &&
-					strcmp(region->valuestring, region_priority[r]) == 0) {
-					snprintf(out_url, url_size, "%s", url->valuestring);
-					return;
-				}
-			}
-		}
-
-		// Second pass: take any available for this type
-		cJSON* media;
-		cJSON_ArrayForEach(media, medias) {
-			cJSON* type = cJSON_GetObjectItem(media, "type");
-			if (!type || !cJSON_IsString(type))
-				continue;
-			if (strcmp(type->valuestring, types[t]) != 0)
-				continue;
-			cJSON* url = cJSON_GetObjectItem(media, "url");
-			if (!url || !cJSON_IsString(url))
-				continue;
-			snprintf(out_url, url_size, "%s", url->valuestring);
-			return;
-		}
-	}
-}
-
 static bool computeCRC32(const char* filepath, uint32_t* out_crc, long* out_size) {
 	FILE* f = fopen(filepath, "rb");
 	if (!f)
@@ -173,75 +126,16 @@ static bool parseSearchResponse(HTTP_Response* resp, ScraperGameInfo* info) {
 		return false;
 	}
 
-	cJSON* root = cJSON_Parse(resp->data);
+	bool found = ScraperParse_gameInfo(resp->data, info);
 	HTTP_freeResponse(resp);
-	if (!root)
+	if (!found)
 		return false;
-
-	cJSON* response = cJSON_GetObjectItem(root, "response");
-	if (!response) {
-		cJSON_Delete(root);
-		return false;
-	}
-
-	cJSON* jeu = cJSON_GetObjectItem(response, "jeu");
-	if (!jeu) {
-		cJSON_Delete(root);
-		return false;
-	}
-
-	info->found = true;
-
-	// Extract game name (prefer English, fallback to any)
-	cJSON* noms = cJSON_GetObjectItem(jeu, "noms");
-	if (noms && cJSON_IsArray(noms)) {
-		cJSON* nom;
-		bool got_name = false;
-		cJSON_ArrayForEach(nom, noms) {
-			cJSON* region = cJSON_GetObjectItem(nom, "region");
-			cJSON* text = cJSON_GetObjectItem(nom, "text");
-			if (!text || !cJSON_IsString(text))
-				continue;
-			if (!got_name) {
-				snprintf(info->game_name, sizeof(info->game_name), "%s", text->valuestring);
-				got_name = true;
-			}
-			if (region && cJSON_IsString(region) &&
-				(strcmp(region->valuestring, "us") == 0 ||
-				 strcmp(region->valuestring, "wor") == 0 ||
-				 strcmp(region->valuestring, "eu") == 0)) {
-				snprintf(info->game_name, sizeof(info->game_name), "%s", text->valuestring);
-				break;
-			}
-		}
-	}
-
-	// Extract media URLs
-	cJSON* medias = cJSON_GetObjectItem(jeu, "medias");
-	if (medias && cJSON_IsArray(medias)) {
-		const char* screenshot_types[] = {"ss", "sstitle"};
-		extractMediaURL(medias, screenshot_types, 2,
-						info->screenshot_url, sizeof(info->screenshot_url));
-
-		const char* boxart_types[] = {"box-3D", "box-2D"};
-		extractMediaURL(medias, boxart_types, 2,
-						info->boxart_url, sizeof(info->boxart_url));
-
-		const char* boxart2d_types[] = {"box-2D"};
-		extractMediaURL(medias, boxart2d_types, 1,
-						info->boxart2d_url, sizeof(info->boxart2d_url));
-
-		const char* wheel_types[] = {"wheel-hd", "wheel"};
-		extractMediaURL(medias, wheel_types, 2,
-						info->wheel_url, sizeof(info->wheel_url));
-	}
 
 	// which media were found, not their URLs: ScreenScraper's carry the dev and user passwords as query parameters
 	LOG_info("Scraper: game='%s' ss=%s box=%s box2d=%s wheel=%s\n", info->game_name,
 			 info->screenshot_url[0] ? "yes" : "no", info->boxart_url[0] ? "yes" : "no",
 			 info->boxart2d_url[0] ? "yes" : "no", info->wheel_url[0] ? "yes" : "no");
 
-	cJSON_Delete(root);
 	return true;
 }
 

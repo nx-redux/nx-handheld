@@ -39,9 +39,9 @@
 #include "ui_splash.h"
 #include "utils.h" // escapeSingleQuotes
 #include "xtras_compat.h"
+#include "xtras_meta.h"
 
 #define MAX_ENTRIES 32
-#define META_STR 256
 
 // Moved up from the detail-screen section (still defined there originally
 // for wrap_text() below) so both the description block AND Task 13's result
@@ -85,71 +85,10 @@ static void xtras_state_dir(char* buf, size_t n) {
 // but re-hitting it on every app open is still pointless).
 #define LATEST_CACHE_TTL_S 3600
 
-typedef struct {
-	char id[64]; // catalog folder name
-	char name[META_STR];
-	char category[16]; // "GAME" | "TOOL"
-	char desc[1024];
-	char repo[128];		   // GitHub owner/name whose releases drive the update check ("" = untracked)
-	char version[64];	   // our catalog version string (internal entries)
-	bool version_internal; // true = update via our version=, false = upstream repo tag
-	char latest[64];	   // latest upstream release tag, from the <id>.latest cache ("" = unknown)
-	int size_mb;
-	char installed[64]; // "" = not installed, else the installed release tag
-	char done_msg[128]; // optional: install-success subtitle override, for
-						// entries whose payload doesn't land in the default
-						// category folder (e.g. an emulator pak in Emus/<plat>/, not
-						// Tools/, so "Find it in Tools." would mislead)
-	char platforms[64]; // meta.txt "platforms=" verbatim ("" = compatible everywhere)
-	bool compatible;	// computed in catalog_load via xtras_platform_compatible
-} AddonEntry;
-
 static AddonEntry entries[MAX_ENTRIES];
 static int entry_count = 0;
 static SDL_Surface* screen = NULL;
 static char pak_dir[MAX_PATH];
-
-// --- meta.txt: flat key=value, unknown keys ignored ---------------------
-static void meta_set(AddonEntry* e, const char* key, const char* val) {
-	if (!strcmp(key, "name"))
-		snprintf(e->name, sizeof(e->name), "%s", val);
-	else if (!strcmp(key, "category"))
-		snprintf(e->category, sizeof(e->category), "%s", val);
-	else if (!strcmp(key, "desc"))
-		snprintf(e->desc, sizeof(e->desc), "%s", val);
-	else if (!strcmp(key, "repo"))
-		snprintf(e->repo, sizeof(e->repo), "%s", val);
-	else if (!strcmp(key, "size_mb"))
-		e->size_mb = atoi(val);
-	else if (!strcmp(key, "done_msg"))
-		snprintf(e->done_msg, sizeof(e->done_msg), "%s", val);
-	else if (!strcmp(key, "platforms"))
-		snprintf(e->platforms, sizeof(e->platforms), "%s", val);
-	else if (!strcmp(key, "version"))
-		snprintf(e->version, sizeof(e->version), "%s", val);
-	else if (!strcmp(key, "version_source"))
-		e->version_internal = (strcmp(val, "internal") == 0);
-	// "asset" is consumed only by the entry's own install.sh; ignored here.
-}
-
-static bool meta_parse(const char* path, AddonEntry* e) {
-	FILE* f = fopen(path, "r");
-	if (!f)
-		return false;
-	char line[1200];
-	while (fgets(line, sizeof(line), f)) {
-		char* nl = strchr(line, '\n');
-		if (nl)
-			*nl = '\0';
-		char* eq = strchr(line, '=');
-		if (!eq || eq == line)
-			continue;
-		*eq = '\0';
-		meta_set(e, line, eq + 1);
-	}
-	fclose(f);
-	return e->name[0] && e->category[0];
-}
 
 // First line of a small state file -> out (newline stripped). false (and an
 // empty out) when the file is missing/unreadable/empty.
@@ -309,12 +248,6 @@ static void* latest_check_thread(void* arg) {
 	return NULL;
 }
 
-static int entry_cmp(const void* a, const void* b) {
-	const AddonEntry *ea = a, *eb = b;
-	int c = strcmp(ea->category, eb->category); // GAME before TOOL
-	return c ? c : strcasecmp(ea->name, eb->name);
-}
-
 static void catalog_load(void) {
 	entry_count = 0;
 	char dir[MAX_PATH];
@@ -331,7 +264,7 @@ static void catalog_load(void) {
 		AddonEntry* e = &entries[entry_count];
 		memset(e, 0, sizeof(*e));
 		snprintf(e->id, sizeof(e->id), "%s", de->d_name);
-		if (!meta_parse(meta, e))
+		if (!xtras_meta_parse(meta, e))
 			continue;
 		e->compatible = xtras_platform_compatible(e->platforms, PLATFORM);
 		// Resolve version_source default: explicit internal wins; else an entry
@@ -350,7 +283,7 @@ static void catalog_load(void) {
 		entry_count++;
 	}
 	closedir(d);
-	qsort(entries, entry_count, sizeof(entries[0]), entry_cmp);
+	qsort(entries, entry_count, sizeof(entries[0]), xtras_entry_cmp);
 }
 
 // --- list screen --------------------------------------------------------
@@ -373,7 +306,7 @@ static const char* const TAB_LABEL[TAB_COUNT] = {"GAMES", "TOOLS"};
 // when it reaches each group's start index. Rebuilt on tab switch, after
 // any install/uninstall, and when the background latest-check completes, so
 // it always reflects current installed/latest state - entries[] itself is
-// never reordered by this, only entry_cmp() (via catalog_load's qsort,
+// never reordered by this, only xtras_entry_cmp() (via catalog_load's qsort,
 // unchanged) still governs category+name order within each group.
 typedef struct {
 	int indices[MAX_ENTRIES]; // entries[] index for each row, in display order
@@ -878,7 +811,7 @@ static void draw_result_dialog(const char* title, const char* subtitle, const ch
 // In-flight progress screen: menu bar carries the entry's name (continuity
 // with the detail page this was launched from), UIDownloadProgress carries
 // the moving parts. show_bar is always true here - install.sh/uninstall.sh
-// always emit at least one @NN hint (see parse_hint below) before this is
+// always emit at least one @NN hint (see xtras_parse_hint in xtras_meta.c) before this is
 // first called, per their own contract comment.
 static void draw_progress_screen(const char* menu_title, const char* status,
 								 const char* detail, int progress) {
@@ -891,54 +824,6 @@ static void draw_progress_screen(const char* menu_title, const char* status,
 										  .show_bar = true,
 									  });
 	GFX_flip(screen);
-}
-
-// Catalog progress-hint convention (Task 11): a line of the form "@NN status
-// text" - NN a bare decimal (no sign), then a space, then non-empty free
-// text - sets the progress bar to NN% (clamped to 100, in case a script
-// ever sends more) and shows "status text" as the big centered status line.
-// Any other line is ordinary human-readable output and is shown as the
-// smaller detail line below the bar instead (see the caller's read loop).
-// Scripts emit hints as their OWN line, never glued onto an existing
-// message line, so existing message strings (checksum failures, "kept",
-// etc.) stay byte-for-byte intact for anything that greps them - see
-// install.sh's header for the full contract text.
-//
-// Hardening (round-1 review): a line is only ever treated as hint SYNTAX -
-// and so never shown to the user verbatim - once it's unambiguously
-// digit-leading (line[1] is a decimal digit; this also rejects a '-' right
-// after '@', so a negative number is never mistaken for a hint - it just
-// reads as ordinary text instead, same as any other line that merely
-// starts with '@', e.g. an email address or an "@channel"-style mention).
-// Once that gate is passed, strtol() only ever walks digits it was already
-// promised were there, so it can't wander onto leading whitespace the way
-// it would if called on arbitrary input. A digit-leading line that ISN'T a
-// well-formed hint (no space, or a space with nothing after it) is still
-// malformed hint syntax, not ordinary text - `*stripped` is set to
-// whatever remains after the "@<digits>" token (possibly empty) so the
-// caller can route THAT to the detail line instead of the raw "@NN..."
-// text; the caller drops the line entirely when `*stripped` comes back
-// empty.
-//
-// Returns true (with *pct/*status_text set) for a well-formed hint. Returns
-// false otherwise; *stripped is then NULL for ordinary (non-digit-leading)
-// text - use `line` itself unmodified - or a pointer to the hint-token-
-// stripped remainder for malformed digit-leading syntax.
-static bool parse_hint(const char* line, int* pct, const char** status_text,
-					   const char** stripped) {
-	*stripped = NULL;
-	if (line[0] != '@' || !isdigit((unsigned char)line[1]))
-		return false;
-
-	char* end;
-	long n = strtol(line + 1, &end, 10);
-	if (*end == ' ' && end[1] != '\0') {
-		*pct = (n > 100) ? 100 : (int)n;
-		*status_text = end + 1;
-		return true;
-	}
-	*stripped = (*end == ' ') ? end + 1 : end;
-	return false;
 }
 
 // install.sh/uninstall.sh's shared env contract (Task 1, extended Task 9):
@@ -1007,7 +892,7 @@ static int run_entry_script(AddonEntry* e, const char* script_name, const char* 
 	char progress_title[32];
 	snprintf(progress_title, sizeof(progress_title), "%sing...", title);
 
-	// status/detail/progress: fed by parse_hint() below, this is the exact
+	// status/detail/progress: fed by xtras_parse_hint(), this is the exact
 	// state UI_renderDownloadProgress needs each frame. status starts as
 	// progress_title so the bar reads something sane for the brief instant
 	// before the script's first @NN hint line arrives.
@@ -1036,7 +921,7 @@ static int run_entry_script(AddonEntry* e, const char* script_name, const char* 
 		int pct;
 		const char *status_text, *stripped;
 		const char* display; // hint-stripped text, for error_line below
-		if (parse_hint(buf, &pct, &status_text, &stripped)) {
+		if (xtras_parse_hint(buf, &pct, &status_text, &stripped)) {
 			progress = pct;
 			snprintf(status, sizeof(status), "%s", status_text);
 			display = status_text;
