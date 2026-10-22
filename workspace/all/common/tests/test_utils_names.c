@@ -74,6 +74,34 @@ static void test_display_name(void) {
 	assert(strcmp(out, "Archive.tar.gzipped") == 0);
 	getDisplayName("", out);
 	assert(strcmp(out, "") == 0);
+	// a dot inside the title is not an extension
+	getDisplayName("Super Mario Bros. 3.nes", out);
+	assert(strcmp(out, "Super Mario Bros. 3") == 0);
+	getDisplayName("Super Mario Bros. 3 (USA).nes", out);
+	assert(strcmp(out, "Super Mario Bros. 3") == 0);
+	getDisplayName("Ys Vol. 2.pce", out);
+	assert(strcmp(out, "Ys Vol. 2") == 0);
+	getDisplayName("Game 1.11.zip", out);
+	assert(strcmp(out, "Game 1.11") == 0);
+	getDisplayName("Dr. Mario.gb", out);
+	assert(strcmp(out, "Dr. Mario") == 0);
+	getDisplayName("Knuckles.32x", out);
+	assert(strcmp(out, "Knuckles") == 0);
+	getDisplayName("Pack.7z", out);
+	assert(strcmp(out, "Pack") == 0);
+}
+
+static void test_file_extension(void) {
+	assert(isFileExtension(".nes"));
+	assert(isFileExtension(".p8"));
+	assert(isFileExtension(".7z"));
+	assert(isFileExtension(".doom"));
+	assert(!isFileExtension(".c")); // one character
+	assert(!isFileExtension(".gzipped"));
+	assert(!isFileExtension(". 3"));
+	assert(!isFileExtension(".11"));
+	assert(!isFileExtension(".a-b"));
+	assert(!isFileExtension("nes"));
 }
 
 static void test_emu_name(void) {
@@ -232,6 +260,7 @@ int main(void) {
 	test_clean_name();
 	test_replace_string2();
 	test_display_name();
+	test_file_extension();
 	test_emu_name();
 	test_url_encode();
 	test_json_extract();

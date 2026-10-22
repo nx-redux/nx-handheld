@@ -33,13 +33,8 @@ void EntryNames_fileStem(const char* path, char* out) {
 	const char* base = baseName(path);
 	snprintf(out, MAX_PATH, "%s", base);
 	char* tmp;
-	while ((tmp = strrchr(out, '.')) != NULL) {
-		int len = strlen(tmp);
-		if (len > 2 && len <= 5)
-			tmp[0] = '\0'; // 1-4 letter extension plus dot
-		else
-			break;
-	}
+	while ((tmp = strrchr(out, '.')) != NULL && isFileExtension(tmp))
+		tmp[0] = '\0';
 	if (out[0] == '\0')
 		snprintf(out, MAX_PATH, "%s", base); // stripping ate everything; restore the basename
 }

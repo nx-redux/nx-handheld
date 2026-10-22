@@ -489,6 +489,22 @@ bool pathRelativeTo(char* path_out, const char* dir_from, const char* file_to) {
 	return ok;
 }
 
+bool isFileExtension(const char* dot) {
+	// 2-4 letters or digits after the dot, at least one a letter (.p8, .7z, .doom). Anything
+	// else is part of the name: the ". 3" in "Super Mario Bros. 3", or the ".11" in "Game 1.11".
+	size_t len = strlen(dot);
+	if (dot[0] != '.' || len < 3 || len > 5)
+		return false;
+	bool letter = false;
+	for (const char* c = dot + 1; *c; c++) {
+		if (!isalnum((unsigned char)*c))
+			return false;
+		if (isalpha((unsigned char)*c))
+			letter = true;
+	}
+	return letter;
+}
+
 void getDisplayName(const char* in_name, char* out_name) { // NOTE: out_name needs to be MAX_PATH length!
 	char* tmp;
 	char work_name[MAX_PATH];
@@ -501,13 +517,8 @@ void getDisplayName(const char* in_name, char* out_name) { // NOTE: out_name nee
 		strcpy(out_name, tmp + 1);
 
 	// remove extension(s), eg. .p8.png
-	while ((tmp = strrchr(out_name, '.')) != NULL) {
-		int len = strlen(tmp);
-		if (len > 2 && len <= 5)
-			tmp[0] = '\0'; // 1-4 letter extension plus dot (was 1-3, extended for .doom files)
-		else
-			break;
-	}
+	while ((tmp = strrchr(out_name, '.')) != NULL && isFileExtension(tmp))
+		tmp[0] = '\0';
 
 	// remove trailing parens (round and square)
 	strcpy(work_name, out_name);
