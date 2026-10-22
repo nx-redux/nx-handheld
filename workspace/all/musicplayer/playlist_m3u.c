@@ -142,14 +142,18 @@ int M3U_addTracks(const char* m3u_path, const PlaylistTrack* tracks, int count) 
 	if (!m3u_path || !tracks || count <= 0)
 		return -1;
 
-	// Read the existing paths once for the dup check.
-	PlaylistTrack existing[PLAYLIST_MAX_TRACKS];
+	// Read the existing paths once for the dup check (heap: ~386 KB).
+	PlaylistTrack* existing = malloc(sizeof(PlaylistTrack) * PLAYLIST_MAX_TRACKS);
+	if (!existing)
+		return -1;
 	int existing_count = 0;
 	M3U_loadTracks(m3u_path, existing, PLAYLIST_MAX_TRACKS, &existing_count);
 
 	FILE* f = fopen(m3u_path, "a");
-	if (!f)
+	if (!f) {
+		free(existing);
 		return -1;
+	}
 
 	int added = 0;
 	for (int i = 0; i < count; i++) {
@@ -178,6 +182,7 @@ int M3U_addTracks(const char* m3u_path, const PlaylistTrack* tracks, int count) 
 		}
 	}
 	fclose(f);
+	free(existing);
 	return added;
 }
 

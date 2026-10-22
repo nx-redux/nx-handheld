@@ -388,6 +388,10 @@ int podcast_rss_parse(const char* xml_data, int xml_len, PodcastFeed* feed);
 // to the cut, and saving that parse would silently drop the older episodes.
 bool podcast_rss_is_complete(const char* xml_data, int xml_len);
 
+// Publication date of an RSS (RFC 822, weekday optional, any zone) or Atom
+// (ISO 8601) date as a UTC timestamp; 0 when it can't be read
+uint32_t podcast_rss_parse_date(const char* date_str);
+
 // Parse RSS feed with episodes output
 int podcast_rss_parse_with_episodes(const char* xml_data, int xml_len, PodcastFeed* feed,
 									PodcastEpisode* episodes_out, int max_episodes,

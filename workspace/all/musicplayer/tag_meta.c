@@ -299,3 +299,71 @@ int TagMeta_id3Picture(const uint8_t* frame, size_t size, const uint8_t** image,
 	*type = pic_type;
 	return 1;
 }
+
+static uint32_t id3_be32(const uint8_t* p) {
+	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static uint32_t id3_syncsafe32(const uint8_t* p) {
+	return ((uint32_t)(p[0] & 0x7F) << 21) | ((uint32_t)(p[1] & 0x7F) << 14) |
+		   ((uint32_t)(p[2] & 0x7F) << 7) | (p[3] & 0x7F);
+}
+
+size_t TagMeta_id3Resync(uint8_t* p, size_t len) {
+	size_t w = 0;
+	for (size_t r = 0; r < len; r++) {
+		p[w++] = p[r];
+		if (p[r] == 0xFF && r + 1 < len && p[r + 1] == 0x00)
+			r++;
+	}
+	return w;
+}
+
+void TagMeta_id3Frames(uint8_t ver, uint8_t flags, uint8_t* tag, size_t size, TagMetaId3FrameFn fn, void* ctx) {
+	if ((ver != 3 && ver != 4) || !tag || !fn)
+		return;
+	size_t tag_len = size;
+	// v2.3 unsynchronises the whole tag; v2.4 sets it per frame (the tag flag
+	// then means every frame is)
+	if (ver == 3 && (flags & 0x80))
+		tag_len = TagMeta_id3Resync(tag, tag_len);
+
+	size_t pos = 0;
+	if ((flags & 0x40) && tag_len >= 4) { // extended header: skipped
+		uint32_t ext = ver == 4 ? id3_syncsafe32(tag) : id3_be32(tag) + 4;
+		if (ext > tag_len)
+			return;
+		pos = ext;
+	}
+
+	while (pos + 10 <= tag_len) {
+		uint8_t* fh = tag + pos;
+		if (fh[0] == 0) // padding
+			break;
+		uint32_t fsize = ver == 4 ? id3_syncsafe32(fh + 4) : id3_be32(fh + 4);
+		uint8_t fflags = fh[9];
+		pos += 10;
+		if (fsize == 0 || fsize > tag_len - pos)
+			break;
+
+		// Skip compressed / encrypted / grouped frames (v2.3: 0x80/0x40/0x20,
+		// v2.4: 0x08/0x04/0x40)
+		bool unsupported = ver == 3 ? (fflags & 0xE0) != 0 : (fflags & 0x4C) != 0;
+		if (!unsupported) {
+			uint8_t* data = tag + pos;
+			size_t data_len = fsize;
+			if (ver == 4 && (fflags & 0x01) && data_len >= 4) { // data length indicator
+				data += 4;
+				data_len -= 4;
+			}
+			// resynced in place: the frame only gets shorter
+			if (ver == 4 && ((fflags & 0x02) || (flags & 0x80)))
+				data_len = TagMeta_id3Resync(data, data_len);
+			char id[5];
+			memcpy(id, fh, 4);
+			id[4] = '\0';
+			fn(id, data, data_len, ctx);
+		}
+		pos += fsize;
+	}
+}

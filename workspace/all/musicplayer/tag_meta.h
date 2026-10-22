@@ -1,6 +1,7 @@
 #ifndef __TAG_META_H__
 #define __TAG_META_H__
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -43,6 +44,18 @@ int TagMeta_id3Picture(const uint8_t* frame, size_t size, const uint8_t** image,
 // stopping at the first terminator. Output is NUL-terminated and truncated on
 // a character boundary to fit out_size.
 void TagMeta_id3Text(uint8_t enc, const uint8_t* p, size_t len, char* out, size_t out_size);
+
+// Remove ID3 unsynchronisation (0xFF 0x00 -> 0xFF) in place, returns the new length
+size_t TagMeta_id3Resync(uint8_t* p, size_t len);
+
+// Called with each frame's NUL-terminated 4-character id and its body
+typedef void (*TagMetaId3FrameFn)(const char* id, const uint8_t* data, size_t len, void* ctx);
+
+// Walk the frames of an ID3v2.3/2.4 tag: ver and flags from the tag header,
+// tag the size bytes after it (modified in place). The extended header,
+// unsynchronisation and v2.4 data length indicators are dealt with; padding
+// ends the walk and compressed or encrypted frames are skipped.
+void TagMeta_id3Frames(uint8_t ver, uint8_t flags, uint8_t* tag, size_t size, TagMetaId3FrameFn fn, void* ctx);
 
 // Copy untagged stream text (ICY StreamTitle, icy-name; no declared charset)
 // from up to len bytes at src into out as UTF-8: kept as-is when it is valid

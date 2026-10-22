@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "http_download.h"
 #include "radio_net.h"
+#include "http_location.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,7 +100,7 @@ static int http_download_file_internal(const char* url, const char* filepath,
 			goto cleanup;
 		}
 
-		mbedtls_ssl_conf_authmode(&ssl_ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+		radio_net_tls_verify(&ssl_ctx->conf);
 		mbedtls_ssl_conf_rng(&ssl_ctx->conf, mbedtls_ctr_drbg_random, &ssl_ctx->ctr_drbg);
 
 		if (mbedtls_ssl_setup(&ssl_ctx->ssl, &ssl_ctx->conf) != 0) {
@@ -282,12 +283,15 @@ static int http_download_file_internal(const char* url, const char* filepath,
 			while (*end && *end != '\r' && *end != '\n')
 				end++;
 
-			char redirect_url[1024];
+			char location[1024];
 			int rlen = end - loc;
-			if (rlen >= (int)sizeof(redirect_url))
-				rlen = sizeof(redirect_url) - 1;
-			strncpy(redirect_url, loc, rlen);
-			redirect_url[rlen] = '\0';
+			if (rlen >= (int)sizeof(location))
+				rlen = sizeof(location) - 1;
+			memcpy(location, loc, rlen);
+			location[rlen] = '\0';
+			// a relative Location is resolved against the URL just requested
+			char redirect_url[1024];
+			HttpLocation_resolve(url, location, redirect_url, sizeof(redirect_url));
 
 			// Cleanup current connection
 			if (ssl_ctx) {

@@ -12,7 +12,11 @@ cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I.. -I../../include -o /tmp/nx_test_r
 cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I.. -I../../common -I../../../tg5040/platform -DMUSIC_SETTINGS_TEST_DIR='"/tmp/nx_music_settings_roundtrip"' -o /tmp/nx_test_music_settings ../settings.c test_music_settings.c -lm && /tmp/nx_test_music_settings
 cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -I.. -o /tmp/nx_test_embedded_lyrics ../embedded_lyrics.c ../tag_meta.c test_embedded_lyrics.c && /tmp/nx_test_embedded_lyrics
 cc -std=gnu99 -Wall -Werror -I.. -o /tmp/nx_test_radio_hls_id3 ../radio_hls.c ../tag_meta.c test_radio_hls_id3.c && /tmp/nx_test_radio_hls_id3
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_radio_hls_playlist ../radio_hls.c ../tag_meta.c test_radio_hls_playlist.c && /tmp/nx_test_radio_hls_playlist
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_http_chunk test_http_chunk.c && /tmp/nx_test_http_chunk
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_audio_downmix test_audio_downmix.c && /tmp/nx_test_audio_downmix
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -I../include/yxml -o /tmp/nx_test_podcast_rss ../podcast_rss.c ../include/yxml/yxml.c test_podcast_rss.c && /tmp/nx_test_podcast_rss
 cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE -fsanitize=address -g -I.. -o /tmp/nx_test_disk_cache ../disk_cache.c test_disk_cache.c && /tmp/nx_test_disk_cache
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_tag_meta_id3 ../tag_meta.c test_tag_meta_id3.c && /tmp/nx_test_tag_meta_id3
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_http_location test_http_location.c && /tmp/nx_test_http_location
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_lrc_parse ../lrc_parse.c test_lrc_parse.c && /tmp/nx_test_lrc_parse

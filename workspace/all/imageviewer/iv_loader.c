@@ -84,8 +84,12 @@ static IvLoadResult decodeRequest(const char* path, IvLoadPurpose purpose) {
 		return r;
 	}
 
-	SDL_Surface* converted = SDL_ConvertSurfaceFormat(raw, g_loader.screen_format, 0);
-	SDL_FreeSurface(raw);
+	// Already in the screen format: kept as is, no second full-size copy
+	SDL_Surface* converted = raw;
+	if (raw->format->format != g_loader.screen_format) {
+		converted = SDL_ConvertSurfaceFormat(raw, g_loader.screen_format, 0);
+		SDL_FreeSurface(raw);
+	}
 	if (!converted) {
 		r.status = IV_LOAD_ERR_DECODE;
 		return r;

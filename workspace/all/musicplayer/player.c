@@ -1943,12 +1943,6 @@ static uint32_t read_syncsafe_int(const uint8_t* data) {
 		   ((uint32_t)(data[3] & 0x7F));
 }
 
-// Helper: read big-endian 32-bit integer
-static uint32_t read_be32(const uint8_t* data) {
-	return ((uint32_t)data[0] << 24) | ((uint32_t)data[1] << 16) |
-		   ((uint32_t)data[2] << 8) | (uint32_t)data[3];
-}
-
 // Helper: copy string, trimming trailing spaces
 static void copy_metadata_string(char* dest, const char* src, size_t max_len) {
 	if (!src || !dest || max_len == 0)
@@ -2053,6 +2047,34 @@ static void adopt_embedded_picture(const uint8_t* data, size_t size, uint32_t ty
 	album_art_is_front = is_front;
 }
 
+// Title/artist/album text frames and APIC pictures of an ID3v2 tag
+static void id3v2_frame(const char* frame_id, const uint8_t* frame_data, size_t frame_size, void* ctx) {
+	(void)ctx;
+	// Process text frames (TIT2, TPE1, TALB, etc.)
+	if (frame_id[0] == 'T' && frame_size > 1) {
+		uint8_t encoding = frame_data[0];
+		char temp[256];
+		TagMeta_id3Text(encoding, &frame_data[1], frame_size - 1, temp, sizeof(temp));
+
+		// Assign to appropriate field
+		if (strcmp(frame_id, "TIT2") == 0 && temp[0]) { // Title
+			copy_metadata_string(player.track_info.title, temp, sizeof(player.track_info.title));
+		} else if (strcmp(frame_id, "TPE1") == 0 && temp[0]) { // Artist
+			copy_metadata_string(player.track_info.artist, temp, sizeof(player.track_info.artist));
+		} else if (strcmp(frame_id, "TALB") == 0 && temp[0]) { // Album
+			copy_metadata_string(player.track_info.album, temp, sizeof(player.track_info.album));
+		}
+	}
+	// Process APIC frame (album art)
+	else if (strcmp(frame_id, "APIC") == 0) {
+		const uint8_t* image;
+		size_t image_size;
+		uint32_t pic_type;
+		if (TagMeta_id3Picture(frame_data, frame_size, &image, &image_size, &pic_type))
+			adopt_embedded_picture(image, image_size, pic_type);
+	}
+}
+
 // Parse ID3v2 tag (at beginning of file)
 static void parse_id3v2(const char* filepath) {
 	FILE* f = fopen(filepath, "rb");
@@ -2072,6 +2094,7 @@ static void parse_id3v2(const char* filepath) {
 	}
 
 	uint8_t version_major = header[3]; // 3 = ID3v2.3, 4 = ID3v2.4
+	uint8_t flags = header[5];
 	uint32_t tag_size = read_syncsafe_int(&header[6]);
 
 	// Cap the allocation: the syncsafe field allows up to 256MB, which an
@@ -2096,62 +2119,9 @@ static void parse_id3v2(const char* filepath) {
 	}
 	fclose(f);
 
-	// Parse frames
-	uint32_t pos = 0;
-	while (pos + 10 < tag_size) {
-		// Frame header: ID(4) + Size(4) + Flags(2)
-		char frame_id[5];
-		memcpy(frame_id, &tag_data[pos], 4);
-		frame_id[4] = '\0';
-
-		// Check for padding (all zeros)
-		if (frame_id[0] == '\0')
-			break;
-
-		uint32_t frame_size;
-		if (version_major == 4) {
-			frame_size = read_syncsafe_int(&tag_data[pos + 4]);
-		} else {
-			frame_size = read_be32(&tag_data[pos + 4]);
-		}
-
-		// Skip flags
-		pos += 10;
-
-		// Bounds check without adding: pos + frame_size can wrap in uint32_t
-		// (frame_size is an untrusted 32-bit big-endian value in v2.2/v2.3),
-		// so compute the remaining space instead. pos <= tag_size here because
-		// the loop guard was `pos + 10 < tag_size` before the += 10.
-		if (frame_size == 0 || frame_size > tag_size - pos)
-			break;
-
-		// Process text frames (TIT2, TPE1, TALB, etc.)
-		if (frame_id[0] == 'T' && frame_size > 1) {
-			const uint8_t* frame_data = &tag_data[pos];
-			uint8_t encoding = frame_data[0];
-			char temp[256];
-			TagMeta_id3Text(encoding, &frame_data[1], frame_size - 1, temp, sizeof(temp));
-
-			// Assign to appropriate field
-			if (strcmp(frame_id, "TIT2") == 0 && temp[0]) { // Title
-				copy_metadata_string(player.track_info.title, temp, sizeof(player.track_info.title));
-			} else if (strcmp(frame_id, "TPE1") == 0 && temp[0]) { // Artist
-				copy_metadata_string(player.track_info.artist, temp, sizeof(player.track_info.artist));
-			} else if (strcmp(frame_id, "TALB") == 0 && temp[0]) { // Album
-				copy_metadata_string(player.track_info.album, temp, sizeof(player.track_info.album));
-			}
-		}
-		// Process APIC frame (album art)
-		else if (strcmp(frame_id, "APIC") == 0) {
-			const uint8_t* image;
-			size_t image_size;
-			uint32_t pic_type;
-			if (TagMeta_id3Picture(&tag_data[pos], frame_size, &image, &image_size, &pic_type))
-				adopt_embedded_picture(image, image_size, pic_type);
-		}
-
-		pos += frame_size;
-	}
+	// Parse frames (extended header, unsynchronisation and data length
+	// indicators handled by the shared walker)
+	TagMeta_id3Frames(version_major, flags, tag_data, tag_size, id3v2_frame, NULL);
 
 	free(tag_data);
 }

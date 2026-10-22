@@ -118,6 +118,7 @@ int main(int argc, char* argv[]) {
 			usage();
 		int value = atoi(argv[3]);
 		if (strcmp(prop, "volume") == 0) {
+			value = value < 0 ? 0 : (value > 20 ? 20 : value);
 			// Update shm
 			if (s->jack || s->audiosink != 0)
 				s->headphones = value;
@@ -149,6 +150,7 @@ int main(int argc, char* argv[]) {
 			save_settings(s);
 #ifdef HAS_FAN
 		} else if (strcmp(prop, "fanspeed") == 0) {
+			value = value < -3 ? -3 : (value > 100 ? 100 : value); // -1..-3 = auto modes
 			s->fanSpeed = value;
 			SetRawFanSpeed(value);
 			save_settings(s);

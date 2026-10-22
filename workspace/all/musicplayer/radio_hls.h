@@ -4,7 +4,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// Segments kept from one playlist read: the newest ones of a long live window,
+// or the next ones of a long finished playlist (see has_more)
 #define HLS_MAX_SEGMENTS 64
+// Largest playlist read (long live windows list hundreds of segments)
+#define HLS_PLAYLIST_BUF_SIZE (256 * 1024)
 #define HLS_MAX_URL_LEN 1024
 #define HLS_SEGMENT_BUF_SIZE (256 * 1024)
 #define HLS_AAC_BUF_SIZE (128 * 1024)
@@ -28,15 +32,28 @@ typedef struct {
 	int last_played_sequence;
 	bool is_live;
 	bool encrypted; // #EXT-X-KEY with a non-NONE method — segments can't be decoded
+	bool has_more;	// finished playlist with segments after the kept window
 	uint32_t last_playlist_fetch;
 } HLSContext;
 
 // Check if URL is an HLS stream (.m3u8)
 bool radio_hls_is_url(const char* url);
 
-// Parse M3U8 playlist from content
-// Returns number of segments found
+// Parse M3U8 playlist from content (ctx->last_played_sequence must be set:
+// it picks the window of a playlist longer than HLS_MAX_SEGMENTS)
+// Returns number of segments kept
 int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* base_url);
+
+// Fetches a playlist body (NUL-terminated, a cut-off last line dropped).
+// Returns a malloc'd string the caller frees, or NULL on failure.
+char* radio_hls_fetch_playlist(const char* url);
+
+// Segments to skip before the kept window of a playlist listing count
+// segments from media_sequence (last_played_sequence -1 = nothing played yet)
+int radio_hls_window_skip(int count, int media_sequence, bool is_live, int last_played_sequence);
+
+// Segment index a new live stream starts at (near the live edge)
+int radio_hls_live_start_index(const HLSContext* ctx);
 
 // URL utilities
 void radio_hls_get_base_url(const char* url, char* base, int base_size);

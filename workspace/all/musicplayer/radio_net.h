@@ -20,4 +20,10 @@ int radio_net_fetch(const char* url, uint8_t* buffer, int buffer_size,
 // Returns 0 on success (resolved_url filled), -1 on error
 int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_size);
 
+// Server certificate checking for a TLS client config: verified against the
+// shipped CA bundle when the card has one (as common/http.c does through
+// curl), unverified otherwise
+struct mbedtls_ssl_config;
+void radio_net_tls_verify(struct mbedtls_ssl_config* conf);
+
 #endif

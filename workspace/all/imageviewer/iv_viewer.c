@@ -58,7 +58,8 @@ static char vw_prefetch_prev_path[512];
 // --- Prefetch cache: 3-slot LRU, bounded by a total-pixel budget ------------
 
 #define IV_CACHE_SLOTS 3
-#define IV_CACHE_PIXEL_BUDGET (IV_MAX_PIXELS + 8 * 1000 * 1000)
+// Two largest prefetchable neighbors (prefetched images only ever enter it)
+#define IV_CACHE_PIXEL_BUDGET (2L * IV_PREFETCH_MAX_PIXELS)
 
 typedef struct {
 	char path[512];
@@ -100,8 +101,9 @@ static long cache_total_pixels(void) {
 	return total;
 }
 
-// Inserts with LRU eviction; frees `surf` instead of caching it if the pixel
-// budget can't be met even after evicting the least-recently-used entry.
+// Inserts with LRU eviction: least-recently-used entries go until there is a
+// free slot and the pixel budget holds; `surf` is freed instead of cached
+// when it alone is over the budget.
 static void cache_put(const char* path, SDL_Surface* surf, int ow, int oh) {
 	for (int i = 0; i < IV_CACHE_SLOTS; i++) {
 		if (vw_cache[i].used && strcmp(vw_cache[i].path, path) == 0) {
@@ -114,25 +116,26 @@ static void cache_put(const char* path, SDL_Surface* surf, int ow, int oh) {
 		}
 	}
 
-	int slot = -1;
-	for (int i = 0; i < IV_CACHE_SLOTS; i++) {
-		if (!vw_cache[i].used) {
-			slot = i;
-			break;
-		}
-	}
-	if (slot < 0) {
-		slot = 0;
-		for (int i = 1; i < IV_CACHE_SLOTS; i++)
-			if (vw_cache[i].lru < vw_cache[slot].lru)
-				slot = i;
-		SDL_FreeSurface(vw_cache[slot].surf);
-		vw_cache[slot].used = false;
-	}
-
-	if (cache_total_pixels() + (long)ow * oh > IV_CACHE_PIXEL_BUDGET) {
+	if ((long)ow * oh > IV_CACHE_PIXEL_BUDGET) {
 		SDL_FreeSurface(surf);
 		return;
+	}
+
+	int slot = -1;
+	for (;;) {
+		int oldest = -1;
+		slot = -1;
+		for (int i = 0; i < IV_CACHE_SLOTS; i++) {
+			if (!vw_cache[i].used)
+				slot = i;
+			else if (oldest < 0 || vw_cache[i].lru < vw_cache[oldest].lru)
+				oldest = i;
+		}
+		if ((slot >= 0 && cache_total_pixels() + (long)ow * oh <= IV_CACHE_PIXEL_BUDGET) || oldest < 0)
+			break;
+		SDL_FreeSurface(vw_cache[oldest].surf);
+		vw_cache[oldest].surf = NULL;
+		vw_cache[oldest].used = false;
 	}
 
 	vw_cache[slot].used = true;

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "radio_net.h"
 #include "http_chunk.h"
+#include "http_location.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,38 @@
 #include "mbedtls/ssl.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
+#include "mbedtls/x509_crt.h"
+#include <pthread.h>
+#include "ca_bundle.h"
+
+// CA bundle parsed once per process and shared by every TLS connection
+// (read-only after parsing)
+static mbedtls_x509_crt tls_ca_chain;
+static bool tls_ca_loaded;
+static pthread_once_t tls_ca_once = PTHREAD_ONCE_INIT;
+
+static void tls_ca_load(void) {
+	mbedtls_x509_crt_init(&tls_ca_chain);
+	const char* bundle = nx_ca_bundle_path();
+	if (!bundle)
+		return;
+	// > 0 = some entries were skipped (e.g. a curve this build leaves out):
+	// the rest still verify
+	int ret = mbedtls_x509_crt_parse_file(&tls_ca_chain, bundle);
+	tls_ca_loaded = ret >= 0 && tls_ca_chain.raw.len > 0;
+	if (!tls_ca_loaded)
+		LOG_error("[RadioNet] CA bundle %s not loaded (-0x%04X): TLS unverified\n", bundle, -ret);
+}
+
+void radio_net_tls_verify(mbedtls_ssl_config* conf) {
+	pthread_once(&tls_ca_once, tls_ca_load);
+	if (tls_ca_loaded) {
+		mbedtls_ssl_conf_ca_chain(conf, &tls_ca_chain, NULL);
+		mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+	} else {
+		mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_NONE);
+	}
+}
 
 // TLS 1.3: mbedtls_ssl_read/write may return non-fatal errors that require retry
 #define SSL_READ_IS_RETRYABLE(r)          \
@@ -175,7 +208,7 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 			LOG_error("[RadioNet] mbedtls_ssl_config_defaults failed: %d\n", ssl_ret);
 			goto cleanup;
 		}
-		mbedtls_ssl_conf_authmode(&ssl_ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+		radio_net_tls_verify(&ssl_ctx->conf);
 		mbedtls_ssl_conf_rng(&ssl_ctx->conf, mbedtls_ctr_drbg_random, &ssl_ctx->ctr_drbg);
 
 		ssl_ret = mbedtls_ssl_setup(&ssl_ctx->ssl, &ssl_ctx->conf);
@@ -377,13 +410,16 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 			while (*end && *end != '\r' && *end != '\n')
 				end++;
 
-			// Copy redirect URL before cleanup
-			char redirect_url[1024];
+			// Copy redirect URL before cleanup (a relative one is resolved
+			// against the URL just requested)
+			char location[1024];
 			int rlen = end - loc;
-			if (rlen >= (int)sizeof(redirect_url))
-				rlen = sizeof(redirect_url) - 1;
-			strncpy(redirect_url, loc, rlen);
-			redirect_url[rlen] = '\0';
+			if (rlen >= (int)sizeof(location))
+				rlen = sizeof(location) - 1;
+			memcpy(location, loc, rlen);
+			location[rlen] = '\0';
+			char redirect_url[1024];
+			HttpLocation_resolve(url, location, redirect_url, sizeof(redirect_url));
 
 			// Cleanup current connection and buffers before recursive call
 			if (ssl_ctx) {
@@ -714,7 +750,7 @@ int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_
 				mbedtls_ssl_setup(&ssl_ctx->ssl, &ssl_ctx->conf) != 0) {
 				goto resolve_cleanup;
 			}
-			mbedtls_ssl_conf_authmode(&ssl_ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
+			radio_net_tls_verify(&ssl_ctx->conf);
 			mbedtls_ssl_conf_rng(&ssl_ctx->conf, mbedtls_ctr_drbg_random, &ssl_ctx->ctr_drbg);
 			mbedtls_ssl_set_hostname(&ssl_ctx->ssl, host);
 
@@ -859,8 +895,13 @@ int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_
 					end++;
 				int rlen = end - loc;
 				if (rlen > 0 && rlen < (int)sizeof(current_url)) {
-					strncpy(current_url, loc, rlen);
-					current_url[rlen] = '\0';
+					char location[sizeof(current_url)];
+					memcpy(location, loc, rlen);
+					location[rlen] = '\0';
+					// a relative Location is resolved against the URL just requested
+					char next_url[sizeof(current_url)];
+					HttpLocation_resolve(current_url, location, next_url, sizeof(next_url));
+					snprintf(current_url, sizeof(current_url), "%s", next_url);
 					free(host);
 					free(path);
 					continue; // Follow redirect

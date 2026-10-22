@@ -59,49 +59,105 @@ static void safe_strcat(char* dest, const char* src, size_t dest_size) {
 
 // Parse RFC 2822 date format (common in RSS)
 // Example: "Tue, 14 Jan 2025 08:00:00 GMT"
-static uint32_t parse_rfc2822_date(const char* date_str) {
+// Zone of an RFC 822 date ("+0100", "GMT", "EST", ...) as seconds east of UTC
+static long rfc822_zone_offset(const char* z) {
+	while (*z == ' ')
+		z++;
+	if ((z[0] == '+' || z[0] == '-') && isdigit((unsigned char)z[1]) && isdigit((unsigned char)z[2])) {
+		int hh = (z[1] - '0') * 10 + (z[2] - '0');
+		int mm = 0;
+		const char* m = z + 3;
+		if (*m == ':')
+			m++;
+		if (isdigit((unsigned char)m[0]) && isdigit((unsigned char)m[1]))
+			mm = (m[0] - '0') * 10 + (m[1] - '0');
+		long off = hh * 3600L + mm * 60L;
+		return z[0] == '-' ? -off : off;
+	}
+	static const struct {
+		const char* name;
+		int hours;
+	} zones[] = {{"EST", -5}, {"EDT", -4}, {"CST", -6}, {"CDT", -5}, {"MST", -7}, {"MDT", -6}, {"PST", -8}, {"PDT", -7}};
+	for (size_t i = 0; i < sizeof(zones) / sizeof(zones[0]); i++) {
+		if (strncasecmp(z, zones[i].name, 3) == 0)
+			return zones[i].hours * 3600L;
+	}
+	return 0; // GMT, UT, UTC, Z or none
+}
+
+uint32_t podcast_rss_parse_date(const char* date_str) {
 	if (!date_str || !date_str[0])
 		return 0;
 
 	struct tm tm = {0};
 	char month_str[4] = {0};
-	// Initialize: sscanf below accepts partial matches (>= 4 / >= 3 fields), so
-	// unmatched time fields would otherwise be read uninitialized by mktime.
+	// Initialize: sscanf below accepts partial matches, so unmatched time
+	// fields would otherwise be read uninitialized.
 	int day = 0, year = 0, hour = 0, min = 0, sec = 0;
+	int used = 0;
 
-	// Try common formats
-	// Format: "Day, DD Mon YYYY HH:MM:SS TZ"
-	if (sscanf(date_str, "%*[^,], %d %3s %d %d:%d:%d",
-			   &day, month_str, &year, &hour, &min, &sec) >= 4) {
+	// RFC 822: "[Day, ]DD Mon YYYY HH:MM[:SS] [zone]" (the weekday is optional)
+	const char* p = date_str;
+	while (*p == ' ')
+		p++;
+	const char* comma = strchr(p, ',');
+	if (comma && !isdigit((unsigned char)*p))
+		p = comma + 1;
+	int fields = sscanf(p, " %d %3s %d %n%d:%d%n", &day, month_str, &year, &used, &hour, &min, &used);
+	static const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+								   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+	int mon = -1;
+	for (int i = 0; fields >= 3 && i < 12; i++) {
+		if (strcasecmp(month_str, months[i]) == 0) {
+			mon = i;
+			break;
+		}
+	}
+	if (mon >= 0) {
+		const char* rest = p + used;
+		if (fields >= 5 && *rest == ':') {
+			int n = 0;
+			if (sscanf(rest, ":%d%n", &sec, &n) == 1)
+				rest += n;
+		}
+		if (year < 100) // two-digit RFC 822 years
+			year += year < 50 ? 2000 : 1900;
+
 		tm.tm_mday = day;
+		tm.tm_mon = mon;
 		tm.tm_year = year - 1900;
 		tm.tm_hour = hour;
 		tm.tm_min = min;
 		tm.tm_sec = sec;
-
-		// Parse month
-		const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-								"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-		for (int i = 0; i < 12; i++) {
-			if (strcasecmp(month_str, months[i]) == 0) {
-				tm.tm_mon = i;
-				break;
-			}
-		}
-
-		return (uint32_t)mktime(&tm);
+		long off = fields >= 5 ? rfc822_zone_offset(rest) : 0;
+		time_t t = timegm(&tm);
+		return t <= 0 ? 0 : (uint32_t)(t - off);
 	}
 
-	// Try ISO 8601 format: "YYYY-MM-DDTHH:MM:SS"
-	if (sscanf(date_str, "%d-%d-%dT%d:%d:%d",
-			   &year, &tm.tm_mon, &day, &hour, &min, &sec) >= 3) {
+	// ISO 8601: "YYYY-MM-DD[THH:MM:SS[.fff]][Z|+hh:mm]"
+	hour = min = sec = used = 0;
+	fields = sscanf(date_str, "%d-%d-%d%n", &year, &mon, &day, &used);
+	if (fields == 3) {
+		const char* rest = date_str + used;
+		int n = 0;
+		if ((*rest == 'T' || *rest == ' ') && sscanf(rest + 1, "%d:%d:%d%n", &hour, &min, &sec, &n) == 3) {
+			rest += 1 + n;
+			if (*rest == '.') {
+				rest++;
+				while (isdigit((unsigned char)*rest))
+					rest++;
+			}
+		} else {
+			rest = "";
+		}
 		tm.tm_year = year - 1900;
-		tm.tm_mon -= 1; // 0-indexed
+		tm.tm_mon = mon - 1; // 0-indexed
 		tm.tm_mday = day;
 		tm.tm_hour = hour;
 		tm.tm_min = min;
 		tm.tm_sec = sec;
-		return (uint32_t)mktime(&tm);
+		time_t t = timegm(&tm);
+		return t <= 0 ? 0 : (uint32_t)(t - rfc822_zone_offset(rest));
 	}
 
 	return 0;
@@ -300,7 +356,7 @@ int podcast_rss_parse_with_episodes(const char* xml_data, int xml_len, PodcastFe
 				} else if (state == RSS_STATE_ITEM_GUID && content_buf[0]) {
 					strncpy(current_episode->guid, content_buf, PODCAST_MAX_GUID - 1);
 				} else if (state == RSS_STATE_ITEM_PUBDATE && content_buf[0]) {
-					current_episode->pub_date = parse_rfc2822_date(content_buf);
+					current_episode->pub_date = podcast_rss_parse_date(content_buf);
 				} else if (state == RSS_STATE_ITEM_DURATION && content_buf[0]) {
 					current_episode->duration_sec = parse_duration(content_buf);
 				}

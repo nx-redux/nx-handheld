@@ -3,6 +3,7 @@
 #include "radio_net.h"
 #include "album_art.h"
 #include "radio_hls.h"
+#include "http_location.h"
 #include "tag_meta.h"
 #include "radio_catalog.h"
 #include "player.h"
@@ -354,8 +355,9 @@ static int ssl_init(const char* host) {
 		goto ssl_init_error;
 	}
 
-	// Skip certificate verification (radio streams use various CAs)
-	mbedtls_ssl_conf_authmode(&radio.ssl_conf, MBEDTLS_SSL_VERIFY_NONE);
+	// Verify against the CA bundle when there is one (a failed HTTPS connect
+	// still falls back to plain HTTP in direct_connect)
+	radio_net_tls_verify(&radio.ssl_conf);
 	mbedtls_ssl_conf_rng(&radio.ssl_conf, mbedtls_ctr_drbg_random, &radio.ctr_drbg);
 
 	// Set up SSL context
@@ -873,43 +875,40 @@ static void* hls_stream_thread_func(void* arg) {
 	while (!radio.should_stop) {
 		loop_iteration++;
 
-		// Check if we need to refresh the playlist (for live streams)
-		if (radio.hls.is_live && radio.hls.current_segment >= radio.hls.segment_count) {
+		// Check if we need to refresh the playlist (live streams, or a finished
+		// playlist longer than the segments kept at once)
+		if ((radio.hls.is_live || radio.hls.has_more) && radio.hls.current_segment >= radio.hls.segment_count) {
 			// Fetch updated playlist
-			uint8_t* playlist_buf = malloc(64 * 1024);
-			if (playlist_buf) {
-				int len = radio_net_fetch(radio.current_url, playlist_buf, 64 * 1024, NULL, 0);
-				if (len > 0) {
-					playlist_buf[len] = '\0';
-					char base_url[HLS_MAX_URL_LEN];
-					radio_hls_get_base_url(radio.current_url, base_url, HLS_MAX_URL_LEN);
+			char* playlist = radio_hls_fetch_playlist(radio.current_url);
+			if (playlist) {
+				char base_url[HLS_MAX_URL_LEN];
+				radio_hls_get_base_url(radio.current_url, base_url, HLS_MAX_URL_LEN);
 
-					// Rewrite segments[] under the lock (the prefetch thread reads
-					// it), bump the epoch so any in-flight prefetch is discarded,
-					// and drop the current prefetch (its index is now stale).
-					pthread_mutex_lock(&radio.hls_mutex);
-					radio_hls_parse_playlist(&radio.hls, (char*)playlist_buf, base_url);
-					radio.hls_epoch++;
-					radio.hls_prefetch_ready = false;
-					radio.hls_prefetch_segment = -1;
+				// Rewrite segments[] under the lock (the prefetch thread reads
+				// it), bump the epoch so any in-flight prefetch is discarded,
+				// and drop the current prefetch (its index is now stale).
+				pthread_mutex_lock(&radio.hls_mutex);
+				radio_hls_parse_playlist(&radio.hls, playlist, base_url);
+				radio.hls_epoch++;
+				radio.hls_prefetch_ready = false;
+				radio.hls_prefetch_segment = -1;
 
-					// Skip segments we've already played based on last_played_sequence
-					// media_sequence is the sequence number of the first segment in the new playlist
-					// We want to start at last_played_sequence + 1
-					if (radio.hls.last_played_sequence >= 0) {
-						int next_seq = radio.hls.last_played_sequence + 1;
-						int start_idx = next_seq - radio.hls.media_sequence;
-						if (start_idx < 0)
-							start_idx = 0;
-						if (start_idx > radio.hls.segment_count)
-							start_idx = radio.hls.segment_count;
-						radio.hls.current_segment = start_idx;
-					} else {
-						radio.hls.current_segment = 0;
-					}
-					pthread_mutex_unlock(&radio.hls_mutex);
+				// Skip segments we've already played based on last_played_sequence
+				// media_sequence is the sequence number of the first segment in the new playlist
+				// We want to start at last_played_sequence + 1
+				if (radio.hls.last_played_sequence >= 0) {
+					int next_seq = radio.hls.last_played_sequence + 1;
+					int start_idx = next_seq - radio.hls.media_sequence;
+					if (start_idx < 0)
+						start_idx = 0;
+					if (start_idx > radio.hls.segment_count)
+						start_idx = radio.hls.segment_count;
+					radio.hls.current_segment = start_idx;
+				} else {
+					radio.hls.current_segment = radio_hls_live_start_index(&radio.hls);
 				}
-				free(playlist_buf);
+				pthread_mutex_unlock(&radio.hls_mutex);
+				free(playlist);
 			}
 
 			// If still no segments, wait a bit
@@ -1698,21 +1697,11 @@ void Radio_loadStations(void) {
 // Fetch + parse the HLS playlist for radio.current_url (network I/O; runs on
 // the stream thread). Returns 0 with segments ready, -1 on error (error_msg set).
 static int hls_connect(void) {
-	uint8_t* playlist_buf = malloc(64 * 1024);
-	if (!playlist_buf) {
-		snprintf(radio.error_msg, sizeof(radio.error_msg), "Memory allocation failed");
-		return -1;
-	}
-
-	int len = radio_net_fetch(radio.current_url, playlist_buf, 64 * 1024, NULL, 0);
-	if (len <= 0) {
-		free(playlist_buf);
+	char* playlist = radio_hls_fetch_playlist(radio.current_url);
+	if (!playlist) {
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "Failed to fetch playlist");
 		return -1;
 	}
-	if (len >= 64 * 1024 - 1)
-		LOG_error("Warning: M3U8 playlist may be truncated (>64KB)\n");
-	playlist_buf[len] = '\0';
 
 	char base_url[HLS_MAX_URL_LEN];
 	radio_hls_get_base_url(radio.current_url, base_url, HLS_MAX_URL_LEN);
@@ -1721,8 +1710,9 @@ static int hls_connect(void) {
 	radio.hls.current_segment = 0;
 	radio.hls.last_played_sequence = -1;
 
-	int seg_count = radio_hls_parse_playlist(&radio.hls, (char*)playlist_buf, base_url);
-	free(playlist_buf);
+	int seg_count = radio_hls_parse_playlist(&radio.hls, playlist, base_url);
+	free(playlist);
+	radio.hls.current_segment = radio_hls_live_start_index(&radio.hls);
 
 	if (radio.hls.encrypted) {
 		snprintf(radio.error_msg, sizeof(radio.error_msg), "Encrypted stream not supported");
@@ -1805,8 +1795,10 @@ connect_attempt:
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "Empty redirect URL");
 				return -1;
 			}
-			strncpy(current_url, radio.redirect_url, RADIO_MAX_URL - 1);
-			current_url[RADIO_MAX_URL - 1] = '\0';
+			// a relative Location is resolved against the URL just requested
+			char next_url[RADIO_MAX_URL];
+			HttpLocation_resolve(current_url, radio.redirect_url, next_url, sizeof(next_url));
+			snprintf(current_url, RADIO_MAX_URL, "%s", next_url);
 
 			if (redirect_count == max_redirects) {
 				snprintf(radio.error_msg, sizeof(radio.error_msg), "Too many redirects");

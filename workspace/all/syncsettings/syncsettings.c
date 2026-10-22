@@ -45,11 +45,39 @@ static int detect_bluetooth(void) {
 	return 0;
 }
 
+// The sink audiomon routed to, from the state it publishes in
+// /tmp/nx_audio_sink. Returns -1 when the file is absent or unreadable.
+static int published_sink(void) {
+	FILE* f = fopen("/tmp/nx_audio_sink", "r");
+	if (!f)
+		return -1;
+	char line[128];
+	int sink = -1;
+	while (fgets(line, sizeof(line), f)) {
+		if (strncmp(line, "sink=", 5) != 0)
+			continue;
+		if (strncmp(line + 5, "bluetooth", 9) == 0)
+			sink = AUDIO_SINK_BLUETOOTH;
+		else if (strncmp(line + 5, "usb", 3) == 0)
+			sink = AUDIO_SINK_USBDAC;
+		else if (strncmp(line + 5, "default", 7) == 0)
+			sink = AUDIO_SINK_DEFAULT;
+		break;
+	}
+	fclose(f);
+	return sink;
+}
+
 int main(int argc, char* argv[]) {
 	InitSettings();
 
-	// Sync audio sink so SetRawVolume() uses the correct mixer path
-	if (detect_bluetooth())
+	// Sync audio sink so SetRawVolume() uses the correct mixer path: the route
+	// audiomon chose (a USB card it did not route to is not the sink), else
+	// detected from the cards and .asoundrc
+	int sink = published_sink();
+	if (sink >= 0)
+		SetAudioSink(sink);
+	else if (detect_bluetooth())
 		SetAudioSink(AUDIO_SINK_BLUETOOTH);
 	else if (detect_usbdac())
 		SetAudioSink(AUDIO_SINK_USBDAC);

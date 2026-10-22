@@ -23,6 +23,10 @@ static CuratedStation catalog_stations[MAX_CATALOG_STATIONS];
 static int catalog_station_count = 0;
 static char loaded_country_code[8] = "";
 
+// Largest cached API response read back (the country list and a 100-station
+// page are tens of KB)
+#define CATALOG_MAX_FILE_BYTES (4 * 1024 * 1024)
+
 // Read an entire file into a malloc'd, NUL-terminated buffer (caller frees).
 static char* read_file(const char* path) {
 	FILE* f = fopen(path, "rb");
@@ -31,7 +35,7 @@ static char* read_file(const char* path) {
 	fseek(f, 0, SEEK_END);
 	long sz = ftell(f);
 	fseek(f, 0, SEEK_SET);
-	if (sz < 0) {
+	if (sz < 0 || sz > CATALOG_MAX_FILE_BYTES) {
 		fclose(f);
 		return NULL;
 	}

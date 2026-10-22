@@ -65,6 +65,92 @@ void radio_hls_resolve_url(const char* base, const char* relative, char* result,
 	}
 }
 
+// Copies the next line of an M3U8 body into buf (leading blanks skipped, cut
+// at buf_size - 1). Returns the start of the line after it, or NULL at the end.
+static const char* next_line(const char* p, char* buf, int buf_size) {
+	if (!*p)
+		return NULL;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	const char* eol = p;
+	while (*eol && *eol != '\n' && *eol != '\r')
+		eol++;
+	int len = eol - p;
+	if (len >= buf_size)
+		len = buf_size - 1;
+	memcpy(buf, p, len);
+	buf[len] = '\0';
+	while (*eol == '\n' || *eol == '\r')
+		eol++;
+	return eol;
+}
+
+// Counts the media segments of a playlist body and reads the tags the segment
+// window depends on (first pass, before anything is stored).
+static void scan_playlist(const char* content, int* count, int* media_sequence, bool* has_endlist) {
+	char line_buf[HLS_MAX_URL_LEN];
+	*count = 0;
+	*media_sequence = 0;
+	*has_endlist = false;
+	for (const char* p = content; (p = next_line(p, line_buf, sizeof(line_buf)));) {
+		if (strncmp(line_buf, "#EXT-X-MEDIA-SEQUENCE:", 22) == 0)
+			*media_sequence = atoi(line_buf + 22);
+		else if (strncmp(line_buf, "#EXT-X-ENDLIST", 14) == 0)
+			*has_endlist = true;
+		else if (line_buf[0] != '#' && line_buf[0] != '\0')
+			(*count)++;
+	}
+}
+
+int radio_hls_window_skip(int count, int media_sequence, bool is_live, int last_played_sequence) {
+	if (count <= HLS_MAX_SEGMENTS && (is_live || last_played_sequence < 0))
+		return 0;
+	int skip;
+	if (is_live) {
+		// a live window longer than the cap: keep its newest end
+		skip = count - HLS_MAX_SEGMENTS;
+	} else {
+		// a long finished playlist is played in windows: resume after the last
+		// segment played
+		skip = last_played_sequence < 0 ? 0 : last_played_sequence + 1 - media_sequence;
+	}
+	if (skip < 0)
+		skip = 0;
+	if (skip > count)
+		skip = count;
+	return skip;
+}
+
+int radio_hls_live_start_index(const HLSContext* ctx) {
+	// Start a live stream three segments from its end (as HLS players do), not
+	// at the oldest segment the server still lists: that one is minutes behind
+	// live and may expire before it is reached.
+	if (!ctx->is_live || ctx->segment_count <= 3)
+		return 0;
+	return ctx->segment_count - 3;
+}
+
+char* radio_hls_fetch_playlist(const char* url) {
+	uint8_t* buf = malloc(HLS_PLAYLIST_BUF_SIZE);
+	if (!buf)
+		return NULL;
+	int len = radio_net_fetch(url, buf, HLS_PLAYLIST_BUF_SIZE, NULL, 0);
+	if (len <= 0) {
+		free(buf);
+		return NULL;
+	}
+	if (len >= HLS_PLAYLIST_BUF_SIZE)
+		len = HLS_PLAYLIST_BUF_SIZE - 1;
+	buf[len] = '\0';
+	if (len == HLS_PLAYLIST_BUF_SIZE - 1) {
+		// cut off: drop the partial last line (a half URL is not a segment)
+		char* nl = strrchr((char*)buf, '\n');
+		if (nl)
+			nl[1] = '\0';
+	}
+	return (char*)buf;
+}
+
 // Parse M3U8 playlist content
 int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* base_url) {
 	ctx->segment_count = 0;
@@ -72,8 +158,18 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 	ctx->target_duration = 10.0f;
 	ctx->media_sequence = 0;
 	ctx->encrypted = false;
+	ctx->has_more = false;
 
-	strncpy(ctx->base_url, base_url, HLS_MAX_URL_LEN - 1);
+	// the master-playlist recursion passes ctx->base_url itself
+	if (base_url != ctx->base_url)
+		snprintf(ctx->base_url, HLS_MAX_URL_LEN, "%s", base_url);
+
+	// Only HLS_MAX_SEGMENTS are kept: pick which ones before storing any
+	int total = 0, first_sequence = 0;
+	bool has_endlist = false;
+	scan_playlist(content, &total, &first_sequence, &has_endlist);
+	int skip = radio_hls_window_skip(total, first_sequence, !has_endlist, ctx->last_played_sequence);
+	int seen = 0;
 
 	const char* line = content;
 	float segment_duration = 0;
@@ -82,24 +178,9 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 	char variant_url[HLS_MAX_URL_LEN] = "";
 	bool is_master_playlist = false;
 
-	while (*line && ctx->segment_count < HLS_MAX_SEGMENTS) {
-		// Skip whitespace
-		while (*line == ' ' || *line == '\t')
-			line++;
-
-		// Find end of line
-		const char* eol = line;
-		while (*eol && *eol != '\n' && *eol != '\r')
-			eol++;
-		int line_len = eol - line;
-
-		if (line_len > 0) {
-			char line_buf[HLS_MAX_URL_LEN];
-			if (line_len >= HLS_MAX_URL_LEN)
-				line_len = HLS_MAX_URL_LEN - 1;
-			strncpy(line_buf, line, line_len);
-			line_buf[line_len] = '\0';
-
+	char line_buf[HLS_MAX_URL_LEN];
+	while ((line = next_line(line, line_buf, sizeof(line_buf)))) {
+		if (line_buf[0] != '\0') {
 			if (strncmp(line_buf, "#EXTM3U", 7) == 0) {
 				// Valid M3U8 header
 			} else if (strncmp(line_buf, "#EXT-X-KEY:", 11) == 0) {
@@ -156,45 +237,45 @@ int radio_hls_parse_playlist(HLSContext* ctx, const char* content, const char* b
 					// Save first variant URL
 					radio_hls_resolve_url(ctx->base_url, line_buf, variant_url, HLS_MAX_URL_LEN);
 				} else if (!is_master_playlist) {
-					// Media segment
-					radio_hls_resolve_url(ctx->base_url, line_buf,
-										  ctx->segments[ctx->segment_count].url, HLS_MAX_URL_LEN);
-					ctx->segments[ctx->segment_count].duration = segment_duration;
-					strncpy(ctx->segments[ctx->segment_count].title, segment_title, 127);
-					strncpy(ctx->segments[ctx->segment_count].artist, segment_artist, 127);
-					ctx->segment_count++;
+					// Media segment (outside the kept window: skipped)
+					if (seen++ >= skip && ctx->segment_count < HLS_MAX_SEGMENTS) {
+						HLSSegment* seg = &ctx->segments[ctx->segment_count];
+						radio_hls_resolve_url(ctx->base_url, line_buf, seg->url, HLS_MAX_URL_LEN);
+						seg->duration = segment_duration;
+						snprintf(seg->title, sizeof(seg->title), "%s", segment_title);
+						snprintf(seg->artist, sizeof(seg->artist), "%s", segment_artist);
+						ctx->segment_count++;
+					}
 					segment_duration = 0;
 					segment_title[0] = '\0';
 					segment_artist[0] = '\0';
 				}
 			}
 		}
+	}
 
-		// Move to next line
-		line = eol;
-		while (*line == '\n' || *line == '\r')
-			line++;
+	// segment 0 is the first kept one: its sequence number moves with the
+	// window, and later segments are fetched on a re-read of the playlist
+	if (!is_master_playlist) {
+		ctx->media_sequence += skip;
+		ctx->has_more = !ctx->is_live && skip + ctx->segment_count < total;
 	}
 
 	// If master playlist, fetch the variant playlist. Bound the recursion so a
 	// hostile/mis-authored playlist that points to another master (or itself)
-	// can't recurse unboundedly (64KB fetch + stack frame per level). Single
+	// can't recurse unboundedly (playlist fetch + stack frame per level). Single
 	// stream thread, so a static depth guard is sufficient.
 	if (is_master_playlist && variant_url[0]) {
 		static int master_depth = 0;
 		if (master_depth < 4) {
-			uint8_t* playlist_buf = malloc(64 * 1024);
-			if (playlist_buf) {
-				int len = radio_net_fetch(variant_url, playlist_buf, 64 * 1024, NULL, 0);
-				if (len > 0) {
-					playlist_buf[len] = '\0';
-					// Update base URL for variant
-					radio_hls_get_base_url(variant_url, ctx->base_url, HLS_MAX_URL_LEN);
-					master_depth++;
-					radio_hls_parse_playlist(ctx, (char*)playlist_buf, ctx->base_url);
-					master_depth--;
-				}
-				free(playlist_buf);
+			char* playlist = radio_hls_fetch_playlist(variant_url);
+			if (playlist) {
+				// Update base URL for variant
+				radio_hls_get_base_url(variant_url, ctx->base_url, HLS_MAX_URL_LEN);
+				master_depth++;
+				radio_hls_parse_playlist(ctx, playlist, ctx->base_url);
+				master_depth--;
+				free(playlist);
 			}
 		}
 	}

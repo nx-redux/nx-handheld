@@ -1,5 +1,6 @@
 #define _FILE_OFFSET_BITS 64
 #include "embedded_lyrics.h"
+#include "tag_meta.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -313,15 +314,12 @@ static char* id3_sylt(const uint8_t* d, size_t len) {
 	return sb_take(&out);
 }
 
-// Remove ID3 unsynchronisation (0xFF 0x00 -> 0xFF) in place, returns new length
-static size_t id3_resync(uint8_t* p, size_t len) {
-	size_t w = 0;
-	for (size_t r = 0; r < len; r++) {
-		p[w++] = p[r];
-		if (p[r] == 0xFF && r + 1 < len && p[r + 1] == 0x00)
-			r++;
-	}
-	return w;
+// USLT / SYLT frames of an ID3 tag offer their lyrics
+static void id3_lyrics_frame(const char* id, const uint8_t* data, size_t len, void* ctx) {
+	if (strcmp(id, "SYLT") == 0)
+		offer(ctx, id3_sylt(data, len));
+	else if (strcmp(id, "USLT") == 0)
+		offer(ctx, id3_uslt(data, len));
 }
 
 // Parse an ID3v2 tag at the start of f. *tag_end receives the offset just
@@ -341,57 +339,8 @@ static void read_id3(FILE* f, Result* res, uint64_t* tag_end) {
 	uint8_t* tag = malloc(size);
 	if (!tag)
 		return;
-	if (fread(tag, 1, size, f) != size) {
-		free(tag);
-		return;
-	}
-	size_t tag_len = size;
-	if (ver == 3 && (flags & 0x80))
-		tag_len = id3_resync(tag, tag_len);
-
-	size_t pos = 0;
-	if ((flags & 0x40) && tag_len >= 4) {
-		uint32_t ext = ver == 4 ? syncsafe32(tag) : be32(tag) + 4;
-		pos = ext;
-	}
-
-	while (pos + 10 <= tag_len) {
-		const uint8_t* fh = tag + pos;
-		if (fh[0] == 0)
-			break;
-		uint32_t fsize = ver == 4 ? syncsafe32(fh + 4) : be32(fh + 4);
-		uint8_t fflags = fh[9];
-		pos += 10;
-		if (fsize == 0 || fsize > tag_len - pos)
-			break;
-
-		bool is_uslt = memcmp(fh, "USLT", 4) == 0;
-		bool is_sylt = memcmp(fh, "SYLT", 4) == 0;
-		// Skip compressed / encrypted / grouped frames (v2.3: 0x80/0x40/0x20,
-		// v2.4: 0x08/0x04/0x40)
-		bool unsupported = ver == 3 ? (fflags & 0xE0) != 0 : (fflags & 0x4C) != 0;
-		if ((is_uslt || is_sylt) && !unsupported) {
-			uint8_t* data = tag + pos;
-			size_t data_len = fsize;
-			if (ver == 4 && (fflags & 0x01) && data_len >= 4) { // data length indicator
-				data += 4;
-				data_len -= 4;
-			}
-			uint8_t* copy = NULL;
-			if (ver == 4 && (fflags & 0x02)) { // per-frame unsynchronisation
-				copy = malloc(data_len);
-				if (copy) {
-					memcpy(copy, data, data_len);
-					data_len = id3_resync(copy, data_len);
-					data = copy;
-				}
-			}
-			if (!(ver == 4 && (fflags & 0x02)) || copy)
-				offer(res, is_sylt ? id3_sylt(data, data_len) : id3_uslt(data, data_len));
-			free(copy);
-		}
-		pos += fsize;
-	}
+	if (fread(tag, 1, size, f) == size)
+		TagMeta_id3Frames(ver, flags, tag, size, id3_lyrics_frame, res);
 	free(tag);
 }
 
