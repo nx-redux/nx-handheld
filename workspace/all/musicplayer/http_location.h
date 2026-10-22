@@ -2,8 +2,8 @@
 #define __HTTP_LOCATION_H__
 
 // Resolving an HTTP redirect's Location header against the URL that was
-// requested (radio_net.c, radio.c, http_download.c), split out so it can be
-// unit-tested on the host: see tests/test_http_location.c.
+// requested (radio_net.c, radio.c), split out so it can be unit-tested on
+// the host: see tests/test_http_location.c.
 
 #include <stdio.h>
 #include <string.h>

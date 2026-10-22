@@ -164,8 +164,6 @@ int Podcast_initPlayback(void);
 void Podcast_reloadPlaybackData(void);
 void Podcast_reloadProgress(void);
 
-// Cleanup resources
-void Podcast_cleanup(void);
 // Detach the catalog/download UI without stopping playback or writing owner progress.
 void Podcast_cleanupCatalog(void);
 
@@ -379,9 +377,6 @@ int Podcast_findFeedIndex(const char* feed_url);
 // ============================================================================
 // RSS Parser (podcast_rss.c)
 // ============================================================================
-
-// Parse RSS feed (simple - just feed metadata)
-int podcast_rss_parse(const char* xml_data, int xml_len, PodcastFeed* feed);
 
 // True when xml holds a whole feed: its root element (<rss>, Atom <feed> or
 // RSS 1.0 <rdf:RDF>) is closed near the end. A cut-off download parses fine up

@@ -33,7 +33,6 @@ int IPTV_curated_loadCountryChannels(const char* country_code, bool force,
 									 volatile bool* should_stop, volatile int* progress);
 // Channels for the currently-loaded country (0 if country_code isn't the loaded one).
 const CuratedTVChannel* IPTV_curated_get_channels(const char* country_code, int* count);
-int IPTV_curated_get_channel_count(const char* country_code);
 
 // Pure: sort countries with home_code first (case-insensitive), rest A-Z by name.
 void IPTV_curated_sortCountriesHomeFirst(CuratedTVCountry* arr, int n, const char* home_code);

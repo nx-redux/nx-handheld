@@ -44,7 +44,7 @@ static void tls_ca_load(void) {
 		LOG_error("[RadioNet] CA bundle %s not loaded (-0x%04X): TLS unverified\n", bundle, -ret);
 }
 
-void radio_net_tls_verify(mbedtls_ssl_config* conf) {
+static void tls_verify(mbedtls_ssl_config* conf) {
 	pthread_once(&tls_ca_once, tls_ca_load);
 	if (tls_ca_loaded) {
 		mbedtls_ssl_conf_ca_chain(conf, &tls_ca_chain, NULL);
@@ -52,6 +52,52 @@ void radio_net_tls_verify(mbedtls_ssl_config* conf) {
 	} else {
 		mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_NONE);
 	}
+}
+
+int radio_net_tls_setup(mbedtls_net_context* net, mbedtls_ssl_context* ssl,
+						mbedtls_ssl_config* conf, mbedtls_entropy_context* entropy,
+						mbedtls_ctr_drbg_context* ctr_drbg, const char* pers,
+						const char* host) {
+	mbedtls_net_init(net);
+	mbedtls_ssl_init(ssl);
+	mbedtls_ssl_config_init(conf);
+	mbedtls_entropy_init(entropy);
+	mbedtls_ctr_drbg_init(ctr_drbg);
+
+	const char* step = "mbedtls_ctr_drbg_seed";
+	int ret = mbedtls_ctr_drbg_seed(ctr_drbg, mbedtls_entropy_func, entropy,
+									(const unsigned char*)pers, strlen(pers));
+	if (ret == 0) {
+		step = "mbedtls_ssl_config_defaults";
+		ret = mbedtls_ssl_config_defaults(conf, MBEDTLS_SSL_IS_CLIENT,
+										  MBEDTLS_SSL_TRANSPORT_STREAM,
+										  MBEDTLS_SSL_PRESET_DEFAULT);
+	}
+	if (ret == 0) {
+		tls_verify(conf);
+		mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, ctr_drbg);
+		step = "mbedtls_ssl_setup";
+		ret = mbedtls_ssl_setup(ssl, conf);
+	}
+	if (ret == 0) {
+		step = "mbedtls_ssl_set_hostname";
+		ret = mbedtls_ssl_set_hostname(ssl, host);
+	}
+	if (ret != 0)
+		LOG_error("[RadioNet] %s failed: -0x%04X (%s)\n", step, -ret, pers);
+	return ret;
+}
+
+void radio_net_tls_free(mbedtls_net_context* net, mbedtls_ssl_context* ssl,
+						mbedtls_ssl_config* conf, mbedtls_entropy_context* entropy,
+						mbedtls_ctr_drbg_context* ctr_drbg, bool close_notify) {
+	if (close_notify)
+		mbedtls_ssl_close_notify(ssl);
+	mbedtls_net_free(net);
+	mbedtls_ssl_free(ssl);
+	mbedtls_ssl_config_free(conf);
+	mbedtls_ctr_drbg_free(ctr_drbg);
+	mbedtls_entropy_free(entropy);
 }
 
 // TLS 1.3: mbedtls_ssl_read/write may return non-fatal errors that require retry
@@ -68,6 +114,18 @@ typedef struct {
 	mbedtls_ctr_drbg_context ctr_drbg;
 	bool initialized;
 } FetchSSLContext;
+
+static int fetch_ssl_setup(FetchSSLContext* ctx, const char* pers, const char* host) {
+	return radio_net_tls_setup(&ctx->net, &ctx->ssl, &ctx->conf, &ctx->entropy, &ctx->ctr_drbg,
+							   pers, host);
+}
+
+// close_notify only after a completed handshake
+static void fetch_ssl_free(FetchSSLContext* ctx) {
+	radio_net_tls_free(&ctx->net, &ctx->ssl, &ctx->conf, &ctx->entropy, &ctx->ctr_drbg,
+					   ctx->initialized);
+	free(ctx);
+}
 
 // Maximum redirect depth to prevent infinite redirect loops
 #define RADIO_NET_MAX_REDIRECTS 10
@@ -134,38 +192,8 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 			return -1;
 		}
 
-		const char* pers = "radio_net_fetch";
-		mbedtls_net_init(&ssl_ctx->net);
-		mbedtls_ssl_init(&ssl_ctx->ssl);
-		mbedtls_ssl_config_init(&ssl_ctx->conf);
-		mbedtls_entropy_init(&ssl_ctx->entropy);
-		mbedtls_ctr_drbg_init(&ssl_ctx->ctr_drbg);
-
-		int ssl_ret;
-		ssl_ret = mbedtls_ctr_drbg_seed(&ssl_ctx->ctr_drbg, mbedtls_entropy_func, &ssl_ctx->entropy,
-										(const unsigned char*)pers, strlen(pers));
-		if (ssl_ret != 0) {
-			LOG_error("[RadioNet] mbedtls_ctr_drbg_seed failed: %d\n", ssl_ret);
+		if (fetch_ssl_setup(ssl_ctx, "radio_net_fetch", host) != 0)
 			goto cleanup;
-		}
-
-		ssl_ret = mbedtls_ssl_config_defaults(&ssl_ctx->conf, MBEDTLS_SSL_IS_CLIENT,
-											  MBEDTLS_SSL_TRANSPORT_STREAM,
-											  MBEDTLS_SSL_PRESET_DEFAULT);
-		if (ssl_ret != 0) {
-			LOG_error("[RadioNet] mbedtls_ssl_config_defaults failed: %d\n", ssl_ret);
-			goto cleanup;
-		}
-		radio_net_tls_verify(&ssl_ctx->conf);
-		mbedtls_ssl_conf_rng(&ssl_ctx->conf, mbedtls_ctr_drbg_random, &ssl_ctx->ctr_drbg);
-
-		ssl_ret = mbedtls_ssl_setup(&ssl_ctx->ssl, &ssl_ctx->conf);
-		if (ssl_ret != 0) {
-			LOG_error("[RadioNet] mbedtls_ssl_setup failed: %d\n", ssl_ret);
-			goto cleanup;
-		}
-
-		mbedtls_ssl_set_hostname(&ssl_ctx->ssl, host);
 
 		char port_str[16];
 		snprintf(port_str, sizeof(port_str), "%d", port);
@@ -371,13 +399,7 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 
 			// Cleanup current connection and buffers before recursive call
 			if (ssl_ctx) {
-				mbedtls_ssl_close_notify(&ssl_ctx->ssl);
-				mbedtls_net_free(&ssl_ctx->net);
-				mbedtls_ssl_free(&ssl_ctx->ssl);
-				mbedtls_ssl_config_free(&ssl_ctx->conf);
-				mbedtls_ctr_drbg_free(&ssl_ctx->ctr_drbg);
-				mbedtls_entropy_free(&ssl_ctx->entropy);
-				free(ssl_ctx);
+				fetch_ssl_free(ssl_ctx);
 			} else {
 				close(sock_fd);
 			}
@@ -607,13 +629,7 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 
 	// Cleanup
 	if (ssl_ctx) {
-		mbedtls_ssl_close_notify(&ssl_ctx->ssl);
-		mbedtls_net_free(&ssl_ctx->net);
-		mbedtls_ssl_free(&ssl_ctx->ssl);
-		mbedtls_ssl_config_free(&ssl_ctx->conf);
-		mbedtls_ctr_drbg_free(&ssl_ctx->ctr_drbg);
-		mbedtls_entropy_free(&ssl_ctx->entropy);
-		free(ssl_ctx);
+		fetch_ssl_free(ssl_ctx);
 	} else {
 		close(sock_fd);
 	}
@@ -625,15 +641,7 @@ static int radio_net_fetch_internal(const char* url, uint8_t* buffer, int buffer
 
 cleanup:
 	if (ssl_ctx) {
-		if (ssl_ctx->initialized) {
-			mbedtls_ssl_close_notify(&ssl_ctx->ssl);
-		}
-		mbedtls_net_free(&ssl_ctx->net);
-		mbedtls_ssl_free(&ssl_ctx->ssl);
-		mbedtls_ssl_config_free(&ssl_ctx->conf);
-		mbedtls_ctr_drbg_free(&ssl_ctx->ctr_drbg);
-		mbedtls_entropy_free(&ssl_ctx->entropy);
-		free(ssl_ctx);
+		fetch_ssl_free(ssl_ctx);
 	} else if (sock_fd >= 0) {
 		close(sock_fd);
 	}
@@ -683,24 +691,8 @@ int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_
 				return -1;
 			}
 
-			const char* pers = "radio_net_resolve";
-			mbedtls_net_init(&ssl_ctx->net);
-			mbedtls_ssl_init(&ssl_ctx->ssl);
-			mbedtls_ssl_config_init(&ssl_ctx->conf);
-			mbedtls_entropy_init(&ssl_ctx->entropy);
-			mbedtls_ctr_drbg_init(&ssl_ctx->ctr_drbg);
-
-			if (mbedtls_ctr_drbg_seed(&ssl_ctx->ctr_drbg, mbedtls_entropy_func, &ssl_ctx->entropy,
-									  (const unsigned char*)pers, strlen(pers)) != 0 ||
-				mbedtls_ssl_config_defaults(&ssl_ctx->conf, MBEDTLS_SSL_IS_CLIENT,
-											MBEDTLS_SSL_TRANSPORT_STREAM,
-											MBEDTLS_SSL_PRESET_DEFAULT) != 0 ||
-				mbedtls_ssl_setup(&ssl_ctx->ssl, &ssl_ctx->conf) != 0) {
+			if (fetch_ssl_setup(ssl_ctx, "radio_net_resolve", host) != 0)
 				goto resolve_cleanup;
-			}
-			radio_net_tls_verify(&ssl_ctx->conf);
-			mbedtls_ssl_conf_rng(&ssl_ctx->conf, mbedtls_ctr_drbg_random, &ssl_ctx->ctr_drbg);
-			mbedtls_ssl_set_hostname(&ssl_ctx->ssl, host);
 
 			char port_str[16];
 			snprintf(port_str, sizeof(port_str), "%d", port);
@@ -808,13 +800,7 @@ int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_
 
 		// Cleanup connection
 		if (ssl_ctx) {
-			mbedtls_ssl_close_notify(&ssl_ctx->ssl);
-			mbedtls_net_free(&ssl_ctx->net);
-			mbedtls_ssl_free(&ssl_ctx->ssl);
-			mbedtls_ssl_config_free(&ssl_ctx->conf);
-			mbedtls_ctr_drbg_free(&ssl_ctx->ctr_drbg);
-			mbedtls_entropy_free(&ssl_ctx->entropy);
-			free(ssl_ctx);
+			fetch_ssl_free(ssl_ctx);
 			ssl_ctx = NULL;
 		} else {
 			close(sock_fd);
@@ -869,14 +855,7 @@ int radio_net_resolve_url(const char* url, char* resolved_url, int resolved_url_
 
 	resolve_cleanup:
 		if (ssl_ctx) {
-			if (ssl_ctx->initialized)
-				mbedtls_ssl_close_notify(&ssl_ctx->ssl);
-			mbedtls_net_free(&ssl_ctx->net);
-			mbedtls_ssl_free(&ssl_ctx->ssl);
-			mbedtls_ssl_config_free(&ssl_ctx->conf);
-			mbedtls_ctr_drbg_free(&ssl_ctx->ctr_drbg);
-			mbedtls_entropy_free(&ssl_ctx->entropy);
-			free(ssl_ctx);
+			fetch_ssl_free(ssl_ctx);
 		} else if (sock_fd >= 0) {
 			close(sock_fd);
 		}

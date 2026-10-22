@@ -236,11 +236,6 @@ int podcast_search_lookup_full(const char* itunes_id, char* feed_url, int feed_u
 	return 0;
 }
 
-// Simple wrapper - lookup feed URL only
-int podcast_search_lookup(const char* itunes_id, char* feed_url, int feed_url_size) {
-	return podcast_search_lookup_full(itunes_id, feed_url, feed_url_size, NULL, 0);
-}
-
 // Fetch Apple Podcast Charts (Top Shows)
 int podcast_charts_fetch(const char* country_code, PodcastChartItem* top, int* top_count,
 						 PodcastChartItem* new_items, int* new_count, int max_items) {

@@ -110,7 +110,6 @@ bool Radio_isActive(void);
 // Curated stations API
 int Radio_getCuratedCountryCount(void);
 const CuratedCountry* Radio_getCuratedCountries(void);
-int Radio_getCuratedStationCount(const char* country_code);
 const CuratedStation* Radio_getCuratedStations(const char* country_code, int* count);
 
 // Online catalog (radio-browser.info) fetch triggers — see radio_catalog.c.
@@ -119,8 +118,6 @@ int Radio_catalogLoadCountryStations(const char* code, bool force);
 bool Radio_stationExists(const char* url);
 bool Radio_removeStationByUrl(const char* url);
 
-// Album art for current radio track (fetched online: iTunes, then Deezer)
-struct SDL_Surface* Radio_getAlbumArt(void);
 struct SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision);
 
 // Check if user has custom stations (vs using defaults)

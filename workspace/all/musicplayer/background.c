@@ -24,9 +24,3 @@ bool Background_isPlaying(void) {
 	const MusicSnapshotWire* snapshot = MusicClient_snapshot();
 	return snapshot->source != MUSIC_SOURCE_NONE && snapshot->state != MUSIC_STATE_STOPPED;
 }
-
-void Background_tick(void) {
-	// Playback, EOF/queue advancement, HID, and source progress belong to the
-	// daemon. The UI only refreshes its copied snapshot.
-	MusicClient_update();
-}

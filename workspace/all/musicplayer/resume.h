@@ -68,9 +68,6 @@ void Resume_saveRadio(const char* url, const char* name, ResumeTransportState tr
 void Resume_savePodcast(const char* feed_url, const char* episode_guid, const char* name,
 						int position_ms, ResumeTransportState transport, bool repeat, bool shuffle);
 
-// Update just the position (called periodically during playback)
-void Resume_updatePosition(int position_ms);
-
 // Clear resume state (when playlist ends naturally)
 void Resume_clear(void);
 

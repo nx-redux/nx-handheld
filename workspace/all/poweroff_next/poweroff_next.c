@@ -68,22 +68,28 @@ static void log_msg(const char* format, ...) {
 	fflush(stdout);
 }
 
-static void kill_processes(int sig) {
+// Next process in /proc other than init and this one; 0 at the end.
+static pid_t next_other_pid(DIR* proc) {
 	pid_t self = getpid();
+	struct dirent* entry;
+	while ((entry = readdir(proc)) != NULL) {
+		if (!isdigit((unsigned char)entry->d_name[0]))
+			continue;
+		pid_t pid = (pid_t)strtol(entry->d_name, NULL, 10);
+		if (pid > 1 && pid != self)
+			return pid;
+	}
+	return 0;
+}
+
+static void kill_processes(int sig) {
 	DIR* proc = opendir("/proc");
 	if (!proc) {
 		log_msg("poweroff_next: opendir(/proc): %s\n", strerror(errno));
 		return;
 	}
-	struct dirent* entry;
-	while ((entry = readdir(proc)) != NULL) {
-		if (!isdigit((unsigned char)entry->d_name[0]))
-			continue;
-
-		pid_t pid = (pid_t)strtol(entry->d_name, NULL, 10);
-		if (pid <= 1 || pid == self)
-			continue;
-
+	pid_t pid;
+	while ((pid = next_other_pid(proc)) != 0) {
 		if (kill(pid, sig) != 0 && errno != ESRCH) {
 			int err = errno;
 			log_msg("poweroff_next: failed to send signal %d to %d: %s\n",
@@ -97,21 +103,13 @@ static void kill_processes(int sig) {
 // Userspace processes only: kernel threads and zombies have an empty
 // /proc/<pid>/cmdline and ignore SIGTERM/SIGKILL, so they never count.
 static int count_userspace_processes(void) {
-	pid_t self = getpid();
 	DIR* proc = opendir("/proc");
 	if (!proc)
 		return -1;
 
 	int count = 0;
-	struct dirent* entry;
-	while ((entry = readdir(proc)) != NULL) {
-		if (!isdigit((unsigned char)entry->d_name[0]))
-			continue;
-
-		pid_t pid = (pid_t)strtol(entry->d_name, NULL, 10);
-		if (pid <= 1 || pid == self)
-			continue;
-
+	pid_t pid;
+	while ((pid = next_other_pid(proc)) != 0) {
 		char path[64];
 		snprintf(path, sizeof(path), "/proc/%d/cmdline", (int)pid);
 		int fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -277,21 +275,13 @@ static void kill_sdcard_users(void) {
 		return;
 	}
 
-	pid_t self = getpid();
-	struct dirent* entry;
 	char fd_dir_path[PATH_MAX];
 	char fd_path[PATH_MAX + NAME_MAX + 1];
 	char target[PATH_MAX];
 
-	while ((entry = readdir(proc)) != NULL) {
-		if (!isdigit((unsigned char)entry->d_name[0]))
-			continue;
-
-		pid_t pid = (pid_t)strtol(entry->d_name, NULL, 10);
-		if (pid <= 1 || pid == self)
-			continue;
-
-		snprintf(fd_dir_path, sizeof(fd_dir_path), "/proc/%s/fd", entry->d_name);
+	pid_t pid;
+	while ((pid = next_other_pid(proc)) != 0) {
+		snprintf(fd_dir_path, sizeof(fd_dir_path), "/proc/%d/fd", (int)pid);
 		DIR* fd_dir = opendir(fd_dir_path);
 		if (!fd_dir)
 			continue;

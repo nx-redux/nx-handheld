@@ -104,12 +104,6 @@ void get_rom_image_path(char* rom_file, char* out_image_path) {
 	}
 }
 
-int play_activity_db_transaction(sqlite3* game_log_db, int (*exec_transaction)(sqlite3*)) {
-	int retval;
-	retval = exec_transaction(game_log_db);
-	return retval;
-}
-
 int play_activity_db_execute(char* sql) {
 	sqlite3* game_log_db = play_activity_db_open();
 	int rc = sqlite3_exec(game_log_db, sql, NULL, NULL, NULL);
@@ -415,7 +409,7 @@ void play_activity_start(char* rom_file_path) {
 
 void play_activity_resume(void) {
 	sqlite3* game_log_db = play_activity_db_open();
-	int rom_id = play_activity_db_transaction(game_log_db, __db_get_active_closed_activity);
+	int rom_id = __db_get_active_closed_activity(game_log_db);
 	play_activity_db_close(game_log_db);
 	if (rom_id == ROM_NOT_FOUND) {
 		printf("Error: no active rom\n");

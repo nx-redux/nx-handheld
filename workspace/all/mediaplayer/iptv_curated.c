@@ -131,9 +131,3 @@ const CuratedTVChannel* IPTV_curated_get_channels(const char* country_code, int*
 	*count = 0;
 	return curated_channels;
 }
-
-int IPTV_curated_get_channel_count(const char* country_code) {
-	if (country_code && strcmp(country_code, loaded_country_code) == 0)
-		return curated_channel_count;
-	return 0;
-}

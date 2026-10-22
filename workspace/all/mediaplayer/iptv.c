@@ -167,7 +167,3 @@ bool IPTV_userChannelExists(const char* url) {
 	}
 	return false;
 }
-
-void IPTV_cleanup(void) {
-	// Nothing dynamic to free
-}

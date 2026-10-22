@@ -28,7 +28,3 @@ AudioFormat MusicFormat_detect(const char* filepath) {
 		return AUDIO_FORMAT_MOD;
 	return AUDIO_FORMAT_UNKNOWN;
 }
-
-bool MusicFormat_isSupported(const char* filepath) {
-	return MusicFormat_detect(filepath) != AUDIO_FORMAT_UNKNOWN;
-}

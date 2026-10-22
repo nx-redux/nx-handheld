@@ -491,7 +491,6 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 
 				FfplayConfig config;
 				memset(&config, 0, sizeof(config));
-				config.source = FFPLAY_SOURCE_STREAM;
 				config.is_stream = true;
 				config.screen_width = screen->w;
 				strncpy(config.path, ch->url, sizeof(config.path) - 1);

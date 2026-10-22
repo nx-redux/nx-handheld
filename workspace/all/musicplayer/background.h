@@ -20,7 +20,4 @@ void Background_stopAll(void);
 // Check if any background player is active
 bool Background_isPlaying(void);
 
-// Refresh the copied daemon snapshot (the daemon owns advancement and resume saving)
-void Background_tick(void);
-
 #endif

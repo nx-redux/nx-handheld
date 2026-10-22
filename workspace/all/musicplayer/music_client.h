@@ -19,7 +19,6 @@ int MusicClient_loadFolder(const char* path, const char* selected_path);
 int MusicClient_loadPlaylist(const char* path, int index);
 int MusicClient_loadRadio(const char* url);
 int MusicClient_loadPodcast(const char* feed_url, const char* episode_guid);
-int MusicClient_select(int index);
 int MusicClient_play(void);
 int MusicClient_pause(void);
 int MusicClient_stop(void);
@@ -35,17 +34,13 @@ int MusicClient_setAudioSettings(int bass_filter_hz, float soft_limiter_threshol
 								 int rate_mode_follow, int resampler_quality, int buffer_frames);
 int MusicClient_setRepeat(bool repeat);
 int MusicClient_setShuffle(bool shuffle);
-int MusicClient_shuffle(void);
 
 bool MusicClient_isConnected(void);
-bool MusicClient_isPlaying(void);
-bool MusicClient_isPaused(void);
 bool MusicClient_isStopped(void);
 bool MusicClient_isRadioActive(void);
 bool MusicClient_isPodcastActive(void);
 int MusicClient_position(void);
 int MusicClient_duration(void);
 float MusicClient_speed(void);
-int MusicClient_format(void);
 
 #endif

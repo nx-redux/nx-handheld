@@ -171,16 +171,8 @@ int Player_getPosition(void);
 // Get track duration in milliseconds
 int Player_getDuration(void);
 
-// Get track info
-const TrackInfo* Player_getTrackInfo(void);
-
-// Sample rates for the now-playing rate badge: the file's native rate and the
-// rate the audio device is actually opened at (equal when playing natively)
-int Player_getSourceSampleRate(void);
+// Rate the audio device is actually opened at
 int Player_getOutputSampleRate(void);
-
-// Get current file path
-const char* Player_getCurrentFile(void);
 
 // Get visualization buffer (for spectrum analyzer)
 // Returns number of samples copied
@@ -191,9 +183,6 @@ SDL_Surface* Player_getAlbumArt(void);
 
 // Set playback speed (0.5 to 2.0, default 1.0)
 void Player_setPlaybackSpeed(float speed);
-
-// Get current playback speed
-float Player_getPlaybackSpeed(void);
 
 // Set whether the current track repeats at EOF
 void Player_setRepeat(bool repeat);

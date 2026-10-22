@@ -54,12 +54,17 @@ int main(void) {
 	// missing dir
 	assert(DiskCache_trim("/nonexistent/nx", 1, 1) == 0);
 
+	// size and clear skip dot files
+	make("e.jpg", 50, 5000);
+	assert(DiskCache_size(dir) == 150);
+	DiskCache_clear(dir);
+	assert(!present("d.jpg") && !present("e.jpg") && present(".hidden"));
+	assert(DiskCache_size(dir) == 0);
+	assert(DiskCache_size("/nonexistent/nx") == 0);
+
 	char p[256];
-	const char* left[] = {"d.jpg", ".hidden"};
-	for (int i = 0; i < 2; i++) {
-		snprintf(p, sizeof(p), "%s/%s", dir, left[i]);
-		unlink(p);
-	}
+	snprintf(p, sizeof(p), "%s/.hidden", dir);
+	unlink(p);
 	rmdir(dir);
 	printf("test_disk_cache: all assertions passed\n");
 	return 0;

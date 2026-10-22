@@ -16,6 +16,5 @@ typedef enum {
 } AudioFormat;
 
 AudioFormat MusicFormat_detect(const char* filepath);
-bool MusicFormat_isSupported(const char* filepath);
 
 #endif

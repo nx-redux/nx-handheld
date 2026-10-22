@@ -326,76 +326,24 @@ static void radio_push_samples(const int16_t* samples, int total_samples, int ch
 	}
 }
 
-// Initialize SSL/TLS
+// Initialize SSL/TLS (a failed HTTPS connect still falls back to plain HTTP
+// in direct_connect)
 static int ssl_init(const char* host) {
-	int ret;
-	const char* pers = "radio_client";
-
-	mbedtls_net_init(&radio.ssl_net);
-	mbedtls_ssl_init(&radio.ssl);
-	mbedtls_ssl_config_init(&radio.ssl_conf);
-	mbedtls_entropy_init(&radio.entropy);
-	mbedtls_ctr_drbg_init(&radio.ctr_drbg);
-
-	// Seed random number generator
-	ret = mbedtls_ctr_drbg_seed(&radio.ctr_drbg, mbedtls_entropy_func,
-								&radio.entropy, (const unsigned char*)pers, strlen(pers));
-	if (ret != 0) {
-		LOG_error("mbedtls_ctr_drbg_seed failed: %d\n", ret);
-		goto ssl_init_error;
+	if (radio_net_tls_setup(&radio.ssl_net, &radio.ssl, &radio.ssl_conf, &radio.entropy,
+							&radio.ctr_drbg, "radio_client", host) != 0) {
+		radio_net_tls_free(&radio.ssl_net, &radio.ssl, &radio.ssl_conf, &radio.entropy,
+						   &radio.ctr_drbg, false);
+		return -1;
 	}
-
-	// Set up SSL config
-	ret = mbedtls_ssl_config_defaults(&radio.ssl_conf,
-									  MBEDTLS_SSL_IS_CLIENT,
-									  MBEDTLS_SSL_TRANSPORT_STREAM,
-									  MBEDTLS_SSL_PRESET_DEFAULT);
-	if (ret != 0) {
-		LOG_error("mbedtls_ssl_config_defaults failed: %d\n", ret);
-		goto ssl_init_error;
-	}
-
-	// Verify against the CA bundle when there is one (a failed HTTPS connect
-	// still falls back to plain HTTP in direct_connect)
-	radio_net_tls_verify(&radio.ssl_conf);
-	mbedtls_ssl_conf_rng(&radio.ssl_conf, mbedtls_ctr_drbg_random, &radio.ctr_drbg);
-
-	// Set up SSL context
-	ret = mbedtls_ssl_setup(&radio.ssl, &radio.ssl_conf);
-	if (ret != 0) {
-		LOG_error("mbedtls_ssl_setup failed: %d\n", ret);
-		goto ssl_init_error;
-	}
-
-	// Set hostname for SNI
-	ret = mbedtls_ssl_set_hostname(&radio.ssl, host);
-	if (ret != 0) {
-		LOG_error("mbedtls_ssl_set_hostname failed: %d\n", ret);
-		goto ssl_init_error;
-	}
-
 	radio.ssl_initialized = true;
 	return 0;
-
-ssl_init_error:
-	// Clean up all initialized contexts on error
-	mbedtls_net_free(&radio.ssl_net);
-	mbedtls_ssl_free(&radio.ssl);
-	mbedtls_ssl_config_free(&radio.ssl_conf);
-	mbedtls_ctr_drbg_free(&radio.ctr_drbg);
-	mbedtls_entropy_free(&radio.entropy);
-	return -1;
 }
 
 // Cleanup SSL
 static void ssl_cleanup(void) {
 	if (radio.ssl_initialized) {
-		mbedtls_ssl_close_notify(&radio.ssl);
-		mbedtls_net_free(&radio.ssl_net);
-		mbedtls_ssl_free(&radio.ssl);
-		mbedtls_ssl_config_free(&radio.ssl_conf);
-		mbedtls_ctr_drbg_free(&radio.ctr_drbg);
-		mbedtls_entropy_free(&radio.entropy);
+		radio_net_tls_free(&radio.ssl_net, &radio.ssl, &radio.ssl_conf, &radio.entropy,
+						   &radio.ctr_drbg, true);
 		radio.ssl_initialized = false;
 	}
 }
@@ -2131,10 +2079,6 @@ const CuratedCountry* Radio_getCuratedCountries(void) {
 	return RadioCatalog_getCountries();
 }
 
-int Radio_getCuratedStationCount(const char* country_code) {
-	return RadioCatalog_getStationCount(country_code);
-}
-
 const CuratedStation* Radio_getCuratedStations(const char* country_code, int* count) {
 	return RadioCatalog_getStations(country_code, count);
 }
@@ -2164,10 +2108,6 @@ bool Radio_removeStationByUrl(const char* url) {
 		}
 	}
 	return false;
-}
-
-SDL_Surface* Radio_getAlbumArt(void) {
-	return album_art_get();
 }
 
 SDL_Surface* Radio_getArtwork(const RadioMetadata* metadata, unsigned int* revision) {

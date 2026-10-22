@@ -210,13 +210,6 @@ void Resume_savePodcast(const char* feed_url, const char* episode_guid, const ch
 	save_to_disk();
 }
 
-void Resume_updatePosition(int position_ms) {
-	if (state.type == RESUME_TYPE_NONE)
-		return;
-	state.position_ms = position_ms;
-	save_to_disk();
-}
-
 void Resume_clear(void) {
 	memset(&state, 0, sizeof(state));
 	state.type = RESUME_TYPE_NONE;

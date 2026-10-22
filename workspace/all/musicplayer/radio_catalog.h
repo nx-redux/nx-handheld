@@ -18,6 +18,5 @@ const CuratedCountry* RadioCatalog_getCountries(void);
 int RadioCatalog_loadCountryStations(const char* code, bool force,
 									 volatile bool* should_stop, volatile int* progress);
 const CuratedStation* RadioCatalog_getStations(const char* code, int* count);
-int RadioCatalog_getStationCount(const char* code);
 
 #endif // __RADIO_CATALOG_H__

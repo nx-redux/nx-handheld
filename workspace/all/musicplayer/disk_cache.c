@@ -68,3 +68,37 @@ int DiskCache_trim(const char* dir, int max_files, long long max_bytes) {
 	free(files);
 	return removed;
 }
+
+long DiskCache_size(const char* dir) {
+	DIR* d = opendir(dir);
+	if (!d)
+		return 0;
+	long total = 0;
+	char path[1024];
+	struct dirent* ent;
+	while ((ent = readdir(d))) {
+		if (ent->d_name[0] == '.')
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+		struct stat st;
+		if (stat(path, &st) == 0)
+			total += st.st_size;
+	}
+	closedir(d);
+	return total;
+}
+
+void DiskCache_clear(const char* dir) {
+	DIR* d = opendir(dir);
+	if (!d)
+		return;
+	char path[1024];
+	struct dirent* ent;
+	while ((ent = readdir(d))) {
+		if (ent->d_name[0] == '.')
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+		unlink(path);
+	}
+	closedir(d);
+}

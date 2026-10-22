@@ -458,8 +458,3 @@ int podcast_rss_parse_with_episodes(const char* xml_data, int xml_len, PodcastFe
 
 	return 0;
 }
-
-// Simple wrapper for backward compatibility (no episodes output)
-int podcast_rss_parse(const char* xml_data, int xml_len, PodcastFeed* feed) {
-	return podcast_rss_parse_with_episodes(xml_data, xml_len, feed, NULL, 0, NULL);
-}

@@ -1,8 +1,8 @@
 #ifndef __RADIO_URL_H__
 #define __RADIO_URL_H__
 
-// Splitting a stream URL into host, port and path (radio_net.c, radio.c,
-// http_download.c), split out so it can be unit-tested on the host: see
+// Splitting a stream URL into host, port and path (radio_net.c, radio.c),
+// split out so it can be unit-tested on the host: see
 // tests/test_radio_url.c.
 
 #include <stdbool.h>

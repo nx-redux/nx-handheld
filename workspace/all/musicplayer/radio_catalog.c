@@ -128,9 +128,3 @@ const CuratedStation* RadioCatalog_getStations(const char* code, int* count) {
 	*count = 0;
 	return catalog_stations;
 }
-
-int RadioCatalog_getStationCount(const char* code) {
-	if (code && strcmp(code, loaded_country_code) == 0)
-		return catalog_station_count;
-	return 0;
-}

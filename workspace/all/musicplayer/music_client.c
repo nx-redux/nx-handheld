@@ -216,12 +216,6 @@ const char* MusicClient_error(void) {
 bool MusicClient_isConnected(void) {
 	return client_fd >= 0;
 }
-bool MusicClient_isPlaying(void) {
-	return current_snapshot.state == MUSIC_STATE_PLAYING;
-}
-bool MusicClient_isPaused(void) {
-	return current_snapshot.state == MUSIC_STATE_PAUSED;
-}
 bool MusicClient_isStopped(void) {
 	return current_snapshot.state == MUSIC_STATE_STOPPED;
 }
@@ -241,9 +235,6 @@ int MusicClient_duration(void) {
 }
 float MusicClient_speed(void) {
 	return current_snapshot.playback_speed;
-}
-int MusicClient_format(void) {
-	return current_snapshot.format;
 }
 
 int MusicClient_load(const char* path) {
@@ -289,10 +280,6 @@ int MusicClient_loadPodcast(const char* feed_url, const char* episode_guid) {
 	return request(MUSIC_CMD_PODCAST_LOAD, &request_payload, sizeof(request_payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
 }
 
-int MusicClient_select(int index) {
-	MusicIntRequest payload = {.value = index};
-	return request(MUSIC_CMD_SELECT, &payload, sizeof(payload), MUSIC_CLIENT_LOAD_TIMEOUT_MS);
-}
 int MusicClient_play(void) {
 	return request(MUSIC_CMD_PLAY, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }
@@ -356,7 +343,4 @@ int MusicClient_setRepeat(bool repeat) {
 int MusicClient_setShuffle(bool shuffle) {
 	MusicIntRequest payload = {.value = shuffle ? 1 : 0};
 	return request(MUSIC_CMD_SET_SHUFFLE, &payload, sizeof(payload), MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
-}
-int MusicClient_shuffle(void) {
-	return request(MUSIC_CMD_SHUFFLE, NULL, 0, MUSIC_CLIENT_COMMAND_TIMEOUT_MS);
 }

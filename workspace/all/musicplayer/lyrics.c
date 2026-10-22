@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <dirent.h>
 #include <unistd.h>
 #include <pthread.h>
 #include "api.h"
@@ -489,40 +488,9 @@ int Lyrics_getCurrentIndex(void) {
 }
 
 long Lyrics_getCacheSize(void) {
-	DIR* dir = opendir(LYRICS_CACHE_DIR);
-	if (!dir)
-		return 0;
-
-	long total_size = 0;
-	struct dirent* ent;
-	while ((ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.')
-			continue;
-
-		char filepath[768];
-		snprintf(filepath, sizeof(filepath), "%s/%s", LYRICS_CACHE_DIR, ent->d_name);
-
-		struct stat st;
-		if (stat(filepath, &st) == 0)
-			total_size += st.st_size;
-	}
-	closedir(dir);
-	return total_size;
+	return DiskCache_size(LYRICS_CACHE_DIR);
 }
 
 void Lyrics_clearCache(void) {
-	DIR* dir = opendir(LYRICS_CACHE_DIR);
-	if (!dir)
-		return;
-
-	struct dirent* ent;
-	while ((ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.')
-			continue;
-
-		char filepath[768];
-		snprintf(filepath, sizeof(filepath), "%s/%s", LYRICS_CACHE_DIR, ent->d_name);
-		unlink(filepath);
-	}
-	closedir(dir);
+	DiskCache_clear(LYRICS_CACHE_DIR);
 }

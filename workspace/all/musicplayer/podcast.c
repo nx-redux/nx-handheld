@@ -604,12 +604,8 @@ void Podcast_invalidateEpisodeCache(void) {
 	pthread_mutex_unlock(&episode_cache_mutex);
 }
 
-// External RSS parser functions (in podcast_rss.c)
-extern int podcast_rss_parse(const char* xml_data, int xml_len, PodcastFeed* feed);
-
 // External search functions (in podcast_search.c)
 extern int podcast_search_itunes(const char* query, PodcastSearchResult* results, int max_results);
-extern int podcast_search_lookup(const char* itunes_id, char* feed_url, int feed_url_size);
 extern int podcast_search_lookup_full(const char* itunes_id, char* feed_url, int feed_url_size,
 									  char* artwork_url, int artwork_url_size);
 extern int podcast_charts_fetch(const char* country_code, PodcastChartItem* top, int* top_count,
@@ -851,34 +847,6 @@ void Podcast_cleanupCatalog(void) {
 	 * serialize this process's stale cache while the owner may have changed it. */
 	Podcast_reloadProgress();
 	Podcast_clearThumbnailCache();
-	podcast_initialized = false;
-}
-
-void Podcast_cleanup(void) {
-	// Stop any running operations
-	Podcast_cleanupCatalog();
-	return;
-	Podcast_cancelSearch();
-	Podcast_stopDownloads();
-	Podcast_stop();
-
-	// Wait for refresh thread to finish
-	for (int i = 0; i < 20 && refresh_running; i++) {
-		usleep(100000);
-	}
-
-	// Save state
-	Podcast_saveSubscriptions();
-	Podcast_saveDownloadQueue();
-	save_continue_listening();
-
-	// Save progress
-	Podcast_flushProgress();
-
-	// Clear UI caches
-	Podcast_clearThumbnailCache();
-
-	// Allow full re-initialization on next entry (including auto-resume of downloads)
 	podcast_initialized = false;
 }
 

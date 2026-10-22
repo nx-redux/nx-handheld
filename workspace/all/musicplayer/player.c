@@ -2578,11 +2578,6 @@ void Player_setPlaybackSpeed(float speed) {
 	pthread_mutex_unlock(&player.mutex);
 }
 
-float Player_getPlaybackSpeed(void) {
-	PlayerSnapshot snapshot;
-	return Player_getSnapshot(&snapshot) == 0 ? snapshot.playback_speed : 1.0f;
-}
-
 void Player_setRepeat(bool repeat) {
 	pthread_mutex_lock(&player.mutex);
 	player.repeat = repeat;
@@ -2626,34 +2621,9 @@ int Player_getDuration(void) {
 	return Player_getSnapshot(&snapshot) == 0 ? snapshot.track_info.duration_ms : 0;
 }
 
-const TrackInfo* Player_getTrackInfo(void) {
-	static __thread TrackInfo track_info;
-	PlayerSnapshot snapshot;
-	if (Player_getSnapshot(&snapshot) != 0)
-		memset(&track_info, 0, sizeof(track_info));
-	else
-		track_info = snapshot.track_info;
-	return &track_info;
-}
-
-int Player_getSourceSampleRate(void) {
-	PlayerSnapshot snapshot;
-	return Player_getSnapshot(&snapshot) == 0 ? snapshot.source_sample_rate : 0;
-}
-
 int Player_getOutputSampleRate(void) {
 	PlayerSnapshot snapshot;
 	return Player_getSnapshot(&snapshot) == 0 ? snapshot.output_sample_rate : 0;
-}
-
-const char* Player_getCurrentFile(void) {
-	static __thread char current_file[sizeof(player.current_file)];
-	PlayerSnapshot snapshot;
-	if (Player_getSnapshot(&snapshot) != 0)
-		current_file[0] = '\0';
-	else
-		memcpy(current_file, snapshot.current_file, sizeof(current_file));
-	return current_file;
 }
 
 int Player_getVisBuffer(int16_t* buffer, int max_samples) {

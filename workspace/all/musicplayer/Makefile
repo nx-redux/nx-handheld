@@ -57,7 +57,7 @@ OPUS_CFLAGS = -O2 -fomit-frame-pointer -DOPUS_BUILD -DVAR_ARRAYS -DHAVE_LRINTF \
               -DOP_DISABLE_HTTP -DOP_DISABLE_FLOAT_API -std=gnu99
 
 SOURCE = $(TARGET).c music_client.c music_balance.c music_service_client.c music_format.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c album_art.c disk_cache.c lyrics.c lrc_parse.c embedded_lyrics.c radio_hls.c tag_meta.c \
-         podcast.c podcast_rss.c podcast_search.c http_download.c settings.c resume.c add_to_playlist.c background.c \
+         podcast.c podcast_rss.c podcast_search.c settings.c resume.c add_to_playlist.c background.c \
          module_common.c module_menu.c module_library.c module_player.c module_playlist.c module_radio.c module_podcast.c module_settings.c \
          ui_icons.c ui_utils.c browser.c ui_album_art.c ui_main.c ui_music.c ui_radio.c ui_podcast.c ui_playlist.c ui_settings.c \
          spectrum.c audio/kiss_fft.c audio/kiss_fftr.c \
@@ -97,7 +97,7 @@ endif
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 SERVICE_PRODUCT = build/$(PLATFORM)/$(SERVICE_TARGET).elf
 CTL_PRODUCT = build/$(PLATFORM)/$(CTL_TARGET).elf
-DAEMON_SOURCE = musicplayerd.c music_request_validation.c music_service_server.c music_format.c player.c tag_meta.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c radio_hls.c album_art.c disk_cache.c resume.c podcast.c podcast_rss.c podcast_search.c http_download.c settings.c \
+DAEMON_SOURCE = musicplayerd.c music_request_validation.c music_service_server.c music_format.c player.c tag_meta.c playlist.c playlist_m3u.c radio.c radio_catalog_parse.c radio_catalog.c radio_net.c radio_hls.c album_art.c disk_cache.c resume.c podcast.c podcast_rss.c podcast_search.c settings.c \
                 ../common/utils.c ../common/api.c ../common/text_shape.c ../common/scaler.c ../common/audio_manager.c ../common/config.c ../common/wifi.c ../common/stream_probe.c \
                 ../common/wget_fetch.c ../common/net_cache.c ../common/tz_country.c ../../$(PLATFORM)/platform/platform.c \
                 ../include/parson/parson.c include/yxml/yxml.c ../include/mbedtls_entropy_alt.c ../common/ui/ui_image.c $(MBEDTLS_SRC)

@@ -32,7 +32,4 @@ bool IPTV_userChannelExists(const char* url);
 void IPTV_saveUserChannels(void);
 void IPTV_loadUserChannels(void);
 
-// Cleanup
-void IPTV_cleanup(void);
-
 #endif

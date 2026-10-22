@@ -7,7 +7,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <dirent.h>
 #include <time.h>
 #include <pthread.h>
 #include "api.h"
@@ -494,49 +493,14 @@ void album_art_fetch(const char* artist, const char* title) {
 long album_art_get_cache_size(void) {
 	char cache_dir[512];
 	get_cache_dir(cache_dir, sizeof(cache_dir));
-
-	DIR* dir = opendir(cache_dir);
-	if (!dir)
-		return 0;
-
-	long total_size = 0;
-	struct dirent* ent;
-	while ((ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.')
-			continue;
-
-		char filepath[768];
-		snprintf(filepath, sizeof(filepath), "%s/%s", cache_dir, ent->d_name);
-
-		struct stat st;
-		if (stat(filepath, &st) == 0) {
-			total_size += st.st_size;
-		}
-	}
-	closedir(dir);
-
-	return total_size;
+	return DiskCache_size(cache_dir);
 }
 
 // Clear all cached album art from disk
 void album_art_clear_disk_cache(void) {
 	char cache_dir[512];
 	get_cache_dir(cache_dir, sizeof(cache_dir));
-
-	DIR* dir = opendir(cache_dir);
-	if (!dir)
-		return;
-
-	struct dirent* ent;
-	while ((ent = readdir(dir)) != NULL) {
-		if (ent->d_name[0] == '.')
-			continue;
-
-		char filepath[768];
-		snprintf(filepath, sizeof(filepath), "%s/%s", cache_dir, ent->d_name);
-		unlink(filepath);
-	}
-	closedir(dir);
+	DiskCache_clear(cache_dir);
 
 	// Also clear the in-memory album art since cached files are gone
 	album_art_clear();
