@@ -334,6 +334,48 @@ bool sync_text_lines(const char* text, size_t len, SyncNames* out) {
 	return true;
 }
 
+int sync_read_capped(FILE* fp, size_t max, char** buf, size_t* len) {
+	char* data = NULL;
+	size_t used = 0, cap = 0;
+	char chunk[4096];
+	size_t n;
+	int ret = 0;
+	*buf = NULL;
+	*len = 0;
+	while ((n = fread(chunk, 1, sizeof(chunk), fp)) > 0) {
+		if (used + n > max) {
+			ret = 1;
+			break;
+		}
+		if (used + n + 1 > cap) {
+			size_t want = cap ? cap * 2 : sizeof(chunk) * 2;
+			while (want < used + n + 1)
+				want *= 2;
+			char* grown = realloc(data, want);
+			if (!grown) {
+				ret = -1;
+				break;
+			}
+			data = grown;
+			cap = want;
+		}
+		memcpy(data + used, chunk, n);
+		used += n;
+	}
+	if (ret == 0 && ferror(fp))
+		ret = -1;
+	if (ret == 0 && !data && !(data = malloc(1)))
+		ret = -1;
+	if (ret != 0) {
+		free(data);
+		return ret;
+	}
+	data[used] = '\0';
+	*buf = data;
+	*len = used;
+	return 0;
+}
+
 bool sync_text_is_lines(const char* text, size_t len) {
 	return !memchr(text, '\0', len);
 }

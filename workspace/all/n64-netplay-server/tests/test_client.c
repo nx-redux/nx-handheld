@@ -3,7 +3,7 @@
  *
  * Spawns ./m64p-server-native on 127.0.0.1:55545 with --players 2, connects
  * real sockets, and drives the wire formats of mupen64plus-core's
- * src/main/netplay.c. Thirteen numbered checks T1-T13; any failure prints "FAIL <n> <name>" and exits 1. The spawned server
+ * src/main/netplay.c. Fifteen numbered checks T1-T15; any failure prints "FAIL <n> <name>" and exits 1. The spawned server
  * is killed in an atexit handler.
  */
 
@@ -593,6 +593,54 @@ static int t13(void) {
 	return 1;
 }
 
+// 1 when the server closes fd (EOF) within timeout_ms.
+static int closed_within(int fd, int timeout_ms) {
+	struct pollfd pf = {.fd = fd, .events = POLLIN, .revents = 0};
+	if (poll(&pf, 1, timeout_ms) <= 0)
+		return 0;
+	uint8_t b;
+	return read(fd, &b, 1) <= 0;
+}
+
+/* T14 save cap: a fresh socket sends [1]"big\0"[u32 MS_SAVE_MAX + 1] and the
+       server closes it without waiting for the blob.                      */
+static int t14(void) {
+	int fd = tcp_connect();
+	if (fd < 0)
+		return 0;
+	uint8_t msg[9] = {1, 'b', 'i', 'g', 0};
+	wr32(&msg[5], MS_SAVE_MAX + 1);
+	int ok = send_all(fd, msg, sizeof(msg)) == 0 && closed_within(fd, RECV_TIMEOUT_MS);
+	close(fd);
+	return ok;
+}
+
+/* T15 connection cap: with --players 2 the server keeps 2 + MS_CONN_SLACK
+       live sockets (A and B are two); one more is closed on accept.        */
+static int t15(void) {
+	int extra[MS_CONN_SLACK + 1];
+	int n = 0, ok = 1;
+	for (; n < MS_CONN_SLACK + 1; ++n) {
+		extra[n] = tcp_connect();
+		if (extra[n] < 0) {
+			ok = 0;
+			break;
+		}
+	}
+	if (ok) {
+		usleep(200 * 1000); // let the server accept them all
+		for (int i = 0; i < MS_CONN_SLACK && ok; ++i)
+			ok = silent_for(extra[i], 300);
+		if (ok && !closed_within(extra[MS_CONN_SLACK], RECV_TIMEOUT_MS)) {
+			fprintf(stderr, "  connection past the cap stayed open\n");
+			ok = 0;
+		}
+	}
+	for (int i = 0; i < n; ++i)
+		close(extra[i]);
+	return ok;
+}
+
 int main(void) {
 	signal(SIGPIPE, SIG_IGN);
 	atexit(kill_server);
@@ -633,6 +681,8 @@ int main(void) {
 	CHECK(t11(), "T11 count_lag reflects distance behind lead");
 	CHECK(t12(), "T12 desync detection sets status bit 0");
 	CHECK(t13(), "T13 disconnect notice sets player-2 status bit");
+	CHECK(t14(), "T14 save larger than MS_SAVE_MAX closes the conn");
+	CHECK(t15(), "T15 connections past players + slack are refused");
 
 	return 0;
 }

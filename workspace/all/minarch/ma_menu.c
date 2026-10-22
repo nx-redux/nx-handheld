@@ -590,6 +590,17 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 	// Create flattened array of all achievement pointers
 	const rc_client_achievement_t** all_achievements = calloc(total_achievements, sizeof(rc_client_achievement_t*));
 	AchSortEntry* sort_entries = calloc(total_achievements, sizeof(AchSortEntry));
+	// Allocate filtered array once (max size = all achievements)
+	const rc_client_achievement_t** filtered = calloc(total_achievements, sizeof(rc_client_achievement_t*));
+	if (!all_achievements || !sort_entries || !filtered) {
+		free(all_achievements);
+		free(sort_entries);
+		free(filtered);
+		RA_destroyAchievementList(ach_menu_list);
+		ach_menu_list = NULL;
+		Menu_message("Failed to load achievements", (char*[]){"B", "BACK", NULL});
+		return MENU_CALLBACK_NOP;
+	}
 	int idx = 0;
 	uint32_t subset = 0;
 	for (uint32_t b = 0; b < ach_menu_list->num_buckets && idx < total_achievements; b++) {
@@ -617,8 +628,6 @@ static int OptionAchievements_openMenu(MenuList* list, int i) {
 	int start = 0;
 	int max_visible = (screen->h - ((SCALE1(PADDING + PILL_SIZE) * 2) + SCALE1(BUTTON_SIZE))) / SCALE1(BUTTON_SIZE);
 
-	// Allocate filtered array once (max size = all achievements)
-	const rc_client_achievement_t** filtered = calloc(total_achievements, sizeof(rc_client_achievement_t*));
 	int filtered_count = 0;
 
 	// Hide the "Unknown Emulator" warning when hardcore mode is disabled.
@@ -1375,6 +1384,30 @@ int save_screenshot_thread(void* data) {
 	return 0;
 }
 SDL_Thread* screenshotsavethread;
+// Hands `pixels` or `surface` (ownership passes here) to the PNG-save worker
+// after any previous save finishes. Without memory for the hand-off the image
+// is dropped; without a thread it is saved inline.
+static void Menu_startImageSave(unsigned char* pixels, SDL_Surface* surface, int w, int h, const char* png_path) {
+	SaveImageArgs* args = malloc(sizeof(SaveImageArgs));
+	char* path = SDL_strdup(png_path);
+	if (!args || !path) {
+		SDL_Log("Out of memory saving %s", png_path);
+		free(args);
+		free(path);
+		free(pixels);
+		SDL_FreeSurface(surface);
+		return;
+	}
+	args->pixels = pixels;
+	args->surface = surface;
+	args->w = w;
+	args->h = h;
+	args->path = path;
+	Menu_waitScreenshotSave();
+	screenshotsavethread = SDL_CreateThread(save_screenshot_thread, "SaveScreenshotThread", args);
+	if (!screenshotsavethread)
+		save_screenshot_thread(args); // frees args
+}
 // GL-captures the current frame and returns it as a converted SDL_Surface
 // (caller owns and must SDL_FreeSurface it), or NULL on capture failure.
 SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format) {
@@ -1397,14 +1430,7 @@ void Menu_queueScreenshotSave(const char* png_path) {
 		SDL_Log("Failed to capture screenshot");
 		return;
 	}
-	SaveImageArgs* args = malloc(sizeof(SaveImageArgs));
-	args->pixels = pixels;
-	args->surface = NULL;
-	args->w = cw;
-	args->h = ch;
-	args->path = SDL_strdup(png_path);
-	Menu_waitScreenshotSave();
-	screenshotsavethread = SDL_CreateThread(save_screenshot_thread, "SaveScreenshotThread", args);
+	Menu_startImageSave(pixels, NULL, cw, ch, png_path);
 }
 // Hands a copy of `surface` to the background PNG-save worker at `png_path`.
 // The in-game menu runs at a capped CPU clock, and a shader's scanlines or
@@ -1416,14 +1442,7 @@ static void Menu_queueSurfaceSave(SDL_Surface* surface, const char* png_path) {
 		SDL_Log("Failed to copy screenshot surface: %s", SDL_GetError());
 		return;
 	}
-	SaveImageArgs* args = malloc(sizeof(SaveImageArgs));
-	args->pixels = NULL;
-	args->surface = copy;
-	args->w = copy->w;
-	args->h = copy->h;
-	args->path = SDL_strdup(png_path);
-	Menu_waitScreenshotSave();
-	screenshotsavethread = SDL_CreateThread(save_screenshot_thread, "SaveScreenshotThread", args);
+	Menu_startImageSave(NULL, copy, copy->w, copy->h, png_path);
 }
 // Blocks until a queued PNG save has finished writing, so its file can be read.
 void Menu_waitScreenshotSave(void) {

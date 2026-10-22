@@ -992,7 +992,14 @@ char** list_files_in_folder(const char* folderPath, int* fileCount, const char* 
 
 	if (defaultElement) {
 		fileList = malloc(sizeof(char*) * 2);
-		fileList[0] = strdup(defaultElement);
+		char* first = strdup(defaultElement);
+		if (!fileList || !first) {
+			free(fileList);
+			free(first);
+			closedir(dir);
+			return NULL;
+		}
+		fileList[0] = first;
 		fileList[1] = NULL;
 		(*fileCount)++;
 	}
@@ -1024,11 +1031,13 @@ char** list_files_in_folder(const char* folderPath, int* fileCount, const char* 
 				}
 				free(fileList);
 				closedir(dir);
+				*fileCount = 0;
 				return NULL;
 			}
 			fileList = temp;
 			fileList[*fileCount] = strdup(entry->d_name);
-			(*fileCount)++;
+			if (fileList[*fileCount]) // out of memory: leave the file out
+				(*fileCount)++;
 		}
 	}
 
@@ -1053,6 +1062,7 @@ char** list_files_in_folder(const char* folderPath, int* fileCount, const char* 
 			free(fileList[i]);
 		}
 		free(fileList);
+		*fileCount = 0;
 		return NULL;
 	}
 	fileList = temp;

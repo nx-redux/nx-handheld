@@ -22,9 +22,15 @@ static inline void wr32(uint8_t* p, uint32_t v) {
 #define MS_INPUT_RING 4096 /* per-seat input events kept (~68 s at 60 Hz) */
 #define MS_SYNC_RING 128   /* CP0 sync snapshots kept */
 #define MS_SETTINGS_SIZE 24
-#define MS_MAX_SAVES 8		   /* distinct save-file extensions per session */
-#define MS_SAVE_MAX (4u << 20) /* sanity cap on a single save blob */
+#define MS_MAX_SAVES 8 /* distinct save-file extensions per session */
+/* Cap on a single save blob. The largest cart save the client sends is
+ * 128 KB (mempak, FlashRAM); the server runs beside the N64 core, so every
+ * buffer here is sized well below what a LAN host could otherwise pin. */
+#define MS_SAVE_MAX (1u << 20)
 #define MS_CONN_BUF_MAX (MS_SAVE_MAX + 64)
+/* Live TCP connections allowed beyond one per expected player (a client
+ * reconnecting before its old socket closed). */
+#define MS_CONN_SLACK 2
 #define MS_DEFER_TIMEOUT_MS (5 * 60 * 1000)
 #define MS_CP0_BLOB 128 /* 32 regs x 4 bytes */
 
@@ -116,6 +122,9 @@ typedef struct {
 long long ms_now_ms(void);
 void ms_log(const char* fmt, ...);
 int ms_registered_count(const MsServer* s);
+/* Live TCP connections this server accepts: one per expected player plus
+ * MS_CONN_SLACK, at most MS_MAX_CONNS. */
+int ms_conn_limit(const MsServer* s);
 /* uint32 wrap-aware: returns nonzero when a is newer (larger) than b */
 int ms_uint_larger(uint32_t a, uint32_t b);
 

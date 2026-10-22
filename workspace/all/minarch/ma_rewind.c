@@ -1,5 +1,6 @@
 #include "ma_internal.h"
 #include "ma_rewind.h"
+#include "ma_rewind_budget.h"
 #include <errno.h>
 #include <lz4.h>
 
@@ -304,7 +305,17 @@ static int Rewind_init_apply(size_t state_size) {
 		buf_mb = REWIND_MAX_BUFFER_MB;
 	size_t buffer_mb = (size_t)buf_mb;
 
-	rewind_ctx.capacity = buffer_mb * 1024 * 1024;
+	// RAM is measured after Rewind_free above, so a re-init counts the old
+	// buffers as free
+	int pool = (state_size > REWIND_LARGE_STATE_THRESHOLD) ? REWIND_POOL_SIZE_LARGE : REWIND_POOL_SIZE_SMALL;
+	size_t fit = RewindBudget_capacity(buffer_mb * 1024 * 1024, state_size, pool, RewindBudget_available());
+	if (!fit) {
+		LOG_warn("Rewind: %zu-byte states leave no room for a rewind buffer; rewind off\n", state_size);
+		return 0;
+	}
+	if (fit < buffer_mb * 1024 * 1024)
+		LOG_warn("Rewind: buffer cut from %zu MB to %zu MB to fit in RAM\n", buffer_mb, fit / (1024 * 1024));
+	rewind_ctx.capacity = fit;
 	rewind_ctx.compress = compress;
 	if (!rewind_ctx.compress && rewind_ctx.capacity <= state_size) {
 		LOG_warn("Rewind: raw snapshots (%zu bytes) do not fit in %zu-byte buffer; falling back to compression\n",
@@ -393,9 +404,7 @@ static int Rewind_init_apply(size_t state_size) {
 
 	// set up async capture buffers
 	// Larger states need a deeper pool to avoid drops; cap to a modest size to limit RAM
-	rewind_ctx.pool_size = (state_size > REWIND_LARGE_STATE_THRESHOLD) ? REWIND_POOL_SIZE_LARGE : REWIND_POOL_SIZE_SMALL;
-	if (rewind_ctx.pool_size < 1)
-		rewind_ctx.pool_size = 1;
+	rewind_ctx.pool_size = pool;
 	rewind_ctx.capture_pool = calloc(rewind_ctx.pool_size, sizeof(uint8_t*));
 	rewind_ctx.capture_gen = calloc(rewind_ctx.pool_size, sizeof(unsigned int));
 	rewind_ctx.capture_busy = calloc(rewind_ctx.pool_size, sizeof(uint8_t));

@@ -10,3 +10,6 @@ cc -std=gnu99 -Wall -Wextra -Werror -I"$D" -I"$D/../usblink" \
 OUT_IO=${TMPDIR:-/tmp}/test_net_io
 cc -std=gnu99 -Wall -Wextra -Werror -I"$D" "$D/network_common.c" "$D/tests/test_net_io.c" -o "$OUT_IO"
 "$OUT_IO"
+OUT_GS=${TMPDIR:-/tmp}/test_gbalink_stream
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/network_common.c" "$D/tests/test_gbalink_stream.c" -o "$OUT_GS"
+"$OUT_GS"

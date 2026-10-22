@@ -25,6 +25,7 @@
 
 #include "gbalink.h"
 #include "gbalink_mode.h"
+#include "gbalink_stream.h"
 #include "minarch.h"
 #include "netplay_helper.h"
 #include "network_common.h"
@@ -91,6 +92,7 @@ typedef struct __attribute__((packed)) {
 	uint16_t size;
 	uint16_t client_id; // Source client ID
 } PacketHeader;
+_Static_assert(sizeof(PacketHeader) == GBALINK_WIRE_HDR_SIZE, "gbalink_stream.h reads this header");
 
 // Receive buffer for incoming packets
 // GBA wireless packets vary in size: trades ~32 bytes, battles ~200 bytes max
@@ -283,23 +285,10 @@ static const struct timeval* get_frame_time(void) {
 }
 
 // Compact stream buffer if needed - consolidates fragmented buffer space
-// Only compacts when read_idx is past halfway point AND we need more space
-// This reduces memmove frequency significantly during burst traffic
+// (gbalink_stream.h: past the halfway point, or when the end is full)
 static void compact_stream_buffer_if_needed(size_t min_space_needed) {
-	size_t available = gl.stream_buf_write_idx - gl.stream_buf_read_idx;
-	size_t space_at_end = sizeof(gl.stream_buf) - gl.stream_buf_write_idx;
-
-	// Only compact if:
-	// 1. We need more space than available at end
-	// 2. Read index is past halfway point (worth the memmove cost)
-	// 3. There's actually data to move
-	if (space_at_end < min_space_needed &&
-		gl.stream_buf_read_idx > sizeof(gl.stream_buf) / 2 &&
-		available > 0) {
-		memmove(gl.stream_buf, gl.stream_buf + gl.stream_buf_read_idx, available);
-		gl.stream_buf_read_idx = 0;
-		gl.stream_buf_write_idx = available;
-	}
+	gbalink_stream_compact(gl.stream_buf, sizeof(gl.stream_buf), &gl.stream_buf_read_idx, &gl.stream_buf_write_idx,
+						   min_space_needed);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -678,16 +667,40 @@ static void* listen_thread_func(void* arg) {
 					}
 
 					pthread_mutex_lock(&gl.mutex);
-
-					if (gl.state != GBALINK_STATE_WAITING) {
+					bool waiting = gl.state == GBALINK_STATE_WAITING;
+					pthread_mutex_unlock(&gl.mutex);
+					if (!waiting) {
 						LOG_info("GBALink: HOST rejecting - not in WAITING state\n");
 						close(fd);
-						pthread_mutex_unlock(&gl.mutex);
 						continue;
 					}
 
 					// Configure TCP socket using GBALink-specific settings
 					NET_configureTCPSocket(fd, &GBALINK_TCP_CONFIG);
+
+					// Wait for client's READY signal (5 second timeout) on the
+					// still-private fd, without gl.mutex: holding it here
+					// stalled every GBALink call of the running game until a
+					// slow or hung client answered.
+					LOG_info("GBALink: HOST waiting for client READY signal...\n");
+					bool client_ready = gbalink_wait_cmd(fd, CMD_READY, 5000, &gl.running) == 1;
+					LOG_info("GBALink: HOST client_ready=%d\n", client_ready);
+					if (!client_ready) {
+						LOG_error("GBALink: HOST timeout waiting for client READY\n");
+						// Send DISCONNECT so client knows we rejected them
+						PacketHeader bye = {.cmd = CMD_DISCONNECT};
+						NET_sendAll(fd, &bye, sizeof(bye), 100);
+						close(fd);
+						continue;
+					}
+
+					pthread_mutex_lock(&gl.mutex);
+					if (gl.state != GBALINK_STATE_WAITING || !gl.running) {
+						LOG_info("GBALink: HOST rejecting - no longer WAITING\n");
+						close(fd);
+						pthread_mutex_unlock(&gl.mutex);
+						continue;
+					}
 
 					gl.tcp_fd = fd;
 					inet_ntop(AF_INET, &client_addr.sin_addr, gl.remote_ip, sizeof(gl.remote_ip));
@@ -706,31 +719,6 @@ static void* listen_thread_func(void* arg) {
 					gl.last_packet_received = now;
 
 					snprintf(gl.status_msg, sizeof(gl.status_msg), "Client connected: %s", gl.remote_ip);
-					LOG_info("GBALink: HOST waiting for client READY signal...\n");
-
-					// Wait for client's READY signal
-					bool client_ready = false;
-					for (int attempts = 0; attempts < 100 && gl.running; attempts++) { // 5 second timeout
-						PacketHeader hdr;
-						uint8_t data[64];
-						bool got_packet = recv_packet(&hdr, data, sizeof(data), 50);
-						if (got_packet && hdr.cmd == CMD_READY) {
-							client_ready = true;
-							break;
-						}
-					}
-
-					LOG_info("GBALink: HOST client_ready=%d\n", client_ready);
-					if (!client_ready) {
-						LOG_error("GBALink: HOST timeout waiting for client READY\n");
-						// Send DISCONNECT so client knows we rejected them
-						send_packet(CMD_DISCONNECT, NULL, 0, 0);
-						close(gl.tcp_fd);
-						gl.tcp_fd = -1;
-						gl.state = GBALINK_STATE_WAITING;
-						pthread_mutex_unlock(&gl.mutex);
-						continue;
-					}
 
 					// Send READY back to client with link mode for synchronization
 					// Link mode is sent so client can match host's gpsp_serial setting

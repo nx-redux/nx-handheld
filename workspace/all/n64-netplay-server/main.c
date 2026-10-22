@@ -68,6 +68,11 @@ int ms_registered_count(const MsServer* s) {
 	return n;
 }
 
+int ms_conn_limit(const MsServer* s) {
+	int limit = s->expected_players + MS_CONN_SLACK;
+	return limit < MS_MAX_CONNS ? limit : MS_MAX_CONNS;
+}
+
 int ms_uint_larger(uint32_t a, uint32_t b) {
 	return (uint32_t)(b - a) > UINT32_MAX / 2;
 }
@@ -152,12 +157,17 @@ static void accept_conns(MsServer* s) {
 			return; // EAGAIN or a transient error; poll again next loop
 		}
 		MsConn* c = NULL;
+		int live = 0;
 		for (int i = 0; i < MS_MAX_CONNS; ++i) {
-			if (s->conns[i].fd < 0) {
+			if (s->conns[i].fd >= 0)
+				++live;
+			else if (c == NULL)
 				c = &s->conns[i];
-				break;
-			}
 		}
+		// Each conn can buffer up to MS_CONN_BUF_MAX: only as many as the
+		// session needs, so stray LAN clients can't pin RAM the core needs.
+		if (live >= ms_conn_limit(s))
+			c = NULL;
 		if (c == NULL) {
 			ms_log("connection table full, refusing a client");
 			close(fd);

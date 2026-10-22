@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 // The USB cable link (usblink.elf) is the /30 10.99.0.0: host 10.99.0.1,
 // device 10.99.0.2.
@@ -145,6 +146,12 @@ bool sync_is_roms_phase(int phase);
 	"-rtv --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_RSYNC_TIMEOUT_ARGS " " SYNC_JUNK_CLIENT_ARGS
 #define SYNC_MAP_PATTERN "/[mM][aA][pP].[tT][xX][tT]"
 #define SYNC_COLLECTIONS_PULL_ARGS "--exclude='" SYNC_MAP_PATTERN "' --exclude='*/' --include='/*.[tT][xX][tT]' --exclude='*'"
+
+// A collection is read whole into RAM and merged line by line against the
+// other side, so a bigger file (some 10,000 game paths) is left as it is on
+// both devices. The pull still takes it: one skipped by the pull (--max-size)
+// would look absent there, and this device's copy would be pushed over it.
+#define SYNC_COLLECTION_MAX_BYTES (1024 * 1024)
 #define SYNC_COLLECTIONS_DAEMON_EXCLUDE SYNC_MAP_PATTERN
 
 // A collection file: "<Name>.txt" (extension in any case, as the launcher
@@ -155,6 +162,11 @@ bool sync_is_collection_name(const char* name);
 // A file's lines: split on \n, one trailing \r trimmed from each; a final
 // newline makes no extra empty line. False when out of memory.
 bool sync_text_lines(const char* text, size_t len, SyncNames* out);
+
+// Reads all of fp into a malloc'd *buf (NUL-terminated, *len bytes before
+// the NUL). Returns 0, 1 when it holds more than max bytes (nothing kept), or
+// -1 on a read error or out of memory.
+int sync_read_capped(FILE* fp, size_t max, char** buf, size_t* len);
 
 // False when text holds a NUL byte: its lines can't be kept whole, so such a
 // file is left as it is.

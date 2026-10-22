@@ -1029,6 +1029,7 @@ enum CollectionRead {
 	COLL_READ_OK,
 	COLL_READ_ABSENT, // no such file (gone since the listing)
 	COLL_READ_NUL,	  // holds a NUL byte (sync_text_is_lines)
+	COLL_READ_BIG,	  // over SYNC_COLLECTION_MAX_BYTES
 	COLL_READ_FAIL,
 };
 
@@ -1040,32 +1041,15 @@ static enum CollectionRead read_collection(const char* dir, const char* name, Sy
 	if (!fp)
 		return errno == ENOENT ? COLL_READ_ABSENT : COLL_READ_FAIL;
 	char* buf = NULL;
-	size_t len = 0, cap = 0;
-	char chunk[4096];
-	size_t n;
-	enum CollectionRead ret = COLL_READ_OK;
-	while (ret == COLL_READ_OK && (n = fread(chunk, 1, sizeof(chunk), fp)) > 0) {
-		if (len + n > cap) {
-			size_t want = cap ? cap * 2 : sizeof(chunk) * 2;
-			char* grown = realloc(buf, want);
-			if (!grown)
-				ret = COLL_READ_FAIL;
-			else {
-				buf = grown;
-				cap = want;
-			}
-		}
-		if (ret == COLL_READ_OK) {
-			memcpy(buf + len, chunk, n);
-			len += n;
-		}
-	}
-	if (ferror(fp))
-		ret = COLL_READ_FAIL;
+	size_t len = 0;
+	int r = sync_read_capped(fp, SYNC_COLLECTION_MAX_BYTES, &buf, &len);
 	fclose(fp);
-	if (ret == COLL_READ_OK && !sync_text_is_lines(buf ? buf : "", len))
+	enum CollectionRead ret = COLL_READ_OK;
+	if (r != 0)
+		ret = r == 1 ? COLL_READ_BIG : COLL_READ_FAIL;
+	if (ret == COLL_READ_OK && !sync_text_is_lines(buf, len))
 		ret = COLL_READ_NUL;
-	if (ret == COLL_READ_OK && !sync_text_lines(buf ? buf : "", len, out))
+	if (ret == COLL_READ_OK && !sync_text_lines(buf, len, out))
 		ret = COLL_READ_FAIL;
 	free(buf);
 	return ret;
@@ -1151,6 +1135,12 @@ static bool merge_collection(const char* local, const char* peer, const char* in
 	}
 	if (ra == COLL_READ_NUL || rb == COLL_READ_NUL) {
 		snprintf(msg, sizeof(msg), "  %s: skipped (a NUL byte in it)", shown);
+		log_add(msg);
+		ok = true;
+		goto done;
+	}
+	if (ra == COLL_READ_BIG || rb == COLL_READ_BIG) {
+		snprintf(msg, sizeof(msg), "  %s: skipped (over 1 MB)", shown);
 		log_add(msg);
 		ok = true;
 		goto done;

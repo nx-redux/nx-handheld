@@ -2,6 +2,7 @@
 // Build & run: workspace/all/sync/tests/run_tests.sh
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "../sync_proto.h"
 
@@ -330,6 +331,39 @@ static void test_text_is_lines(void) {
 	assert(sync_text_is_lines("/a\0", 2));
 }
 
+static FILE* file_of(size_t n, char fill) {
+	FILE* fp = tmpfile();
+	assert(fp);
+	for (size_t i = 0; i < n; i++)
+		fputc(fill, fp);
+	rewind(fp);
+	return fp;
+}
+
+static void test_read_capped(void) {
+	char* buf;
+	size_t len;
+	// Empty file: an empty, terminated buffer.
+	FILE* fp = file_of(0, 'a');
+	assert(sync_read_capped(fp, 16, &buf, &len) == 0 && len == 0 && buf && buf[0] == '\0');
+	free(buf);
+	fclose(fp);
+	// Exactly the cap, spanning several read chunks and buffer growths.
+	fp = file_of(20000, 'x');
+	assert(sync_read_capped(fp, 20000, &buf, &len) == 0 && len == 20000);
+	assert(buf[0] == 'x' && buf[19999] == 'x' && buf[20000] == '\0');
+	free(buf);
+	fclose(fp);
+	// One byte over: refused, nothing kept.
+	fp = file_of(20001, 'x');
+	assert(sync_read_capped(fp, 20000, &buf, &len) == 1 && buf == NULL && len == 0);
+	fclose(fp);
+	// A collection over the real cap is refused too.
+	fp = file_of(SYNC_COLLECTION_MAX_BYTES + 1, '/');
+	assert(sync_read_capped(fp, SYNC_COLLECTION_MAX_BYTES, &buf, &len) == 1 && buf == NULL);
+	fclose(fp);
+}
+
 static void test_merge_lines(void) {
 	SyncNames out = {0};
 	// Order kept, the other side's lines this side lacks appended in its order.
@@ -436,6 +470,7 @@ int main(void) {
 	test_merge_lines();
 	test_names_find_ci();
 	test_text_is_lines();
+	test_read_capped();
 	printf("sync_proto: all tests passed\n");
 	return 0;
 }

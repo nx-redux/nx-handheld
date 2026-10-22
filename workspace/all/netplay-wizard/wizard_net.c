@@ -1154,6 +1154,7 @@ int wiz_host_rendezvous(const WizArgs* a, WizSession* s) {
 				int rc = wiz_host_handshake(a, s, peer_fd, &peer, assigned,
 											&joiners[njoin].reader, joiners[njoin].ip);
 				if (rc == -2) {
+					close(peer_fd); // cancelled mid-handshake: never joined
 					result = -2;
 					break_all = true;
 				} else if (rc == -1) {
