@@ -75,8 +75,10 @@ void Game_open(char* path) {
 			} else {
 				extracted = extract_7z(tmp_dirname, extensions);
 			}
-			if (!extracted)
+			if (!extracted) {
+				rmdir(tmp_dirname); // a refused or failed unpack leaves nothing behind
 				return;
+			}
 			// Update the game name to the extracted file name instead of the archive name
 			if (CFG_getUseExtractedFileName())
 				strcpy((char*)game.alt_name, strrchr(game.tmp_path, '/') + 1);
