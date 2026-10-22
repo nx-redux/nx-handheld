@@ -43,7 +43,7 @@ CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 CFLAGS += -DRC_CLIENT_SUPPORTS_HASH -DHAS_CHDR
-LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lrcheevos -lchdr
+LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lrcheevos -lchdr -lzip -lz
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
