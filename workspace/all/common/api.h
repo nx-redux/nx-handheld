@@ -465,7 +465,7 @@ typedef struct SND_Frame {
 } SND_Frame;
 
 typedef struct {
-	SND_Frame* frames; // malloc'd by resample_audio(); the caller owns it and must free() it
+	SND_Frame* frames; // owned by resample_audio() and reused: valid until its next call
 	int frame_count;
 } ResampledFrames;
 
@@ -606,6 +606,7 @@ void PWR_captureStatus(int* screenshot_armed, int* recording);
 void PWR_updateFrequency(int secs, int updateWifi);
 
 void PWR_disablePowerOff(void);
+void PWR_enablePowerOff(void);
 void PWR_powerOff(int reboot);
 
 void PWR_sleep(void);

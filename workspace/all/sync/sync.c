@@ -436,6 +436,14 @@ static void* discovery_thread_func(void* arg) {
 	return NULL;
 }
 
+// Undoes start_discovery's sleep / auto-sleep / power-off block; every path
+// that ends a discovery or sync calls it.
+static void allow_power(void) {
+	PWR_enableSleep();
+	PWR_enableAutosleep();
+	PWR_enablePowerOff();
+}
+
 static void start_discovery(void) {
 	peer_found = false;
 	peer_sync_roms = false;
@@ -451,8 +459,7 @@ static void start_discovery(void) {
 
 	udp_sock = create_recv_socket();
 	if (udp_sock < 0) {
-		PWR_enableSleep();
-		PWR_enableAutosleep();
+		allow_power();
 		state = STATE_ERROR;
 		return;
 	}
@@ -460,8 +467,7 @@ static void start_discovery(void) {
 	if (pthread_create(&discovery_thread, NULL, discovery_thread_func, NULL) != 0) {
 		close(udp_sock);
 		udp_sock = -1;
-		PWR_enableSleep();
-		PWR_enableAutosleep();
+		allow_power();
 		state = STATE_ERROR;
 		return;
 	}
@@ -509,7 +515,11 @@ static int wait_for_udp_message(const char* expected, int timeout_sec) {
 			ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
 			if (n > 0) {
 				buf[n] = '\0';
-				if (strcmp(buf, expected) == 0) {
+				char src_ip[INET_ADDRSTRLEN];
+				inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
+				// only from the paired peer: another device on the LAN
+				// syncing at the same time must not start this session
+				if (strcmp(buf, expected) == 0 && (!peer_ip[0] || strcmp(src_ip, peer_ip) == 0)) {
 					close(sock);
 					return 0;
 				}
@@ -843,7 +853,7 @@ static int run_rsync_phase(int phase, const char* extra) {
 	// No --inplace: a cut transfer would leave a truncated file with a fresh
 	// mtime, which --update then prefers over the good copy on both devices.
 	// The receiver writes a temp file beside it and renames it when complete.
-	const char* rsync_opts = "-rtv --update --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS;
+	const char* rsync_opts = "-rtv --update --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_RSYNC_TIMEOUT_ARGS " " SYNC_JUNK_CLIENT_ARGS;
 	// Of .userdata/shared only the save states and their slot pictures and
 	// markers travel (sync_proto.c); settings, recents and RA data stay put.
 	char shared_filter[1024];
@@ -1383,7 +1393,8 @@ static void* sync_thread_func(void* arg) {
 					buf[n] = '\0';
 					char src_ip[INET_ADDRSTRLEN];
 					inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
-					if (strcmp(buf, DONE_MSG) == 0) {
+					// only the paired peer can end (or fail) the session
+					if (strcmp(buf, DONE_MSG) == 0 && strcmp(src_ip, peer_ip) == 0) {
 						log_add("Client finished sync");
 						ret = 0;
 						break;
@@ -1577,7 +1588,7 @@ static void start_sync(void) {
 
 	state = STATE_SYNCING;
 	if (pthread_create(&sync_thread, NULL, sync_thread_func, NULL) != 0) {
-		PWR_enableSleep();
+		allow_power();
 		state = STATE_ERROR;
 		return;
 	}
@@ -1591,8 +1602,7 @@ static void cancel_sync(void) {
 		pthread_join(sync_thread, NULL);
 		sync_thread_active = false;
 	}
-	PWR_enableSleep();
-	PWR_enableAutosleep();
+	allow_power();
 }
 
 static void render_log(int top_y, int bottom_y) {
@@ -1850,8 +1860,7 @@ int main(int argc, char* argv[]) {
 			if (PAD_justPressed(BTN_B)) {
 				stop_discovery();
 				cable_link_stop();
-				PWR_enableSleep();
-				PWR_enableAutosleep();
+				allow_power();
 				state = STATE_READY;
 			} else if (peer_found) {
 				__sync_synchronize();
@@ -1876,8 +1885,7 @@ int main(int argc, char* argv[]) {
 				stop_rsync_daemon();
 				// The session is over; Sync again starts a new one.
 				cable_link_stop();
-				PWR_enableSleep();
-				PWR_enableAutosleep();
+				allow_power();
 
 				if (sync_roms) {
 					unlink(EMULIST_CACHE_PATH);
@@ -1936,8 +1944,7 @@ int main(int argc, char* argv[]) {
 	if (udp_sock >= 0)
 		close(udp_sock);
 
-	PWR_enableSleep();
-	PWR_enableAutosleep();
+	allow_power();
 
 	QuitSettings();
 	PWR_quit();

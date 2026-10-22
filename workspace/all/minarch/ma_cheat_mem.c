@@ -151,7 +151,13 @@ int CheatMem_apply(const CheatMem* mem, const struct CheatMemPatch* const* patch
 
 		written++;
 		unsigned bit_mask = c->bit_mask;
-		for (unsigned r = 0; r < c->repeat_count; r++) {
+		unsigned repeat = c->repeat_count < CHEAT_MEM_MAX_REPEAT ? c->repeat_count : CHEAT_MEM_MAX_REPEAT;
+		// Sub-byte steps come back to the same bit and byte after
+		// (8 / bits) * total of them: a bigger step count loops in place.
+		unsigned add_addr = c->repeat_add_to_address;
+		if (bits < 8)
+			add_addr = (unsigned)(add_addr % ((unsigned long long)(8 / bits) * mem->total));
+		for (unsigned r = 0; r < repeat; r++) {
 			p = locate(mem, idx, bytes);
 			if (!p)
 				break;
@@ -168,7 +174,7 @@ int CheatMem_apply(const CheatMem* mem, const struct CheatMemPatch* const* patch
 
 			set = (set + c->repeat_add_to_value) & mask;
 			if (bits < 8) {
-				for (unsigned a = 0; a < c->repeat_add_to_address; a++) {
+				for (unsigned a = 0; a < add_addr; a++) {
 					bit_mask = (bit_mask << bits) & 0xFF;
 					if (!bit_mask) {
 						bit_mask = mask;
@@ -182,4 +188,8 @@ int CheatMem_apply(const CheatMem* mem, const struct CheatMemPatch* const* patch
 		}
 	}
 	return written;
+}
+
+int CheatFile_countOk(unsigned long count) {
+	return count > 0 && count <= CHEAT_FILE_MAX_COUNT;
 }

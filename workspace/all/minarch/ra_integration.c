@@ -88,7 +88,7 @@ static bool ra_memory_regions_initialized = false;
 #define RA_MAX_PATH 512
 typedef struct {
 	char rom_path[RA_MAX_PATH];
-	uint8_t* rom_data;
+	const uint8_t* rom_data; // borrowed: game.data, see RA_forgetGameData
 	size_t rom_size;
 	char emu_tag[16];
 	char core_name[64];
@@ -1476,10 +1476,7 @@ static void RA_initMemoryRegions(uint32_t console_id) {
  * Helper: Clear pending game data
  *****************************************************************************/
 static void ra_clear_pending_game(void) {
-	if (ra_pending_load.rom_data) {
-		free(ra_pending_load.rom_data);
-		ra_pending_load.rom_data = NULL;
-	}
+	ra_pending_load.rom_data = NULL;
 	ra_pending_load.rom_size = 0;
 	ra_pending_load.rom_path[0] = '\0';
 	ra_pending_load.emu_tag[0] = '\0';
@@ -1542,6 +1539,11 @@ static void ra_do_load_game(const char* rom_path, const uint8_t* rom_data, size_
 #endif
 }
 
+void RA_forgetGameData(void) {
+	ra_pending_load.rom_data = NULL;
+	ra_pending_load.rom_size = 0;
+}
+
 void RA_setRecordedRomPath(const char* path) {
 	snprintf(ra_record_rom_path, sizeof(ra_record_rom_path), "%s", path ? path : "");
 }
@@ -1558,9 +1560,8 @@ void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size,
 
 	// If not logged in yet, store the game info for deferred loading
 	if (!ra_logged_in) {
-		// only defer (which copies the whole ROM) when a login can actually
-		// complete — same condition RA_init uses to start one. Otherwise the
-		// copy would sit in RAM for the entire session with no consumer.
+		// only defer when a login can actually complete — same condition
+		// RA_init uses to start one.
 		if (!(CFG_getRAAuthenticated() && strlen(CFG_getRAToken()) > 0)) {
 			RA_LOG_WARN("Not authenticated - skipping game load for: %s\n", rom_path);
 			return;
@@ -1580,16 +1581,11 @@ void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size,
 		snprintf(ra_pending_load.core_name, sizeof(ra_pending_load.core_name), "%s",
 				 core_name ? core_name : "");
 
-		// Copy ROM data if provided (some cores need it)
+		// Borrow the ROM data (game.data) rather than copying the whole ROM:
+		// it lives until Game_close, which calls RA_forgetGameData first
 		if (rom_data && rom_size > 0) {
-			ra_pending_load.rom_data = (uint8_t*)malloc(rom_size);
-			if (ra_pending_load.rom_data) {
-				memcpy(ra_pending_load.rom_data, rom_data, rom_size);
-				ra_pending_load.rom_size = rom_size;
-			} else {
-				RA_LOG_WARN("Failed to allocate memory for pending ROM data\n");
-				ra_pending_load.rom_size = 0;
-			}
+			ra_pending_load.rom_data = rom_data;
+			ra_pending_load.rom_size = rom_size;
 		}
 
 		ra_pending_load.active = true;

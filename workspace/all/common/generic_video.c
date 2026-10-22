@@ -560,6 +560,8 @@ static uint32_t capture_mono_ms(void);
 #define OVERLAYS_FOLDER SDCARD_PATH "/Overlays"
 
 static char* overlay_path = NULL;
+// Guards overlay_path, effect state and frame_prep (PrepareFrameThread)
+static pthread_mutex_t video_prep_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Notification overlay state for RA achievements
 typedef struct {
@@ -1281,8 +1283,10 @@ void PLAT_quitVideo(void) {
 
 	// Cleanup and shutdown
 	SDL_DestroyWindow(vid.window);
-	if (overlay_path)
-		free(overlay_path);
+	pthread_mutex_lock(&video_prep_mutex);
+	free(overlay_path);
+	overlay_path = NULL;
+	pthread_mutex_unlock(&video_prep_mutex);
 
 	SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
@@ -1379,7 +1383,6 @@ static struct FX_Context {
 static char* effect_path;
 static char effect_path_buf[MAX_PATH];
 static int effectUpdated = 0;
-static pthread_mutex_t video_prep_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void updateEffect(void) {
 	// Read effect state with mutex protection
@@ -1487,34 +1490,33 @@ void PLAT_setOverlay(const char* filename, const char* tag) {
 		SDL_DestroyTexture(vid.overlay);
 		vid.overlay = NULL;
 	}
-	if (overlay_path) {
-		free(overlay_path);
-		overlay_path = NULL;
+
+	char* new_path = NULL;
+	if (!filename || strcmp(filename, "") == 0 || strcmp(filename, "None") == 0) {
+		new_path = strdup("");
+		LOG_info("Skipping overlay update.\n");
+	} else {
+		char overlays_folder[MAX_PATH];
+		snprintf(overlays_folder, sizeof(overlays_folder), "%s/Overlays", SDCARD_PATH);
+
+		size_t path_len = strlen(overlays_folder) + strlen(tag) + strlen(filename) + 4; // +3 for slashes and null-terminator
+		new_path = malloc(path_len);
+		if (!new_path) {
+			perror("malloc failed");
+		} else {
+			snprintf(new_path, path_len, "%s/%s/%s", overlays_folder, tag, filename);
+			LOG_info("Overlay path set to: %s\n", new_path);
+		}
 	}
 
+	// PrepareFrameThread copies overlay_path under this mutex before loading,
+	// so the old string can only be freed once it is swapped out here.
 	pthread_mutex_lock(&video_prep_mutex);
+	char* old_path = overlay_path;
+	overlay_path = new_path;
 	overlayUpdated = 1;
 	pthread_mutex_unlock(&video_prep_mutex);
-
-	if (!filename || strcmp(filename, "") == 0 || strcmp(filename, "None") == 0) {
-		overlay_path = strdup("");
-		LOG_info("Skipping overlay update.\n");
-		return;
-	}
-
-	char overlays_folder[MAX_PATH];
-	snprintf(overlays_folder, sizeof(overlays_folder), "%s/Overlays", SDCARD_PATH);
-
-	size_t path_len = strlen(overlays_folder) + strlen(tag) + strlen(filename) + 4; // +3 for slashes and null-terminator
-	overlay_path = malloc(path_len);
-
-	if (!overlay_path) {
-		perror("malloc failed");
-		return;
-	}
-
-	snprintf(overlay_path, path_len, "%s/%s/%s", overlays_folder, tag, filename);
-	LOG_info("Overlay path set to: %s\n", overlay_path);
+	free(old_path);
 }
 
 
@@ -3213,16 +3215,21 @@ int prepareFrameThread(void* data) {
 				}
 
 				pthread_mutex_lock(&video_prep_mutex);
+				SDL_Surface* old = frame_prep.loaded_effect;
 				frame_prep.loaded_effect = converted;
 				effectUpdated = 0;
 				frame_prep.effect_ready = 1;
 				pthread_mutex_unlock(&video_prep_mutex);
+				// PLAT_GL_Swap only touches loaded_* while holding the mutex
+				SDL_FreeSurface(old);
 			} else {
 				pthread_mutex_lock(&video_prep_mutex);
+				SDL_Surface* old = frame_prep.loaded_effect;
 				frame_prep.loaded_effect = 0;
 				effectUpdated = 0;
 				frame_prep.effect_ready = 1;
 				pthread_mutex_unlock(&video_prep_mutex);
+				SDL_FreeSurface(old);
 			}
 		}
 
@@ -3234,9 +3241,11 @@ int prepareFrameThread(void* data) {
 
 		if (effect_type == EFFECT_NONE && loaded_effect != 0) {
 			pthread_mutex_lock(&video_prep_mutex);
+			SDL_Surface* old = frame_prep.loaded_effect;
 			frame_prep.loaded_effect = 0;
 			frame_prep.effect_ready = 1;
 			pthread_mutex_unlock(&video_prep_mutex);
+			SDL_FreeSurface(old);
 		}
 
 		// Check overlayUpdated flag with mutex
@@ -3246,8 +3255,16 @@ int prepareFrameThread(void* data) {
 
 		if (overlay_updated) {
 			LOG_info("overlay updated\n");
-			if (overlay_path) {
-				SDL_Surface* tmp = IMG_Load(overlay_path);
+			// Copy the path: PLAT_setOverlay may replace it on the main thread
+			// while IMG_Load runs.
+			char path[MAX_PATH];
+			pthread_mutex_lock(&video_prep_mutex);
+			int have_path = overlay_path != NULL;
+			if (have_path)
+				snprintf(path, sizeof(path), "%s", overlay_path);
+			pthread_mutex_unlock(&video_prep_mutex);
+			if (have_path) {
+				SDL_Surface* tmp = path[0] ? IMG_Load(path) : NULL;
 				SDL_Surface* converted = NULL;
 				if (tmp) {
 					converted = SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_RGBA32, 0);
@@ -3255,16 +3272,20 @@ int prepareFrameThread(void* data) {
 				}
 
 				pthread_mutex_lock(&video_prep_mutex);
+				SDL_Surface* old = frame_prep.loaded_overlay;
 				frame_prep.loaded_overlay = converted;
 				frame_prep.overlay_ready = 1;
 				overlayUpdated = 0;
 				pthread_mutex_unlock(&video_prep_mutex);
+				SDL_FreeSurface(old);
 			} else {
 				pthread_mutex_lock(&video_prep_mutex);
+				SDL_Surface* old = frame_prep.loaded_overlay;
 				frame_prep.loaded_overlay = 0;
 				frame_prep.overlay_ready = 1;
 				overlayUpdated = 0;
 				pthread_mutex_unlock(&video_prep_mutex);
+				SDL_FreeSurface(old);
 			}
 		}
 
@@ -3347,13 +3368,12 @@ void PLAT_GL_Swap() {
 		reloadShaderTextures = 1;
 	}
 
-	// Check if effect needs updating
+	// Check if effect / overlay need updating. The mutex stays held across the
+	// uploads: PrepareFrameThread frees a replaced surface right after swapping
+	// it out, so its pixels are only valid while the lock is held.
 	pthread_mutex_lock(&video_prep_mutex);
-	int effect_ready = frame_prep.effect_ready;
-	SDL_Surface* loaded_effect = frame_prep.loaded_effect;
-	pthread_mutex_unlock(&video_prep_mutex);
-
-	if (effect_ready) {
+	if (frame_prep.effect_ready) {
+		SDL_Surface* loaded_effect = frame_prep.loaded_effect;
 		if (loaded_effect) {
 			if (!effect_tex)
 				glGenTextures(1, &effect_tex);
@@ -3371,18 +3391,11 @@ void PLAT_GL_Swap() {
 			}
 			effect_tex = 0;
 		}
-		pthread_mutex_lock(&video_prep_mutex);
 		frame_prep.effect_ready = 0;
-		pthread_mutex_unlock(&video_prep_mutex);
 	}
 
-	// Check if overlay needs updating
-	pthread_mutex_lock(&video_prep_mutex);
-	int overlay_ready = frame_prep.overlay_ready;
-	SDL_Surface* loaded_overlay = frame_prep.loaded_overlay;
-	pthread_mutex_unlock(&video_prep_mutex);
-
-	if (overlay_ready) {
+	if (frame_prep.overlay_ready) {
+		SDL_Surface* loaded_overlay = frame_prep.loaded_overlay;
 		if (loaded_overlay) {
 			if (!overlay_tex)
 				glGenTextures(1, &overlay_tex);
@@ -3401,10 +3414,9 @@ void PLAT_GL_Swap() {
 			}
 			overlay_tex = 0;
 		}
-		pthread_mutex_lock(&video_prep_mutex);
 		frame_prep.overlay_ready = 0;
-		pthread_mutex_unlock(&video_prep_mutex);
 	}
+	pthread_mutex_unlock(&video_prep_mutex);
 
 	GLuint frame_tex = src_texture;
 	int hwr_direct = 0;

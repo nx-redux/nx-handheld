@@ -96,6 +96,19 @@ bool NET_hasConnection(void);
  */
 void NET_configureTCPSocket(int fd, const NET_TCPConfig* config);
 
+/**
+ * Send/receive exactly len bytes on a stream socket, giving up once
+ * timeout_ms pass without any progress (poll + non-blocking calls, so a dead
+ * peer or a pulled cable can't block the caller forever, while a big transfer
+ * on a slow link still completes). recv: *got (if not NULL) is set to the
+ * bytes read so far, so a caller can tell an idle socket from a packet cut
+ * off part way.
+ * @return 1 when all bytes moved, 0 on timeout, -1 when the peer closed the
+ *         connection or on a socket error
+ */
+int NET_sendAll(int fd, const void* buf, size_t len, int timeout_ms);
+int NET_recvAll(int fd, void* buf, size_t len, int timeout_ms, size_t* got);
+
 //////////////////////////////////////////////////////////////////////////////
 // Server Socket Creation
 //////////////////////////////////////////////////////////////////////////////

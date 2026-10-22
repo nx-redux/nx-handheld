@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "album_art.h"
 #include "wget_fetch.h"
+#include "disk_cache.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,9 @@
 // Album art cache directory path on SD card
 #define ALBUMART_CACHE_DIR SDCARD_PATH "/.cache/albumart"
 #define CACHE_PARENT_DIR SDCARD_PATH "/.cache"
+// Kept to this size; the least recently written covers are dropped first
+#define ALBUMART_CACHE_MAX_FILES 1500
+#define ALBUMART_CACHE_MAX_BYTES (100LL * 1024 * 1024)
 
 // Album art module state
 typedef struct {
@@ -30,13 +34,15 @@ typedef struct {
 	unsigned int revision;
 	bool art_fetch_in_progress;
 
-	// Thread state
-	pthread_t fetch_thread;
-	bool thread_active;
+	// Worker state: at most one detached worker runs; a request made while it
+	// is busy replaces the wanted track and the worker picks it up when done
+	bool worker_running;
+	bool want;		  // a fetch for req_* is outstanding
+	unsigned int gen; // bumped by every request/clear; stale results are dropped
 	char req_artist[256];
 	char req_title[256];
 
-	// Thread result (written by thread, read by main)
+	// Worker result (published under art_lock, adopted by album_art_get)
 	SDL_Surface* pending_art;
 	bool result_ready;
 } AlbumArtContext;
@@ -44,12 +50,11 @@ typedef struct {
 static AlbumArtContext art_ctx = {0};
 
 // album_art_fetch() is called from the radio streaming thread (ICY/HLS metadata),
-// while album_art_get()/_is_fetching()/_clear() run on the UI thread. Without
-// serialization they can pthread_join() the same handle concurrently, create a
-// new fetch thread over one being joined, and double-free pending_art. This lock
-// makes those four entry points mutually exclusive. The worker thread
-// (fetch_thread_func) deliberately does NOT take this lock, so holding it across
-// pthread_join() cannot deadlock — the worker finishes on its own.
+// while album_art_get()/_is_fetching()/_clear() run on the UI thread (and the
+// daemon's main loop). This lock guards art_ctx. Nothing ever waits for the
+// worker while holding it (the worker is detached and never joined), so a slow
+// network fetch can't stall the stream thread or the main loop; the worker
+// only takes the lock briefly to read its request and publish its result.
 static pthread_mutex_t art_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Get album art cache directory path (on SD card)
@@ -213,13 +218,9 @@ static bool search_deezer(const char* term, const char* title, char* out, int ou
 	return cover != NULL;
 }
 
-// Background thread: fetch album art (iTunes, then Deezer)
-static void* fetch_thread_func(void* arg) {
-	(void)arg;
-	PWR_pinToCores(CPU_CORE_EFFICIENCY);
-	const char* artist = art_ctx.req_artist;
-	const char* title = art_ctx.req_title;
-
+// Fetch art for one track (disk cache, then iTunes, then Deezer). Returns the
+// surface or NULL. Touches no shared state.
+static SDL_Surface* fetch_art(const char* artist, const char* title) {
 	ensure_cache_dir();
 
 	// Check disk cache first
@@ -227,11 +228,8 @@ static void* fetch_thread_func(void* arg) {
 	get_cache_filepath(artist, title, cache_path, sizeof(cache_path));
 
 	SDL_Surface* cached_art = load_cached_album_art(cache_path);
-	if (cached_art) {
-		art_ctx.pending_art = cached_art;
-		art_ctx.result_ready = true;
-		return NULL;
-	}
+	if (cached_art)
+		return cached_art;
 
 	char encoded_artist[512];
 	char encoded_title[512];
@@ -258,59 +256,106 @@ static void* fetch_thread_func(void* arg) {
 		found = search_deezer(term, title, large_artwork_url, sizeof(large_artwork_url));
 	if (!found) {
 		LOG_info("No album art found for \"%s\" - \"%s\"\n", artist, title);
-		art_ctx.result_ready = true;
 		return NULL;
 	}
 	LOG_info("Album art for \"%s\" - \"%s\": %s\n", artist, title, large_artwork_url);
 
 	// Download the image
 	uint8_t* image_buf = (uint8_t*)malloc(1024 * 1024);
-	if (!image_buf) {
-		art_ctx.result_ready = true;
+	if (!image_buf)
 		return NULL;
-	}
 
 	int image_bytes = wget_fetch(large_artwork_url, image_buf, 1024 * 1024);
 	if (image_bytes <= 0) {
 		LOG_error("Failed to download album art image (bytes=%d)\n", image_bytes);
 		free(image_buf);
-		art_ctx.result_ready = true;
 		return NULL;
 	}
 
 	// Load image into SDL_Surface
+	SDL_Surface* art = NULL;
 	SDL_RWops* rw = SDL_RWFromConstMem(image_buf, image_bytes);
 	if (rw) {
-		SDL_Surface* art = IMG_Load_RW(rw, 1);
+		art = IMG_Load_RW(rw, 1);
 		if (art) {
-			// Save to disk cache for future use
+			// Save to disk cache for future use (capped, oldest covers go first)
 			save_album_art_to_cache(cache_path, image_buf, image_bytes);
-			art_ctx.pending_art = art;
+			DiskCache_trim(ALBUMART_CACHE_DIR, ALBUMART_CACHE_MAX_FILES, ALBUMART_CACHE_MAX_BYTES);
 		} else {
 			LOG_error("Failed to load album art image: %s\n", IMG_GetError());
 		}
 	}
 
 	free(image_buf);
-	art_ctx.result_ready = true;
-	return NULL;
+	return art;
 }
 
-void album_art_init(void) {
-	memset(&art_ctx, 0, sizeof(AlbumArtContext));
-}
+// Worker thread (detached): fetches the wanted track; if another track was
+// requested meanwhile, drops the result and fetches that one instead.
+static void* fetch_thread_func(void* arg) {
+	(void)arg;
+	PWR_pinToCores(CPU_CORE_EFFICIENCY);
+	char artist[256];
+	char title[256];
+	for (;;) {
+		pthread_mutex_lock(&art_lock);
+		if (!art_ctx.want) {
+			art_ctx.worker_running = false;
+			pthread_mutex_unlock(&art_lock);
+			return NULL;
+		}
+		unsigned int my_gen = art_ctx.gen;
+		snprintf(artist, sizeof(artist), "%s", art_ctx.req_artist);
+		snprintf(title, sizeof(title), "%s", art_ctx.req_title);
+		pthread_mutex_unlock(&art_lock);
 
-void album_art_cleanup(void) {
-	pthread_mutex_lock(&art_lock);
-	// Wait for any active thread to finish
-	if (art_ctx.thread_active) {
-		pthread_join(art_ctx.fetch_thread, NULL);
-		art_ctx.thread_active = false;
+		SDL_Surface* art = fetch_art(artist, title);
+
+		pthread_mutex_lock(&art_lock);
+		if (art_ctx.want && art_ctx.gen == my_gen) {
+			if (art_ctx.pending_art)
+				SDL_FreeSurface(art_ctx.pending_art);
+			art_ctx.pending_art = art;
+			art_ctx.result_ready = true;
+			art_ctx.want = false;
+			art_ctx.worker_running = false;
+			pthread_mutex_unlock(&art_lock);
+			return NULL;
+		}
+		pthread_mutex_unlock(&art_lock);
+		// superseded or cleared: drop it and look again
+		if (art)
+			SDL_FreeSurface(art);
 	}
+}
+
+// Drops any outstanding request and unconsumed result (art_lock held).
+static void cancel_fetch_locked(void) {
+	art_ctx.want = false;
+	art_ctx.gen++;
 	if (art_ctx.pending_art) {
 		SDL_FreeSurface(art_ctx.pending_art);
 		art_ctx.pending_art = NULL;
 	}
+	art_ctx.result_ready = false;
+	art_ctx.art_fetch_in_progress = false;
+}
+
+void album_art_init(void) {
+	pthread_mutex_lock(&art_lock);
+	// a worker still running from before keeps its claim (and sees the cancel)
+	bool running = art_ctx.worker_running;
+	unsigned int gen = art_ctx.gen;
+	memset(&art_ctx, 0, sizeof(AlbumArtContext));
+	art_ctx.worker_running = running;
+	art_ctx.gen = gen + 1;
+	pthread_mutex_unlock(&art_lock);
+}
+
+void album_art_cleanup(void) {
+	pthread_mutex_lock(&art_lock);
+	// a running worker sees the cancel and frees its own result
+	cancel_fetch_locked();
 	if (art_ctx.album_art) {
 		SDL_FreeSurface(art_ctx.album_art);
 		art_ctx.album_art = NULL;
@@ -325,15 +370,7 @@ void album_art_load_path(const char* path) {
 	if (!path || !path[0])
 		return;
 	pthread_mutex_lock(&art_lock);
-	if (art_ctx.thread_active) {
-		pthread_join(art_ctx.fetch_thread, NULL);
-		art_ctx.thread_active = false;
-		art_ctx.art_fetch_in_progress = false;
-	}
-	if (art_ctx.pending_art) {
-		SDL_FreeSurface(art_ctx.pending_art);
-		art_ctx.pending_art = NULL;
-	}
+	cancel_fetch_locked();
 	SDL_Surface* art = IMG_Load(path);
 	if (art) {
 		if (art_ctx.album_art)
@@ -348,15 +385,7 @@ void album_art_load_path(const char* path) {
 
 void album_art_clear(void) {
 	pthread_mutex_lock(&art_lock);
-	// Wait for any active thread to finish before clearing
-	if (art_ctx.thread_active) {
-		pthread_join(art_ctx.fetch_thread, NULL);
-		art_ctx.thread_active = false;
-	}
-	if (art_ctx.pending_art) {
-		SDL_FreeSurface(art_ctx.pending_art);
-		art_ctx.pending_art = NULL;
-	}
+	cancel_fetch_locked();
 	if (art_ctx.album_art) {
 		SDL_FreeSurface(art_ctx.album_art);
 		art_ctx.album_art = NULL;
@@ -387,10 +416,8 @@ bool album_art_matches(const char* artist, const char* title) {
 
 SDL_Surface* album_art_get(void) {
 	pthread_mutex_lock(&art_lock);
-	// Check if background thread has delivered a result
-	if (art_ctx.result_ready && art_ctx.thread_active) {
-		pthread_join(art_ctx.fetch_thread, NULL);
-		art_ctx.thread_active = false;
+	// Check if the worker has delivered a result
+	if (art_ctx.result_ready) {
 		art_ctx.art_fetch_in_progress = false;
 		art_ctx.result_ready = false;
 
@@ -437,32 +464,28 @@ void album_art_fetch(const char* artist, const char* title) {
 		return; // Already fetched
 	}
 
-	// Wait for any previous thread to finish
-	if (art_ctx.thread_active) {
-		pthread_join(art_ctx.fetch_thread, NULL);
-		art_ctx.thread_active = false;
-		// Discard any pending result from previous fetch
-		if (art_ctx.pending_art) {
-			SDL_FreeSurface(art_ctx.pending_art);
-			art_ctx.pending_art = NULL;
-		}
-	}
-
-	// Save current track info
+	// Supersede any previous request (a busy worker drops its result and
+	// picks this one up; nothing waits for it here)
+	cancel_fetch_locked();
+	art_ctx.want = true;
 	art_ctx.art_fetch_in_progress = true;
-	art_ctx.result_ready = false;
-	art_ctx.pending_art = NULL;
-	strncpy(art_ctx.last_art_artist, artist, sizeof(art_ctx.last_art_artist) - 1);
-	strncpy(art_ctx.last_art_title, title, sizeof(art_ctx.last_art_title) - 1);
-	strncpy(art_ctx.req_artist, artist, sizeof(art_ctx.req_artist) - 1);
-	strncpy(art_ctx.req_title, title, sizeof(art_ctx.req_title) - 1);
+	snprintf(art_ctx.last_art_artist, sizeof(art_ctx.last_art_artist), "%s", artist);
+	snprintf(art_ctx.last_art_title, sizeof(art_ctx.last_art_title), "%s", title);
+	snprintf(art_ctx.req_artist, sizeof(art_ctx.req_artist), "%s", artist);
+	snprintf(art_ctx.req_title, sizeof(art_ctx.req_title), "%s", title);
 
-	// Launch background thread
-	if (pthread_create(&art_ctx.fetch_thread, NULL, fetch_thread_func, NULL) == 0) {
-		art_ctx.thread_active = true;
-	} else {
-		// Thread creation failed, fall through
-		art_ctx.art_fetch_in_progress = false;
+	if (!art_ctx.worker_running) {
+		pthread_t thread;
+		pthread_attr_t attr;
+		pthread_attr_init(&attr);
+		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+		if (pthread_create(&thread, &attr, fetch_thread_func, NULL) == 0) {
+			art_ctx.worker_running = true;
+		} else {
+			art_ctx.want = false;
+			art_ctx.art_fetch_in_progress = false;
+		}
+		pthread_attr_destroy(&attr);
 	}
 	pthread_mutex_unlock(&art_lock);
 }

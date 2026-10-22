@@ -29,6 +29,8 @@
 // 128 achievements was silently dropped (upstream NextUI PR #689).
 #define MAX_CACHED_BADGES 2048
 #define MAX_CONCURRENT_DOWNLOADS 8
+// RA_Badges_quit waits this long for downloads in flight to call back
+#define RA_BADGE_QUIT_WAIT_MS 2000
 // The download queue must admit everything the cache can hold, or queue
 // rejections silently drop badges long before the cache is full.
 #define MAX_QUEUED_DOWNLOADS MAX_CACHED_BADGES
@@ -252,6 +254,12 @@ static void queue_download(uint32_t game_id, const char* badge_name, bool locked
 
 	download_queue.tail = (download_queue.tail + 1) % MAX_QUEUED_DOWNLOADS;
 	download_queue.count++;
+
+	// marked so redraws and the prefetch don't queue it again (and start a
+	// second download writing the same file) while it waits
+	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
+	if (entry)
+		entry->state = RA_BADGE_STATE_QUEUED;
 }
 
 // Dequeue and start a download (must hold mutex)
@@ -268,8 +276,9 @@ static bool dequeue_and_start_download(void) {
 	if (!entry)
 		return false;
 
-	// Skip if already cached (might have been cached while queued)
-	if (entry->state == RA_BADGE_STATE_CACHED) {
+	// Skip unless still waiting for this item: cached or already downloading
+	// meanwhile, or dropped by RA_Badges_clearMemory
+	if (entry->state != RA_BADGE_STATE_QUEUED) {
 		return false;
 	}
 
@@ -370,8 +379,9 @@ static void start_download(uint32_t game_id, const char* badge_name, bool locked
 	if (!entry)
 		return;
 
-	// Check if already downloading or cached
-	if (entry->state == RA_BADGE_STATE_DOWNLOADING ||
+	// Check if already queued, downloading or cached
+	if (entry->state == RA_BADGE_STATE_QUEUED ||
+		entry->state == RA_BADGE_STATE_DOWNLOADING ||
 		entry->state == RA_BADGE_STATE_CACHED) {
 		return;
 	}
@@ -417,9 +427,30 @@ void RA_Badges_quit(void) {
 
 	RA_Badges_clearMemory();
 
-	if (badge_mutex) {
+	// HTTP callbacks of downloads in flight still lock badge_mutex: start no
+	// more, and wait (bounded) for those running before destroying it
+	SDL_LockMutex(badge_mutex);
+	download_queue.head = 0;
+	download_queue.tail = 0;
+	download_queue.count = 0;
+	SDL_UnlockMutex(badge_mutex);
+	bool idle = false;
+	for (int waited = 0; waited < RA_BADGE_QUIT_WAIT_MS; waited += 10) {
+		SDL_LockMutex(badge_mutex);
+		idle = download_queue.active == 0;
+		SDL_UnlockMutex(badge_mutex);
+		if (idle)
+			break;
+		SDL_Delay(10);
+	}
+
+	if (badge_mutex && idle) {
 		SDL_DestroyMutex(badge_mutex);
 		badge_mutex = NULL;
+	} else if (badge_mutex) {
+		// a callback may still run: leave the mutex (and the cache it
+		// touches) alive rather than free it under the callback
+		BADGE_LOG_WARN("Badge downloads still running at quit\n");
 	}
 	badge_rom_path[0] = '\0';
 
@@ -484,6 +515,7 @@ void RA_Badges_setRomPath(const char* rom_path) {
 // Mark a badge found on disk (must hold mutex)
 static void mark_cached(uint32_t game_id, const char* badge_name, bool locked) {
 	BadgeCacheEntry* entry = find_or_create_entry(game_id, badge_name, locked);
+	// a queued one is then skipped when its turn comes
 	if (entry && entry->state != RA_BADGE_STATE_DOWNLOADING)
 		entry->state = RA_BADGE_STATE_CACHED;
 }
@@ -649,17 +681,17 @@ SDL_Surface* RA_Badges_getNotificationSize(uint32_t game_id, const char* badge_n
 
 	if (entry) {
 		if (entry->state == RA_BADGE_STATE_CACHED) {
-			// Lazy load from disk if not in memory
-			if (!entry->surface_scaled) {
+			// Lazy load from disk if not in memory (the full-size surface
+			// may already be there with only the scaling failed: keep it)
+			if (!entry->surface) {
 				char cache_path[MAX_PATH];
 				RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path));
 				entry->surface = load_from_cache(cache_path);
-				if (entry->surface) {
-					entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
-				} else {
+				if (!entry->surface)
 					handle_missing_cached(entry);
-				}
 			}
+			if (entry->surface && !entry->surface_scaled)
+				entry->surface_scaled = scale_surface(entry->surface, RA_BADGE_NOTIFY_SIZE);
 			result = entry->surface_scaled;
 		} else if (entry->state == RA_BADGE_STATE_UNKNOWN) {
 			// Trigger download

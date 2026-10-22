@@ -2,6 +2,7 @@
 #include "lyrics.h"
 #include "embedded_lyrics.h"
 #include "radio_net.h"
+#include "disk_cache.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,9 @@
 // Lyrics cache directory path on SD card
 #define LYRICS_CACHE_DIR SDCARD_PATH "/.cache/lyrics"
 #define CACHE_PARENT_DIR SDCARD_PATH "/.cache"
+// Kept to this size; the least recently written files are dropped first
+#define LYRICS_CACHE_MAX_FILES 2000
+#define LYRICS_CACHE_MAX_BYTES (20LL * 1024 * 1024)
 
 // Lyrics state (main thread only - written by thread when done)
 static LyricLine lyrics_lines[LYRICS_MAX_LINES];
@@ -35,6 +39,11 @@ static char last_title[256] = "";
 // (generation-bump + state-reset), and guards the readers against torn reads.
 static volatile int fetch_generation = 0;
 static pthread_mutex_t lyrics_mutex = PTHREAD_MUTEX_INITIALIZER;
+// One worker at a time: skipping tracks quickly only replaces the queued
+// request instead of piling up a detached thread (and network fetch) per
+// track. Both guarded by lyrics_mutex.
+static bool worker_running = false;
+static struct FetchArgs* queued_args = NULL; // latest request waiting for the worker
 
 // Ensure cache directory exists
 static void ensure_cache_dir(void) {
@@ -162,7 +171,7 @@ static void save_lyrics_to_cache(const char* cache_path, const char* lrc_text) {
 }
 
 // Thread argument
-typedef struct {
+typedef struct FetchArgs {
 	char filepath[512];
 	char artist[256];
 	char title[256];
@@ -330,17 +339,13 @@ static char* fetch_online_lrc(const FetchArgs* args, int my_gen) {
 // Background fetch thread function (detached — must not touch shared state if stale).
 // Order: timed lyrics embedded in the file, the disk cache, LRCLIB, and last
 // untimed embedded lyrics paced over the track.
-static void* fetch_thread_func(void* arg) {
-	PWR_pinToCores(CPU_CORE_EFFICIENCY);
-	FetchArgs* args = (FetchArgs*)arg;
+static void run_fetch(FetchArgs* args) {
 	int my_gen = args->generation;
 
 	// Temporary buffer for parsing (thread-local, not shared)
 	LyricLine* tmp_lines = (LyricLine*)malloc(sizeof(LyricLine) * LYRICS_MAX_LINES);
-	if (!tmp_lines) {
-		free(args);
-		return NULL;
-	}
+	if (!tmp_lines)
+		return;
 
 	bool embedded_synced = false;
 	char* embedded = EmbeddedLyrics_read(args->filepath, &embedded_synced);
@@ -363,8 +368,9 @@ static void* fetch_thread_func(void* arg) {
 
 		char* lrc = fetch_online_lrc(args, my_gen);
 		if (lrc) {
-			// Save raw LRC text to cache
+			// Save raw LRC text to cache (capped, oldest files go first)
 			save_lyrics_to_cache(cache_path, lrc);
+			DiskCache_trim(LYRICS_CACHE_DIR, LYRICS_CACHE_MAX_FILES, LYRICS_CACHE_MAX_BYTES);
 			count = parse_lrc_text(lrc, tmp_lines, LYRICS_MAX_LINES);
 			free(lrc);
 			if (count > 0)
@@ -379,13 +385,32 @@ done:
 	publish_lines(tmp_lines, count, my_gen);
 	free(embedded);
 	free(tmp_lines);
-	free(args);
+}
+
+// Worker thread (detached): runs its request, then any request queued
+// meanwhile, until none is left. Stale requests are skipped.
+static void* fetch_thread_func(void* arg) {
+	PWR_pinToCores(CPU_CORE_EFFICIENCY);
+	FetchArgs* args = (FetchArgs*)arg;
+	while (args) {
+		if (args->generation == fetch_generation)
+			run_fetch(args);
+		free(args);
+		pthread_mutex_lock(&lyrics_mutex);
+		args = queued_args;
+		queued_args = NULL;
+		if (!args)
+			worker_running = false;
+		pthread_mutex_unlock(&lyrics_mutex);
+	}
 	return NULL;
 }
 
 void Lyrics_clear(void) {
 	pthread_mutex_lock(&lyrics_mutex);
 	fetch_generation++; // invalidate any running thread
+	free(queued_args);
+	queued_args = NULL;
 	lyrics_line_count = 0;
 	lyrics_current_index = 0;
 	lyrics_available = false;
@@ -409,16 +434,6 @@ void Lyrics_fetch(const char* filepath, const char* artist, const char* title, i
 		return;
 	}
 
-	// Invalidate any previous fetch (bump + state reset under the lock so a
-	// worker can't publish stale results between the two) — old thread discards.
-	pthread_mutex_lock(&lyrics_mutex);
-	fetch_generation++;
-	lyrics_line_count = 0;
-	lyrics_current_index = 0;
-	lyrics_available = false;
-	int my_generation = fetch_generation;
-	pthread_mutex_unlock(&lyrics_mutex);
-
 	// Reset dedup keys (main-thread only)
 	snprintf(last_filepath, sizeof(last_filepath), "%s", filepath);
 	strncpy(last_artist, artist, sizeof(last_artist) - 1);
@@ -436,7 +451,27 @@ void Lyrics_fetch(const char* filepath, const char* artist, const char* title, i
 	strncpy(args->title, title, sizeof(args->title) - 1);
 	args->title[sizeof(args->title) - 1] = '\0';
 	args->duration_sec = duration_sec;
-	args->generation = my_generation;
+
+	// Invalidate any previous fetch (bump + state reset under the lock so a
+	// worker can't publish stale results between the two) — old thread discards.
+	// With a worker already busy the request just waits for it (replacing an
+	// older waiting one).
+	pthread_mutex_lock(&lyrics_mutex);
+	fetch_generation++;
+	lyrics_line_count = 0;
+	lyrics_current_index = 0;
+	lyrics_available = false;
+	args->generation = fetch_generation;
+	bool start = !worker_running;
+	if (start) {
+		worker_running = true;
+	} else {
+		free(queued_args);
+		queued_args = args;
+	}
+	pthread_mutex_unlock(&lyrics_mutex);
+	if (!start)
+		return;
 
 	pthread_t thread;
 	pthread_attr_t attr;
@@ -444,6 +479,9 @@ void Lyrics_fetch(const char* filepath, const char* artist, const char* title, i
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	if (pthread_create(&thread, &attr, fetch_thread_func, args) != 0) {
 		free(args);
+		pthread_mutex_lock(&lyrics_mutex);
+		worker_running = false;
+		pthread_mutex_unlock(&lyrics_mutex);
 	}
 	pthread_attr_destroy(&attr);
 }

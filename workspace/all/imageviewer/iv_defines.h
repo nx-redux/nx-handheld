@@ -14,5 +14,12 @@
 // neighbor would otherwise burn ~160 MB decoding something that may never
 // actually be viewed.
 #define IV_PREFETCH_MAX_PIXELS (16 * 1000 * 1000)
+// Rotating an image above this size drops the prefetch cache first, so the
+// rotated copies don't stack on top of up to IV_CACHE_PIXEL_BUDGET neighbors.
+#define IV_ROTATE_KEEP_CACHE_PIXELS (4 * 1000 * 1000)
+// A file whose header can't be probed (format without a size probe, or a
+// corrupt header) has an unknown pixel count; above this file size it is
+// refused rather than decoded blind.
+#define IV_MAX_UNPROBED_FILE_BYTES (4 * 1024 * 1024)
 
 #endif

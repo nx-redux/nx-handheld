@@ -153,6 +153,13 @@ static void cache_clear(void) {
 	}
 }
 
+// Frees the prefetched neighbors and stops the prefetch sequence (they are
+// decoded again from disk when navigated to).
+static void vw_drop_prefetch(void) {
+	cache_clear();
+	vw_prefetch_step = 2;
+}
+
 // --- Navigation --------------------------------------------------------
 
 static void vw_reset_to_fit(void) {
@@ -168,6 +175,10 @@ static bool vw_flush_rotation(void) {
 	if (vw_rot_pending == 0)
 		return true;
 	ImageEntry* e = &vw_browser->entries[vw_index];
+	// A PNG rotation decodes the file into two more full-size copies: make
+	// room by dropping the speculative neighbors first
+	if ((long)vw_ow * vw_oh > IV_ROTATE_KEEP_CACHE_PIXELS)
+		vw_drop_prefetch();
 	bool ok = IvRotate_file(e->path, vw_rot_pending);
 	vw_rot_pending = 0;
 	if (ok) {
@@ -184,6 +195,10 @@ static bool vw_flush_rotation(void) {
 
 // Turn the on-screen image a quarter clockwise and queue the file write.
 static void vw_rotate(void) {
+	// the turned copy briefly doubles a big image: drop the prefetched
+	// neighbors before allocating it
+	if ((long)vw_image->w * vw_image->h > IV_ROTATE_KEEP_CACHE_PIXELS)
+		vw_drop_prefetch();
 	SDL_Surface* r = IvRotate_surface(vw_image, 1);
 	if (!r)
 		return;
@@ -229,11 +244,10 @@ static void vw_prefetch_advance(void) {
 		}
 		// OOM hardening: prefetching is speculative, so skip a neighbor the
 		// header probe confirms is oversized rather than decoding it on the
-		// chance it's never viewed (see IV_PREFETCH_MAX_PIXELS). A failed
-		// probe still prefetches - the loader's own IV_MAX_PIXELS backstop
-		// (post-decode, in decodeRequest) still applies either way.
+		// chance it's never viewed (see IV_PREFETCH_MAX_PIXELS). One whose
+		// size can't be probed is skipped too: it loads when viewed.
 		int probe_w = 0, probe_h = 0;
-		if (IvProbe_dimensions(target, &probe_w, &probe_h) &&
+		if (!IvProbe_dimensions(target, &probe_w, &probe_h) ||
 			(long)probe_w * probe_h > IV_PREFETCH_MAX_PIXELS) {
 			vw_prefetch_step++;
 			continue;

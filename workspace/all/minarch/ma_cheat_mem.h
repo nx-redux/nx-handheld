@@ -9,6 +9,18 @@
 
 #define CHEAT_MEM_MAX_REGIONS 16
 
+// cheatN_repeat_count is a file value: a huge one would loop for seconds every
+// frame. RetroArch's own cheat editor tops out far below this.
+#define CHEAT_MEM_MAX_REPEAT 65536
+
+// Most cheats a .cht file may declare (`cheats = N`); the biggest libretro
+// database files hold a few thousand. A larger count is treated as corrupt
+// instead of being calloc'ed.
+#define CHEAT_FILE_MAX_COUNT 16384
+
+// 1 if a file's `cheats = N` count is usable (1..CHEAT_FILE_MAX_COUNT).
+int CheatFile_countOk(unsigned long count);
+
 // cheatN_cheat_type values
 enum {
 	CHEAT_MEM_DISABLED = 0,

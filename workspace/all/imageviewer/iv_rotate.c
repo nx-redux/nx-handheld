@@ -54,10 +54,14 @@ static bool rotate_png(const char* path, const char* tmp, int turns) {
 	if (!raw)
 		return false;
 	// 32-bit with alpha so palettized/grey PNGs rotate and keep transparency.
-	SDL_Surface* argb = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
-	SDL_FreeSurface(raw);
-	if (!argb)
-		return false;
+	// A 32-bit decode is rotated as is: no third full-size copy.
+	SDL_Surface* argb = raw;
+	if (raw->format->BytesPerPixel != 4) {
+		argb = SDL_ConvertSurfaceFormat(raw, SDL_PIXELFORMAT_ARGB8888, 0);
+		SDL_FreeSurface(raw);
+		if (!argb)
+			return false;
+	}
 	SDL_Surface* rotated = IvRotate_surface(argb, turns);
 	SDL_FreeSurface(argb);
 	if (!rotated)

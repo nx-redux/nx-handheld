@@ -48,6 +48,7 @@ for src in \
 	workspace/all/scraper/scraper_paths.c \
 	workspace/all/nextui/area_scale.c \
 	workspace/all/common/png_palette.c \
+	workspace/all/common/image_probe.c \
 	workspace/all/common/utils.c; do
 	"$CC" "${CFLAGS[@]}" -w -c -o "$TMP/$(basename "${src%.c}").o" "$src"
 done

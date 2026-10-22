@@ -61,6 +61,15 @@ typedef struct {
 	bool have_p2;
 } FrameInput;
 
+// How long a half-received packet, or a send that makes no progress, may
+// stall before the link is treated as dead (a pulled cable otherwise blocks
+// the emulator thread for good).
+#define NETPLAY_PACKET_TIMEOUT_MS 2000
+// The same for the savestate transfer at sync time (no progress for this long)
+#define NETPLAY_STATE_TIMEOUT_MS 5000
+// Largest payload a packet may carry; anything bigger is a corrupt stream
+#define NETPLAY_MAX_PAYLOAD 4096
+
 // Packet header
 typedef struct __attribute__((packed)) {
 	uint8_t cmd;
@@ -610,7 +619,7 @@ bool Netplay_preFrame(void) {
 
 		// Try to receive remote input
 		PacketHeader hdr;
-		InputPacket remote_pkt;
+		InputPacket remote_pkt = {0};
 		bool received = recv_packet(&hdr, &remote_pkt, sizeof(remote_pkt), timeout_ms);
 
 		// Re-acquire lock for frame buffer access
@@ -624,7 +633,9 @@ bool Netplay_preFrame(void) {
 		}
 
 		if (received) {
-			if (hdr.cmd == CMD_INPUT) {
+			if (hdr.cmd == CMD_INPUT && hdr.size < sizeof(remote_pkt.input)) {
+				// no buttons in it: malformed, ignore
+			} else if (hdr.cmd == CMD_INPUT) {
 				FrameInput* remote_slot = get_frame_slot(hdr.frame);
 				uint16_t remote_input = ntohs(remote_pkt.input);
 				int16_t remote_analog[NETPLAY_ANALOG_AXES] = {0};
@@ -788,18 +799,11 @@ int Netplay_sendState(const void* data, size_t size) {
 		return -1;
 	}
 
-	// Send state data in chunks
-	const uint8_t* ptr = (const uint8_t*)data;
-	size_t remaining = size;
-
-	while (remaining > 0) {
-		size_t chunk = (remaining > 4096) ? 4096 : remaining;
-		ssize_t sent = send(np.tcp_fd, ptr, chunk, MSG_NOSIGNAL);
-		if (sent <= 0) {
-			return -1;
-		}
-		ptr += sent;
-		remaining -= sent;
+	// Send the state; a link that stops taking data fails the sync (the
+	// caller then disconnects) instead of blocking the emulator thread
+	if (NET_sendAll(np.tcp_fd, data, size, NETPLAY_STATE_TIMEOUT_MS) != 1) {
+		snprintf(np.status_msg, sizeof(np.status_msg), "State transfer failed");
+		return -1;
 	}
 
 	// Wait for client ACK
@@ -837,21 +841,11 @@ int Netplay_receiveState(void* data, size_t size) {
 		return -1;
 	}
 
-	// Receive state data
-	uint8_t* ptr = (uint8_t*)data;
-	size_t remaining = size;
-
-	while (remaining > 0) {
-		ssize_t received = recv(np.tcp_fd, ptr, remaining, 0);
-		if (received <= 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				usleep(1000);
-				continue;
-			}
-			return -1;
-		}
-		ptr += received;
-		remaining -= received;
+	// Receive state data; a link that stops delivering fails the sync (the
+	// caller then disconnects) instead of blocking the emulator thread
+	if (NET_recvAll(np.tcp_fd, data, size, NETPLAY_STATE_TIMEOUT_MS, NULL) != 1) {
+		snprintf(np.status_msg, sizeof(np.status_msg), "State transfer failed");
+		return -1;
 	}
 
 	// Send ACK to host
@@ -1051,24 +1045,33 @@ bool Netplay_isPaused(void) {
 //////////////////////////////////////////////////////////////////////////////
 
 static bool send_packet(uint8_t cmd, uint32_t frame, const void* data, uint16_t size) {
-	if (np.tcp_fd < 0)
+	int fd = np.tcp_fd;
+	if (fd < 0)
+		return false;
+	if (!data)
+		size = 0;
+	if (size > NETPLAY_MAX_PAYLOAD)
 		return false;
 
+	// header + payload in one buffer: one bounded send, never half a packet
+	// followed by a separate blocking call
+	uint8_t buf[sizeof(PacketHeader) + NETPLAY_MAX_PAYLOAD];
 	PacketHeader hdr = {
 		.cmd = cmd,
 		.frame = htonl(frame),
 		.size = htons(size)};
+	memcpy(buf, &hdr, sizeof(hdr));
+	if (size > 0)
+		memcpy(buf + sizeof(hdr), data, size);
 
-	if (send(np.tcp_fd, &hdr, sizeof(hdr), MSG_NOSIGNAL) != sizeof(hdr)) {
+	if (NET_sendAll(fd, buf, sizeof(hdr) + size, NETPLAY_PACKET_TIMEOUT_MS) != 1) {
+		// Dead or stuck link (the stream may also hold a partial packet now):
+		// shut it down so the receive side sees the close and tears the
+		// session down through handle_recv_disconnect. The fd stays open
+		// until then, so it can't be reused under another thread.
+		shutdown(fd, SHUT_RDWR);
 		return false;
 	}
-
-	if (size > 0 && data) {
-		if (send(np.tcp_fd, data, size, MSG_NOSIGNAL) != size) {
-			return false;
-		}
-	}
-
 	return true;
 }
 
@@ -1130,43 +1133,37 @@ static bool recv_packet(PacketHeader* hdr, void* data, uint16_t max_size, int ti
 		return false; // Timeout or error
 	}
 
-	ssize_t ret = recv(fd, hdr, sizeof(*hdr), 0);
-	if (ret == 0) {
-		// Connection closed by remote end
+	// The header and payload are read whole, with a bounded wait: a packet
+	// cut off part way (dead link, corrupt sender) can't be resynchronised,
+	// so it ends the session instead of misaligning every later read.
+	size_t got = 0;
+	int r = NET_recvAll(fd, hdr, sizeof(*hdr), NETPLAY_PACKET_TIMEOUT_MS, &got);
+	if (r == 0 && got == 0)
+		return false; // spurious wakeup, nothing arrived
+	if (r != 1) {
 		handle_recv_disconnect(fd);
-		return false;
-	}
-	if (ret < 0 || ret != sizeof(*hdr)) {
-		// Error or partial read
-		if (errno == ECONNRESET || errno == EPIPE || errno == ENOTCONN) {
-			handle_recv_disconnect(fd);
-		}
 		return false;
 	}
 
 	hdr->frame = ntohl(hdr->frame);
 	hdr->size = ntohs(hdr->size);
 
-	// Validate packet size to prevent malformed packet issues
-	if (hdr->size > 4096) {
-		return false; // Reject suspiciously large packets
+	if (hdr->size > NETPLAY_MAX_PAYLOAD) {
+		LOG_error("Netplay: packet of %u bytes, stream corrupt - disconnecting\n", hdr->size);
+		handle_recv_disconnect(fd);
+		return false;
 	}
 
 	if (hdr->size > 0) {
 		// Always consume exactly hdr->size payload bytes. If we can't deliver them
 		// to the caller's buffer (none supplied, or larger than max_size), drain
 		// them into scratch — leaving them in the stream would make the next
-		// recv() read payload bytes as a header and desync the session for good.
-		// hdr->size is bounded to <= 4096 by the check above.
-		char scratch[4096];
+		// read take payload bytes as a header and desync the session for good.
+		char scratch[NETPLAY_MAX_PAYLOAD];
 		bool deliver = (data && hdr->size <= max_size);
 		void* dst = deliver ? data : (void*)scratch;
-		ret = recv(fd, dst, hdr->size, 0);
-		if (ret == 0) {
+		if (NET_recvAll(fd, dst, hdr->size, NETPLAY_PACKET_TIMEOUT_MS, NULL) != 1) {
 			handle_recv_disconnect(fd);
-			return false;
-		}
-		if (ret != hdr->size) {
 			return false;
 		}
 		if (!deliver) {

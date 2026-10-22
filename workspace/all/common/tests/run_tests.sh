@@ -131,3 +131,5 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_shader_strip t
 /tmp/nx_test_shader_strip
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_bt_addr test_bt_addr.c
 /tmp/nx_test_bt_addr
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_image_probe ../image_probe.c test_image_probe.c
+/tmp/nx_test_image_probe

@@ -53,16 +53,19 @@ static IvLoadResult decodeRequest(const char* path, IvLoadPurpose purpose) {
 	r.purpose = purpose;
 
 	struct stat st;
-	if (stat(path, &st) == 0 && st.st_size > IV_MAX_FILE_BYTES) {
+	bool have_size = stat(path, &st) == 0;
+	if (have_size && st.st_size > IV_MAX_FILE_BYTES) {
 		r.status = IV_LOAD_ERR_TOO_LARGE;
 		return r;
 	}
 
 	// Decode-bomb guard: reject on header-probed dimensions before IMG_Load
-	// ever touches pixel data.
+	// ever touches pixel data. An unprobed header means an unknown size: only
+	// small files are decoded blind (the post-decode check below backs that).
 	int probe_w = 0, probe_h = 0;
 	bool probed = IvProbe_dimensions(path, &probe_w, &probe_h);
-	if (probed && (long)probe_w * probe_h > IV_MAX_PIXELS) {
+	if ((probed && (long)probe_w * probe_h > IV_MAX_PIXELS) ||
+		(!probed && (!have_size || st.st_size > IV_MAX_UNPROBED_FILE_BYTES))) {
 		r.status = IV_LOAD_ERR_TOO_LARGE;
 		return r;
 	}

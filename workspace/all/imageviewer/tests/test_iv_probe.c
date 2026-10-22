@@ -1,6 +1,6 @@
 // Host-compiled unit test for iv_probe.c.
 // Build & run (from workspace/all/imageviewer):
-//   cc -std=gnu99 iv_probe.c tests/test_iv_probe.c -o /tmp/test_iv_probe && /tmp/test_iv_probe
+//   cc -std=gnu99 -I../common iv_probe.c ../common/image_probe.c tests/test_iv_probe.c -o /tmp/test_iv_probe && /tmp/test_iv_probe
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <string.h>
 #include <msettings.h>
 #include "api.h"
@@ -33,9 +34,26 @@ void ModuleCommon_init(void) {
 	overlay_release_time = 0;
 }
 
+static volatile sig_atomic_t quit_requested = 0;
+
+void ModuleCommon_requestQuit(void) {
+	quit_requested = 1;
+}
+
+bool ModuleCommon_quitRequested(void) {
+	return quit_requested != 0;
+}
+
 GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorType* show_setting,
 												 const ContextMenuItem* menu_items, int menu_count) {
 	GlobalInputResult result = {false, false, false, 0};
+
+	// SIGTERM/SIGINT: leave through the module's normal quit path
+	if (quit_requested) {
+		result.should_quit = true;
+		result.input_consumed = true;
+		return result;
+	}
 
 	// Quit on MENU + SELECT via the shared confirm dialog — the same combo the
 	// pak tools and in-game minarch use. UI_handleQuitRequest runs its own

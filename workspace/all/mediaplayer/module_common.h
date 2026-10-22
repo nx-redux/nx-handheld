@@ -36,6 +36,11 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 // Append one item to a context-menu items array (bounds-checked).
 void ModuleCommon_ctxAdd(ContextMenuItem* items, int* count, const char* label, int id);
 
+// SIGTERM/SIGINT: the handler calls requestQuit (async-signal-safe), and the
+// module loops leave through their quit path once quitRequested is true
+void ModuleCommon_requestQuit(void);
+bool ModuleCommon_quitRequested(void);
+
 void ModuleCommon_setAutosleepDisabled(bool disabled);
 void ModuleCommon_tickToast(char* message, uint32_t toast_time, bool* dirty);
 void ModuleCommon_quit(void);

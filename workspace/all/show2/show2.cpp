@@ -43,6 +43,9 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <signal.h>
+#include <poll.h>
+#include <errno.h>
+#include <atomic>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
@@ -93,7 +96,9 @@ private:
     float indeterminate_pos = 0.0f;  // Position for indeterminate animation (0.0 to 1.0)
     bool indeterminate_forward = true;
     uint32_t start_time = 0;  // SDL ticks when app started
-    bool running = true;
+    // read by the render loop and the FIFO thread, cleared from the SIGINT
+    // handler too: a lock-free atomic is safe for all three
+    std::atomic<bool> running{true};
     pthread_mutex_t mutex;
     pthread_t fifo_thread_handle;
 
@@ -288,70 +293,86 @@ private:
     }
 
     void fifoThread() {
+        // Commands are newline-terminated; one can arrive split across reads,
+        // so bytes collect here until a full line is in
+        std::string pending;
         while (running) {
-            int fd = open(FIFO_PATH, O_RDONLY);
+            // O_NONBLOCK: a blocking open waits for a writer and would keep
+            // SIGINT (and QUIT) from ending the app until someone writes
+            int fd = open(FIFO_PATH, O_RDONLY | O_NONBLOCK);
             if (fd < 0) {
-                sleep(1);
+                usleep(200000);
                 continue;
             }
 
-            // Keep reading from this FIFO connection until writer closes
-            char buffer[512];
+            // Keep reading from this FIFO connection until the writer closes
             while (running) {
-                ssize_t bytes = read(fd, buffer, sizeof(buffer) - 1);
-                if (bytes <= 0) {
-                    // Writer closed connection or error, reopen FIFO
+                struct pollfd pfd = {fd, POLLIN, 0};
+                int r = poll(&pfd, 1, 100);
+                if (r < 0 && errno != EINTR)
                     break;
-                }
-                
-                buffer[bytes] = '\0';
+                if (r <= 0)
+                    continue;
+                char buffer[512];
+                ssize_t bytes = read(fd, buffer, sizeof(buffer));
+                if (bytes < 0 && (errno == EAGAIN || errno == EINTR))
+                    continue;
+                if (bytes <= 0)
+                    break; // writer closed connection or error, reopen FIFO
+                pending.append(buffer, static_cast<size_t>(bytes));
 
-                // Process potentially multiple commands in buffer
-                char* line = strtok(buffer, "\n");
-                while (line != nullptr && running) {
-                    std::string cmd(line);
-                    
-                    if (cmd.find("TEXT:") == 0) {
-                        pthread_mutex_lock(&mutex);
-                        current_text = cmd.substr(5);
-                        pthread_mutex_unlock(&mutex);
-                    } else if (cmd.find("PROGRESS:") == 0) {
-                        pthread_mutex_lock(&mutex);
-                        current_progress = parseInt(cmd.substr(9), current_progress);
-                        pthread_mutex_unlock(&mutex);
-                    } else if (cmd == "QUIT") {
-                        running = false;
-                    } else if (cmd.find("BGCOLOR:") == 0) {
-                        pthread_mutex_lock(&mutex);
-                        uint32_t rgb = parseColor(cmd.substr(8));
-                        bg_color_sdl = SDL_MapRGB(screen->format,
-                                                  (rgb >> 16) & 0xFF,
-                                                  (rgb >> 8) & 0xFF,
-                                                  rgb & 0xFF);
-                        pthread_mutex_unlock(&mutex);
-                    } else if (cmd.find("FONTCOLOR:") == 0) {
-                        pthread_mutex_lock(&mutex);
-                        uint32_t rgb = parseColor(cmd.substr(10));
-                        font_color.r = (rgb >> 16) & 0xFF;
-                        font_color.g = (rgb >> 8) & 0xFF;
-                        font_color.b = rgb & 0xFF;
-                        font_color.a = 255;
-                        pthread_mutex_unlock(&mutex);
-                    } else if (cmd.find("TEXTY:") == 0) {
-                        pthread_mutex_lock(&mutex);
-                        current_text_y_pct = parseInt(cmd.substr(6), current_text_y_pct);
-                        pthread_mutex_unlock(&mutex);
-                    } else if (cmd.find("PROGRESSY:") == 0) {
-                        pthread_mutex_lock(&mutex);
-                        current_progress_y_pct = parseInt(cmd.substr(10), current_progress_y_pct);
-                        pthread_mutex_unlock(&mutex);
-                    }
-                    
-                    line = strtok(nullptr, "\n");
+                size_t nl;
+                while (running && (nl = pending.find('\n')) != std::string::npos) {
+                    handleCommand(pending.substr(0, nl));
+                    pending.erase(0, nl + 1);
                 }
+                if (pending.size() > 4096)
+                    pending.clear(); // no newline in sight: not a command
             }
 
+            // a last command written without a trailing newline still counts
+            if (running && !pending.empty())
+                handleCommand(pending);
+            pending.clear();
             close(fd);
+        }
+    }
+
+    void handleCommand(const std::string& cmd) {
+        if (cmd.find("TEXT:") == 0) {
+            pthread_mutex_lock(&mutex);
+            current_text = cmd.substr(5);
+            pthread_mutex_unlock(&mutex);
+        } else if (cmd.find("PROGRESS:") == 0) {
+            pthread_mutex_lock(&mutex);
+            current_progress = parseInt(cmd.substr(9), current_progress);
+            pthread_mutex_unlock(&mutex);
+        } else if (cmd == "QUIT") {
+            running = false;
+        } else if (cmd.find("BGCOLOR:") == 0) {
+            pthread_mutex_lock(&mutex);
+            uint32_t rgb = parseColor(cmd.substr(8));
+            bg_color_sdl = SDL_MapRGB(screen->format,
+                                      (rgb >> 16) & 0xFF,
+                                      (rgb >> 8) & 0xFF,
+                                      rgb & 0xFF);
+            pthread_mutex_unlock(&mutex);
+        } else if (cmd.find("FONTCOLOR:") == 0) {
+            pthread_mutex_lock(&mutex);
+            uint32_t rgb = parseColor(cmd.substr(10));
+            font_color.r = (rgb >> 16) & 0xFF;
+            font_color.g = (rgb >> 8) & 0xFF;
+            font_color.b = rgb & 0xFF;
+            font_color.a = 255;
+            pthread_mutex_unlock(&mutex);
+        } else if (cmd.find("TEXTY:") == 0) {
+            pthread_mutex_lock(&mutex);
+            current_text_y_pct = parseInt(cmd.substr(6), current_text_y_pct);
+            pthread_mutex_unlock(&mutex);
+        } else if (cmd.find("PROGRESSY:") == 0) {
+            pthread_mutex_lock(&mutex);
+            current_progress_y_pct = parseInt(cmd.substr(10), current_progress_y_pct);
+            pthread_mutex_unlock(&mutex);
         }
     }
 

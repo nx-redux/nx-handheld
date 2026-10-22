@@ -210,6 +210,11 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 		GFX_startFrame();
 		PAD_poll();
 
+		// SIGTERM/SIGINT (also caught in ModuleCommon_handleGlobalInput, but
+		// the confirm dialog below runs without it)
+		if (ModuleCommon_quitRequested())
+			return MODULE_EXIT_QUIT;
+
 		// Handle confirmation dialog
 		if (show_confirm) {
 			if (PAD_justPressed(BTN_A)) {
@@ -523,6 +528,8 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 
 				ModuleCommon_setAutosleepDisabled(true);
 				int rc = FfplayEngine_play(&config);
+				// back in the channel list: auto-sleep applies again
+				ModuleCommon_setAutosleepDisabled(false);
 
 				// TG5050: display recovery creates a new screen surface
 				{

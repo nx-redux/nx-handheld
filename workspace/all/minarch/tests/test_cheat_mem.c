@@ -163,6 +163,50 @@ int main(void) {
 		CHECK(apply1(&m, &p) == 0, "no memory, no writes");
 	}
 
+	// 10. a corrupt repeat count is capped: returns promptly, writes in bounds
+	{
+		memset(a, 0, sizeof(a));
+		CheatMem_reset(&m);
+		CheatMem_addRegion(&m, a, sizeof(a));
+		struct CheatMemPatch p = patch(0, 0x5A, 3, CHEAT_MEM_SET_TO_VALUE);
+		p.repeat_count = 0xFFFFFFFFu;
+		p.repeat_add_to_address = 1;
+		int w = apply1(&m, &p);
+		int all = 1;
+		for (int i = 0; i < 16; i++)
+			all &= a[i] == 0x5A;
+		CHECK(w == 1 && all, "huge repeat_count capped, wraps over the region");
+	}
+
+	// 11. a huge sub-byte address step is reduced, not looped 2^32 times:
+	// a 2-bit step cycles after 4 positions * 16 bytes = 64 steps
+	{
+		struct CheatMemPatch p = patch(0, 0x0F, 1, CHEAT_MEM_SET_TO_VALUE); // 2-bit
+		p.bit_mask = 0x03;
+		p.repeat_count = 6;
+		p.repeat_add_to_value = 1;
+
+		memset(b, 0, sizeof(b));
+		CheatMem_reset(&m);
+		CheatMem_addRegion(&m, b, sizeof(b));
+		p.repeat_add_to_address = 3 % 64; // 2-bit: 4 * 16 = 64-step cycle
+		apply1(&m, &p);
+
+		memset(a, 0, sizeof(a));
+		CheatMem_reset(&m);
+		CheatMem_addRegion(&m, a, sizeof(a));
+		p.repeat_add_to_address = 0xFFFFFFC3u; // % 64 == 3
+		apply1(&m, &p);
+		CHECK(!memcmp(a, b, sizeof(a)) && memcmp(a, (uint8_t[16]){0}, sizeof(a)),
+			  "huge 2-bit address step = its remainder");
+	}
+
+	// 12. cheat file counts
+	CHECK(!CheatFile_countOk(0), "count 0 rejected");
+	CHECK(CheatFile_countOk(1) && CheatFile_countOk(CHEAT_FILE_MAX_COUNT), "normal counts accepted");
+	CHECK(!CheatFile_countOk(CHEAT_FILE_MAX_COUNT + 1) && !CheatFile_countOk(4294967295ul),
+		  "huge counts rejected");
+
 	printf(fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", fails);
 	return fails ? 1 : 0;
 }

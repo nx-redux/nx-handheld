@@ -9,6 +9,7 @@
 #include "imgloader.h"
 #include "artbg.h"
 #include "area_scale.h"
+#include "image_probe.h"
 #include "homeart.h"
 #include "ui_image.h"
 
@@ -210,6 +211,12 @@ static LoadBackgroundTask* dequeueTask(TaskQueue* q) {
 // Decode the task's image to the screen format: NULL on failure.
 static SDL_Surface* decodeTask(const LoadBackgroundTask* task) {
 	SDL_Surface* result = NULL;
+	// Huge user art (a camera photo dropped in .media) would decode to
+	// hundreds of MB while up to four loaders run: skipped on its header.
+	if (!HomeArt_isListPath(task->imagePath) && ImageProbe_isOversized(task->imagePath, IMAGE_PROBE_MAX_SIDE)) {
+		LOG_warn("Skipping oversized image: %s\n", task->imagePath);
+		return NULL;
+	}
 	// Home's List: a resume frame or an abstract picture by a path of Home's own (homeart.h)
 	SDL_Surface* image = HomeArt_isListPath(task->imagePath) ? HomeArt_loadListPath(task->imagePath)
 															 : IMG_Load(task->imagePath);
@@ -220,6 +227,25 @@ static SDL_Surface* decodeTask(const LoadBackgroundTask* task) {
 	return result;
 }
 
+// A folder background is always drawn stretched to the screen: one bigger
+// than the screen is shrunk to it once here (area-averaged) rather than kept
+// at its native size for as long as the folder is shown. Takes ownership.
+static SDL_Surface* fitBackground(SDL_Surface* bg) {
+	int w = cachedScreenW, h = cachedScreenH;
+	if (w <= 0 || h <= 0 || bg->w < w || bg->h < h || (bg->w == w && bg->h == h) ||
+		bg->format->format != SDL_PIXELFORMAT_ARGB8888)
+		return bg;
+	SDL_Surface* fit = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!fit)
+		return bg;
+	if (AreaScale_argb(bg->pixels, bg->w, bg->h, bg->pitch / 4, fit->pixels, w, h, fit->pitch / 4) != 0) {
+		SDL_FreeSurface(fit);
+		return bg;
+	}
+	SDL_FreeSurface(bg);
+	return fit;
+}
+
 static int loadWorker(void* arg) {
 	TaskQueue* q = (TaskQueue*)arg;
 	while (!SDL_AtomicGet(&workerThreadsShutdown)) {
@@ -227,6 +253,8 @@ static int loadWorker(void* arg) {
 		if (!task)
 			break;
 		SDL_Surface* result = decodeTask(task);
+		if (result && task->compose == THUMB_COMPOSE_BG)
+			result = fitBackground(result);
 
 		if (task->callback)
 			task->callback(result);

@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "api.h"
+#include "image_probe.h"
 
 // room for every bundled logo and icon (res/menu: 45 + 15) at a view's box and then some (a few views' boxes); the
 // surfaces are small (a Grid logo at most ~120 KB)
@@ -51,6 +52,8 @@ SDL_Surface* MenuArt_load(const char* file, int box_w, int box_h) {
 		snprintf(path, sizeof(path), "%s", file);
 	else
 		snprintf(path, sizeof(path), "%s/menu/%s", RES_PATH, file);
+	if (ImageProbe_isOversized(path, IMAGE_PROBE_MAX_SIDE))
+		return NULL; // a huge user logo: not decoded
 	SDL_Surface* raw = IMG_Load(path);
 	if (!raw)
 		return NULL;

@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <setjmp.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -22,11 +23,29 @@
 #define FFMPEG_PATH "/usr/bin/ffmpeg"
 #define FRAME_INTERVAL_NS 33333333LL // ~30fps
 
-static volatile int quit = 0;
+static volatile sig_atomic_t quit = 0;
 
 static void on_term(int sig) {
 	(void)sig;
 	quit = 1;
+}
+
+// SIGBUS: the mirror's owner re-opens it with O_TRUNC (same inode) when an
+// app starts, so a page of our mapping can vanish mid-copy. Inside
+// mirror_copy that just drops the frame; anywhere else (and for SIGSEGV) the
+// PID file goes before the default action, so the OSD doesn't keep showing a
+// recording that died.
+static sigjmp_buf copy_jmp;
+static volatile sig_atomic_t in_copy = 0;
+
+static void on_fault(int sig) {
+	if (sig == SIGBUS && in_copy) {
+		in_copy = 0;
+		siglongjmp(copy_jmp, 1);
+	}
+	unlink(PID_FILE);
+	signal(sig, SIG_DFL);
+	raise(sig);
 }
 
 static void mkdir_p(const char* path) {
@@ -165,6 +184,25 @@ static int mirror_map(size_t frame_size) {
 	return 1;
 }
 
+// Copies the current mirror frame into dst. Returns 0 (and drops the
+// mapping, to be re-made by mirror_map) when the file shrank under us.
+static int mirror_copy(uint8_t* dst, size_t frame_size) {
+	struct stat st;
+	if (fstat(mirror_fd, &st) != 0 || (size_t)st.st_size < frame_size) {
+		mirror_unmap();
+		return 0;
+	}
+	// truncated between the fstat and the copy: SIGBUS lands back here
+	if (sigsetjmp(copy_jmp, 1)) {
+		mirror_unmap();
+		return 0;
+	}
+	in_copy = 1;
+	memcpy(dst, mirror_ptr, frame_size);
+	in_copy = 0;
+	return 1;
+}
+
 int main(int argc, char* argv[]) {
 	if (argc < 4) {
 		fprintf(stderr, "Usage: screenrecorder <output_path> <width> <height>\n");
@@ -192,6 +230,10 @@ int main(int argc, char* argv[]) {
 	// The encoder pipe can break if ffmpeg dies; take that as a write error,
 	// not a process kill.
 	signal(SIGPIPE, SIG_IGN);
+	struct sigaction fault = {0};
+	fault.sa_handler = on_fault;
+	sigaction(SIGBUS, &fault, NULL);
+	sigaction(SIGSEGV, &fault, NULL);
 
 	// Write PID file
 	FILE* pf = fopen(PID_FILE, "w");
@@ -351,10 +393,7 @@ int main(int argc, char* argv[]) {
 		} else if (src == SRC_FBDEV) {
 			got = fbdev_read(frame, width, height);
 		} else {
-			if (mirror_map(frame_size)) {
-				memcpy(frame, mirror_ptr, frame_size);
-				got = 1;
-			}
+			got = mirror_map(frame_size) && mirror_copy(frame, frame_size);
 		}
 
 		int64_t now = mono_ns();

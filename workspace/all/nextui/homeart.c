@@ -13,6 +13,7 @@
 #include "row_model.h"
 #include "placeholder_art.h"
 #include "area_scale.h"
+#include "image_probe.h"
 
 // One worker thread decodes and shapes pictures into a small cache. The UI thread only looks slots up, queues misses
 // and evicts; the worker fills a queued slot under the mutex, and a generation number drops a result whose slot was
@@ -96,6 +97,9 @@ static bool dropIfCancelled(SDL_Surface* s) {
 
 static SDL_Surface* loadArgb(const char* path) {
 	if (!path || !path[0] || access(path, F_OK) != 0)
+		return NULL;
+	// not decoded: hundreds of MB for a picture shown small
+	if (ImageProbe_isOversized(path, IMAGE_PROBE_MAX_SIDE))
 		return NULL;
 	SDL_Surface* img = IMG_Load(path); // the resume preview is PNG data despite its .bmp name
 	if (!img)

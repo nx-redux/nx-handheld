@@ -127,6 +127,11 @@ bool sync_is_roms_phase(int phase);
 #define SYNC_BIOS_EXCLUDE_PATTERN "vmu_save_*.bin"
 #define SYNC_BIOS_ARGS "--ignore-existing --exclude='" SYNC_BIOS_EXCLUDE_PATTERN "'"
 
+// Every transfer gives up when the peer goes quiet (Wi-Fi dropped, cable
+// pulled, the other device slept): 15 s to reach its daemon, then 60 s
+// without any data moving. Otherwise the sync thread waits on rsync forever.
+#define SYNC_RSYNC_TIMEOUT_ARGS "--timeout=60 --contimeout=15"
+
 // Collections (Collections/<Name>.txt, one SD-relative game path per line)
 // merge on every sync: each device keeps its lines in order and gains the
 // other's lines it lacks, in the other's order. Nothing is ever removed.
@@ -137,7 +142,7 @@ bool sync_is_roms_phase(int phase);
 // The pull takes top-level *.txt files only (no folders, no alias map in any
 // case). The daemon's [collections] keeps the alias map out for every client.
 #define SYNC_COLLECTIONS_RSYNC_OPTS \
-	"-rtv --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_JUNK_CLIENT_ARGS
+	"-rtv --no-perms --omit-dir-times --modify-window=1 --info=progress2 " SYNC_RSYNC_TIMEOUT_ARGS " " SYNC_JUNK_CLIENT_ARGS
 #define SYNC_MAP_PATTERN "/[mM][aA][pP].[tT][xX][tT]"
 #define SYNC_COLLECTIONS_PULL_ARGS "--exclude='" SYNC_MAP_PATTERN "' --exclude='*/' --include='/*.[tT][xX][tT]' --exclude='*'"
 #define SYNC_COLLECTIONS_DAEMON_EXCLUDE SYNC_MAP_PATTERN

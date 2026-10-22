@@ -46,6 +46,13 @@ void RA_loadGame(const char* rom_path, const uint8_t* rom_data, size_t rom_size,
 void RA_setRecordedRomPath(const char* path);
 
 /**
+ * The ROM data passed to RA_loadGame is about to be freed (Game_close): a
+ * load deferred until login completes stops pointing at it and hashes the
+ * file by path instead.
+ */
+void RA_forgetGameData(void);
+
+/**
  * Unload the current game from achievement tracking.
  * Should be called when a game is closed/unloaded.
  */

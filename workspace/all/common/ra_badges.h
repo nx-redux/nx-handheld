@@ -25,6 +25,7 @@ typedef enum {
 	RA_BADGE_STATE_DOWNLOADING, // Download in progress
 	RA_BADGE_STATE_CACHED,		// Downloaded and cached locally
 	RA_BADGE_STATE_FAILED,		// Download failed
+	RA_BADGE_STATE_QUEUED,		// Waiting in the download queue
 } RA_BadgeState;
 
 /**

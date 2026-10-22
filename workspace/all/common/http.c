@@ -286,19 +286,68 @@ static int async_request_thread(void* data) {
 	return 0;
 }
 
+// A request that can't start is answered with an error response, right away
+// on the calling thread. That callback often starts the next queued request
+// (RA badges), which can fail the same way: delivered recursively, a long
+// queue would nest one stack frame per item. So failures raised while one is
+// being delivered are queued, and the outermost call drains them in a loop.
+typedef struct FailedRequest {
+	HTTP_Callback callback;
+	void* userdata;
+	const char* error;
+	struct FailedRequest* next;
+} FailedRequest;
+static __thread FailedRequest* failed_head = NULL;
+static __thread FailedRequest* failed_tail = NULL;
+static __thread int delivering_failures = 0;
+
+static void call_failed(HTTP_Callback callback, void* userdata, const char* error) {
+	HTTP_Response* response = calloc(1, sizeof(HTTP_Response));
+	if (response) {
+		response->http_status = -1;
+		response->error = strdup(error);
+	}
+	callback(response, userdata);
+}
+
+static void deliver_failure(HTTP_Callback callback, void* userdata, const char* error) {
+	if (!callback)
+		return;
+	FailedRequest* f = malloc(sizeof(*f));
+	if (!f) {
+		call_failed(callback, userdata, error);
+		return;
+	}
+	f->callback = callback;
+	f->userdata = userdata;
+	f->error = error;
+	f->next = NULL;
+	if (failed_tail)
+		failed_tail->next = f;
+	else
+		failed_head = f;
+	failed_tail = f;
+	if (delivering_failures)
+		return; // the loop below, further up this stack, delivers it
+
+	delivering_failures = 1;
+	while (failed_head) {
+		FailedRequest* next = failed_head;
+		failed_head = next->next;
+		if (!failed_head)
+			failed_tail = NULL;
+		call_failed(next->callback, next->userdata, next->error);
+		free(next);
+	}
+	delivering_failures = 0;
+}
+
 static void start_async_request(const char* url, const char* post_data,
 								const char* content_type, HTTP_Callback callback,
 								void* userdata) {
 	AsyncRequestData* req = calloc(1, sizeof(AsyncRequestData));
 	if (!req) {
-		// Callback with error
-		HTTP_Response* response = calloc(1, sizeof(HTTP_Response));
-		if (response) {
-			response->http_status = -1;
-			response->error = strdup("Memory allocation failed");
-		}
-		if (callback)
-			callback(response, userdata);
+		deliver_failure(callback, userdata, "Memory allocation failed");
 		return;
 	}
 
@@ -312,13 +361,7 @@ static void start_async_request(const char* url, const char* post_data,
 		free(req->post_data);
 		free(req->content_type);
 		free(req);
-		HTTP_Response* response = calloc(1, sizeof(HTTP_Response));
-		if (response) {
-			response->http_status = -1;
-			response->error = strdup("Memory allocation failed");
-		}
-		if (callback)
-			callback(response, userdata);
+		deliver_failure(callback, userdata, "Memory allocation failed");
 		return;
 	}
 
@@ -329,13 +372,7 @@ static void start_async_request(const char* url, const char* post_data,
 		free(req->post_data);
 		free(req->content_type);
 		free(req);
-		HTTP_Response* response = calloc(1, sizeof(HTTP_Response));
-		if (response) {
-			response->http_status = -1;
-			response->error = strdup("Failed to create thread");
-		}
-		if (callback)
-			callback(response, userdata);
+		deliver_failure(callback, userdata, "Failed to create thread");
 		return;
 	}
 

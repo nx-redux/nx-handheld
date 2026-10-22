@@ -83,6 +83,8 @@ static SDL_Surface* play_video_file(SDL_Surface* screen, VideoFileEntry* entry, 
 
 	// Launch ffplay (releases PAD, waits, re-inits PAD)
 	FfplayEngine_play(&config);
+	// back in the browser: auto-sleep applies again
+	ModuleCommon_setAutosleepDisabled(false);
 
 	// Record where playback ended: mid-video -> save for resume;
 	// barely started or near the end -> clear

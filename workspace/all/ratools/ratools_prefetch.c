@@ -8,6 +8,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <zip.h>
@@ -40,12 +41,15 @@
 // An archived rom is unpacked here for hashing, then deleted (/tmp is RAM)
 #define RAT_UNPACK_DIR "/tmp/ratools_unpack"
 // bigger roms inside an archive are left alone rather than unpacked to RAM
-#define RAT_UNPACK_MAX (256LL * 1024 * 1024)
+#define RAT_UNPACK_MAX (128LL * 1024 * 1024)
+// and one is only unpacked while this much of /tmp stays free besides it
+#define RAT_UNPACK_RESERVE (48LL * 1024 * 1024)
 
 typedef struct {
 	char path[512];
 	// the rom inside a .zip/.7z (path within the archive), "" for a plain file
 	char entry[256];
+	long long entry_size; // unpacked size of entry
 	int console_id;
 } RAT_RomFile;
 
@@ -221,7 +225,7 @@ static bool rat_7z_entry(const char* path, char* entry, size_t n, long long* siz
 	return found;
 }
 
-static bool rat_archive_entry(const char* path, char* entry, size_t n) {
+static bool rat_archive_entry(const char* path, char* entry, size_t n, long long* out_size) {
 	long long size = 0;
 	const char* ext = strrchr(path, '.');
 	bool found = !strcasecmp(ext, ".zip") ? rat_zip_entry(path, entry, n, &size)
@@ -230,6 +234,7 @@ static bool rat_archive_entry(const char* path, char* entry, size_t n) {
 		fprintf(stderr, "[prefetch] %s: %s too big to unpack (%lld bytes)\n", path, entry, size);
 		return false;
 	}
+	*out_size = size;
 	return found;
 }
 
@@ -253,6 +258,16 @@ static void rat_unpack_cleanup(void) {
 // by extension for some consoles). out gets the unpacked file's path.
 static bool rat_unpack(const RAT_RomFile* rom, char* out, size_t n) {
 	rat_unpack_cleanup();
+	// /tmp is RAM: skip a rom that would leave too little of it free
+	struct statvfs sv;
+	if (statvfs("/tmp", &sv) == 0) {
+		long long avail = (long long)sv.f_bavail * (long long)sv.f_frsize;
+		if (avail < rom->entry_size + RAT_UNPACK_RESERVE) {
+			fprintf(stderr, "[prefetch] %s: not enough room in /tmp (%lld needed, %lld free)\n",
+					rom->path, rom->entry_size, avail);
+			return false;
+		}
+	}
 	mkdir(RAT_UNPACK_DIR, 0755);
 	const char* base = strrchr(rom->entry, '/');
 	base = base ? base + 1 : rom->entry;
@@ -396,8 +411,9 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 			// minarch unpacks an archive (arcade aside: hashed by name) and
 			// detects and hashes the rom inside, so go by that rom here too
 			char entry[256] = {0};
+			long long entry_size = 0;
 			if (peek && console_id != RC_CONSOLE_ARCADE && rat_is_archive(ent->d_name)) {
-				if (!rat_archive_entry(path, entry, sizeof(entry)))
+				if (!rat_archive_entry(path, entry, sizeof(entry), &entry_size))
 					continue;
 				char inner[512];
 				snprintf(inner, sizeof(inner), "%s/%s", dir, entry);
@@ -410,6 +426,7 @@ static void rat_scan_dir(const char* dir, const char* tag, const char* core, int
 				break;
 			snprintf(r->path, sizeof(r->path), "%s", path);
 			snprintf(r->entry, sizeof(r->entry), "%s", entry);
+			r->entry_size = entry_size;
 			r->console_id = console_id;
 		}
 	}

@@ -2621,6 +2621,7 @@ static void SND_audioCallback(void* userdata, uint8_t* stream, int len) {
 		memset(out, 0, len * (sizeof(int16_t) * 2));
 }
 static void SND_resizeBuffer(void) {
+	static int allocated_frames = 0; // size of snd.buffer in frames
 	LOG_info("Resizing audio buffer for new frame count: %d\n", snd.frame_count);
 
 	if (snd.frame_count == 0)
@@ -2634,8 +2635,16 @@ static void SND_resizeBuffer(void) {
 
 	int buffer_bytes = snd.frame_count * sizeof(SND_Frame);
 	pthread_mutex_lock(&audio_mutex);
-	snd.buffer = (SND_Frame*)realloc(snd.buffer, buffer_bytes);
-	memset(snd.buffer, 0, buffer_bytes);
+	SND_Frame* resized = (SND_Frame*)realloc(snd.buffer, buffer_bytes);
+	if (resized) {
+		snd.buffer = resized;
+		allocated_frames = snd.frame_count;
+		memset(snd.buffer, 0, buffer_bytes);
+	} else {
+		// keep the old buffer and its size rather than dropping it (leak + NULL)
+		LOG_error("Audio buffer resize to %d bytes failed\n", buffer_bytes);
+		snd.frame_count = snd.buffer ? allocated_frames : 0;
+	}
 	snd.frame_in = 0;
 	snd.frame_out = 0;
 	pthread_mutex_unlock(&audio_mutex);
@@ -2655,23 +2664,48 @@ void SND_setQuality(int quality) {
 	soundQuality = qualityLevels[quality];
 	resetSrcState = 1;
 }
+// Grows *buf to hold at least `count` elements of `size` bytes; returns 0 on
+// allocation failure (the old buffer is kept).
+static int grow_buffer(void** buf, int* cap, int count, size_t size) {
+	if (count <= *cap)
+		return 1;
+	void* p = realloc(*buf, (size_t)count * size);
+	if (!p)
+		return 0;
+	*buf = p;
+	*cap = count;
+	return 1;
+}
+
 ResampledFrames resample_audio(const SND_Frame* input_frames,
 							   int input_frame_count, int input_sample_rate,
 							   int output_sample_rate, double ratio) {
 	int error;
 	static double previous_ratio = 1.0;
 	static SRC_STATE* src_state = NULL;
+	// Reused across calls (one batch per call, many batches per frame)
+	static float* input_buffer = NULL;
+	static int input_cap = 0;
+	static float* output_buffer = NULL;
+	static int output_cap = 0;
+	static SND_Frame* output_frames = NULL;
+	static int frames_cap = 0;
 
 	double final_ratio = ((double)output_sample_rate / input_sample_rate) * ratio;
 
 	if (!src_state || resetSrcState) {
 		resetSrcState = 0;
+		// A quality change replaces the converter: free the old one
+		if (src_state)
+			src_delete(src_state);
 		src_state = src_new(soundQuality, 2, &error);
 		if (src_state == NULL) {
 			fprintf(stderr, "Error initializing SRC state: %s\n",
 					src_strerror(error));
 			exit(1);
 		}
+		// the new converter starts at its default ratio: set ours again
+		previous_ratio = 0.0;
 	}
 
 	if (previous_ratio != final_ratio) {
@@ -2685,13 +2719,10 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 
 	int max_output_frames = (int)(input_frame_count * final_ratio + 1);
 
-	float* input_buffer = (float*)malloc(input_frame_count * 2 * sizeof(float));
-	float* output_buffer = (float*)malloc(max_output_frames * 2 * sizeof(float));
-	if (!input_buffer || !output_buffer) {
+	if (!grow_buffer((void**)&input_buffer, &input_cap, input_frame_count * 2, sizeof(float)) ||
+		!grow_buffer((void**)&output_buffer, &output_cap, max_output_frames * 2, sizeof(float)) ||
+		!grow_buffer((void**)&output_frames, &frames_cap, max_output_frames, sizeof(SND_Frame))) {
 		fprintf(stderr, "Error allocating buffers\n");
-		free(input_buffer);
-		free(output_buffer);
-		src_delete(src_state);
 		exit(1);
 	}
 
@@ -2711,20 +2742,10 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 	if (src_process(src_state, &src_data) != 0) {
 		fprintf(stderr, "Error resampling: %s\n",
 				src_strerror(src_error(src_state)));
-		free(input_buffer);
-		free(output_buffer);
 		exit(1);
 	}
 
 	int output_frame_count = src_data.output_frames_gen;
-
-	SND_Frame* output_frames = (SND_Frame*)malloc(output_frame_count * sizeof(SND_Frame));
-	if (!output_frames) {
-		fprintf(stderr, "Error allocating output frames\n");
-		free(input_buffer);
-		free(output_buffer);
-		exit(1);
-	}
 
 	for (int i = 0; i < output_frame_count; i++) {
 		float left = output_buffer[2 * i];
@@ -2736,9 +2757,6 @@ ResampledFrames resample_audio(const SND_Frame* input_frames,
 		output_frames[i].left = (int16_t)(left * 32767.0f);
 		output_frames[i].right = (int16_t)(right * 32767.0f);
 	}
-
-	free(input_buffer);
-	free(output_buffer);
 
 	ResampledFrames resampled;
 	resampled.frames = output_frames;
@@ -2904,7 +2922,6 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) {
 		pthread_mutex_unlock(&audio_mutex);
 
 		total_consumed_frames += written_frames;
-		free(resampled.frames);
 	}
 
 	return total_consumed_frames;
@@ -3018,7 +3035,6 @@ size_t SND_batchSamples_fixed_rate(const SND_Frame* frames, size_t frame_count) 
 		pthread_mutex_unlock(&audio_mutex);
 
 		total_consumed_frames += written_frames;
-		free(resampled.frames);
 	}
 
 	return total_consumed_frames;
@@ -4295,6 +4311,9 @@ void PWR_enableSleep(void) {
 
 void PWR_disablePowerOff(void) {
 	pwr.can_poweroff = 0;
+}
+void PWR_enablePowerOff(void) {
+	pwr.can_poweroff = 1;
 }
 void PWR_powerOff(int reboot) {
 	if (pwr.can_poweroff) {

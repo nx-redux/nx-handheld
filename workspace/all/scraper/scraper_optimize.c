@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 
 #include "api.h" // LOG_warn
+#include "image_probe.h"
 #include "png_palette.h"
 #include "sdl.h"
 
@@ -151,12 +152,17 @@ OptimizeResult Optimize_file(const char* path, long long* saved_bytes) {
 	if (stat(path, &st) != 0)
 		return OPTIMIZE_FAILED;
 
+	// Oversized art is skipped on its header, before IMG_Load decodes it
+	int probe_w = 0, probe_h = 0;
+	if (ImageProbe_dimensions(path, &probe_w, &probe_h) && (long long)probe_w * probe_h > MAX_PIXELS)
+		return OPTIMIZE_NO_GAIN;
+
 	SDL_Surface* raw = IMG_Load(path);
 	if (!raw) {
 		LOG_warn("Optimize: could not read %s\n", path);
 		return OPTIMIZE_FAILED;
 	}
-	if ((long long)raw->w * raw->h > MAX_PIXELS) {
+	if ((long long)raw->w * raw->h > MAX_PIXELS) { // backstop: header not probed
 		SDL_FreeSurface(raw);
 		return OPTIMIZE_NO_GAIN;
 	}

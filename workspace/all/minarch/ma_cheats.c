@@ -422,7 +422,7 @@ static void Cheats_free_one(struct Cheats* c) {
 }
 
 // Parse exactly one .cht file into `out` (out->cheats allocated here).
-// Returns 1 on success, 0 on failure (out left empty/freed by the caller).
+// Returns 1 on success, 0 on failure (out is then left empty and freed).
 static int load_one_file(const char* path, struct Cheats* out) {
 	out->count = 0;
 	out->cheats = NULL;
@@ -433,12 +433,13 @@ static int load_one_file(const char* path, struct Cheats* out) {
 		return 0;
 	}
 
-	out->count = parse_count(file);
-	if (out->count <= 0) {
-		LOG_error("Couldn't read cheat count\n");
+	size_t declared = parse_count(file);
+	if (!CheatFile_countOk(declared)) {
+		LOG_error("Couldn't read cheat count (%zu) in %s\n", declared, path);
 		fclose(file);
 		return 0;
 	}
+	out->count = declared;
 
 	out->cheats = calloc(out->count, sizeof(struct Cheat));
 	if (!out->cheats) {
@@ -453,6 +454,7 @@ static int load_one_file(const char* path, struct Cheats* out) {
 	if (parse_cheats(out, file)) {
 		LOG_error("Error parsing cheat file: %s\n", path);
 		fclose(file);
+		Cheats_free_one(out);
 		return 0;
 	}
 
@@ -467,6 +469,7 @@ static int load_one_file(const char* path, struct Cheats* out) {
 		c->name = strdup(label);
 		if (!c->name) {
 			fclose(file);
+			Cheats_free_one(out);
 			return 0;
 		}
 	}
