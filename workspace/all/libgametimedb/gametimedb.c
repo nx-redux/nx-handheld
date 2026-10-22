@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <defines.h>
@@ -227,18 +228,20 @@ PlayActivities* play_activity_find_all(void) {
 	return play_activities;
 }
 
+// rel_path must be MAX_PATH bytes; a longer result is cut to fit (rom_path
+// comes from gametimectl's command line and is not length-checked)
 void __ensure_rel_path(char* rel_path, const char* rom_path) {
 	if (!pathRelativeTo(rel_path, ROMS_PATH, rom_path)) {
 		if (strstr(rom_path, "../../Roms/") != NULL) {
 			char* dup = strdup((const char*)rom_path);
-			strcpy(rel_path, splitString(dup, "../../Roms/"));
+			snprintf(rel_path, MAX_PATH, "%s", splitString(dup, "../../Roms/"));
 			free(dup);
 		} else {
 			char* dup = strdup((const char*)rom_path);
 			char roms_path_slash[MAX_PATH];
 			snprintf(roms_path_slash, sizeof(roms_path_slash), "%s/", ROMS_PATH);
 			char* replaced = replaceString2(dup, roms_path_slash, "");
-			strcpy(rel_path, replaced);
+			snprintf(rel_path, MAX_PATH, "%s", replaced ? replaced : rom_path);
 			free(replaced);
 			free(dup);
 		}
@@ -385,12 +388,17 @@ int __db_get_active_closed_activity(sqlite3* game_log_db) {
 bool play_activity_is_excluded(const char* rom_file_path) {
 	if (!rom_file_path)
 		return false;
+	// the suffix is checked on the whole path: one longer than MAX_PATH still
+	// ends in portmaster.sh (the lowercased copy below is cut)
+	size_t len = strlen(rom_file_path);
+	if (len >= 13 && strcasecmp(rom_file_path + len - 13, "portmaster.sh") == 0)
+		return true;
 	char lower[MAX_PATH];
 	size_t n = 0;
 	for (; rom_file_path[n] && n < sizeof(lower) - 1; n++)
 		lower[n] = (char)tolower((unsigned char)rom_file_path[n]);
 	lower[n] = '\0';
-	return (n >= 13 && strcmp(lower + n - 13, "portmaster.sh") == 0) || strstr(lower, "portmaster.pak") != NULL;
+	return strstr(lower, "portmaster.pak") != NULL;
 }
 
 void play_activity_start(char* rom_file_path) {

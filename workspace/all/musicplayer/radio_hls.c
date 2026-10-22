@@ -27,9 +27,11 @@ void radio_hls_get_base_url(const char* url, char* base, int base_size) {
 	strncpy(base, url, base_size - 1);
 	base[base_size - 1] = '\0';
 
-	// Find last slash after the host
-	char* last_slash = strrchr(base, '/');
-	if (last_slash && last_slash > base + 8) { // After "https://"
+	// Find last slash after the host (a "/" inside "scheme://" is not one,
+	// and a short host such as "http://a/x.m3u8" still has its path cut)
+	char* host = strstr(base, "://");
+	char* last_slash = strrchr(host ? host + 3 : base, '/');
+	if (last_slash) {
 		*(last_slash + 1) = '\0';
 	}
 }
@@ -47,10 +49,9 @@ void radio_hls_resolve_url(const char* base, const char* relative, char* result,
 			host_start += 3;
 			const char* host_end = strchr(host_start, '/');
 			if (host_end) {
-				int host_len = host_end - base;
-				strncpy(result, base, host_len);
-				result[host_len] = '\0';
-				strncat(result, relative, result_size - strlen(result) - 1);
+				// cut to result_size (strncpy of the host part overran a
+				// result buffer shorter than it)
+				snprintf(result, result_size, "%.*s%s", (int)(host_end - base), base, relative);
 			} else {
 				snprintf(result, result_size, "%s%s", base, relative);
 			}

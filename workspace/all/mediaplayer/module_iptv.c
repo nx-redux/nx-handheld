@@ -7,6 +7,7 @@
 #include "module_iptv.h"
 #include "iptv.h"
 #include "iptv_curated.h"
+#include "iptv_text.h"
 #include "stream_probe.h"
 #include "wifi.h"
 #include "display_helper.h"
@@ -130,34 +131,6 @@ static bool jump_channel_initial(const CuratedTVChannel* channels, int dir) {
 		return false;
 	curated_channel_selected = target;
 	return true;
-}
-
-// Copy `name` into `out`, dropping any "[...]" tag segments (e.g. the
-// "[Geo-blocked]" / "[Not 24/7]" status tags iptv-org puts in channel names)
-// and collapsing the whitespace they leave behind. Used only for the saved
-// channel name; the browser list keeps the tags as a heads-up.
-static void strip_name_tags(const char* name, char* out, int out_sz) {
-	int j = 0, depth = 0;
-	for (int i = 0; name[i] && j < out_sz - 1; i++) {
-		char c = name[i];
-		if (c == '[') {
-			depth++;
-			continue;
-		}
-		if (c == ']') {
-			if (depth > 0)
-				depth--;
-			continue;
-		}
-		if (depth > 0)
-			continue;
-		if (c == ' ' && j > 0 && out[j - 1] == ' ')
-			continue; // collapse runs of spaces left by removed tags
-		out[j++] = c;
-	}
-	while (j > 0 && out[j - 1] == ' ')
-		j--; // trim trailing space
-	out[j] = '\0';
 }
 
 // Fetch (with a blocking "Loading…" overlay) the iptv-org country list.
@@ -415,7 +388,7 @@ ModuleExitReason IPTVModule_run(SDL_Surface* screen) {
 				} else {
 					// Save without the browser's status tags (e.g. "[Geo-blocked]").
 					char clean_name[IPTV_MAX_NAME];
-					strip_name_tags(channel->name, clean_name, sizeof(clean_name));
+					IPTV_stripNameTags(channel->name, clean_name, sizeof(clean_name));
 					if (IPTV_addUserChannel(clean_name, channel->url, channel->category, channel->logo, channel->decryption_key) >= 0) {
 						// No toast on success: the [+] marker already shows the
 						// channel was added.

@@ -38,6 +38,21 @@ int main(void) {
 	write_file("/tmp/iv-probe.jpg", jpg, sizeof(jpg));
 	assert(IvProbe_dimensions("/tmp/iv-probe.jpg", &w, &h) && w == 640 && h == 480);
 
+	// Progressive JPEG (SOF2) with fill bytes (extra 0xFF) before the marker
+	const unsigned char prog[] = {
+		0xFF, 0xD8,
+		0xFF, 0xE1, 0x00, 0x04, 0x00, 0x00, /* tiny APP1 */
+		0xFF, 0xFF, 0xFF, 0xC2, 0x00, 0x11, 0x08,
+		0x02, 0xD0, /* height 720 */
+		0x05, 0x00, /* width 1280 */
+		0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01};
+	write_file("/tmp/iv-probe-prog.jpg", prog, sizeof(prog));
+	assert(IvProbe_dimensions("/tmp/iv-probe-prog.jpg", &w, &h) && w == 1280 && h == 720);
+
+	// Truncated inside the SOF segment: false
+	write_file("/tmp/iv-probe-cut.jpg", prog, 16);
+	assert(!IvProbe_dimensions("/tmp/iv-probe-cut.jpg", &w, &h));
+
 	// GIF: "GIF89a" + LE width=320 height=200
 	const unsigned char gif[] = {'G', 'I', 'F', '8', '9', 'a', 0x40, 0x01, 0xC8, 0x00, 0x00, 0x00, 0x00};
 	write_file("/tmp/iv-probe.gif", gif, sizeof(gif));
@@ -63,6 +78,8 @@ int main(void) {
 	// Missing file: false
 	assert(!IvProbe_dimensions("/tmp/iv-probe-missing.png", &w, &h));
 
+	remove("/tmp/iv-probe-prog.jpg");
+	remove("/tmp/iv-probe-cut.jpg");
 	printf("test_iv_probe: all assertions passed\n");
 	return 0;
 }

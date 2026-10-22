@@ -232,7 +232,10 @@ int M3U_removeTrack(const char* m3u_path, int index) {
 	}
 	fclose(f);
 
-	// Find the track line at the given index (skip # and empty lines)
+	// Find the track line at the given index (skip # and empty lines). The
+	// index is one into M3U_loadTracks' list, which leaves out tracks whose
+	// file is missing: skip those here too, or a missing track before it
+	// shifts the count and the wrong track is removed.
 	int track_idx = 0;
 	int remove_line = -1;
 	for (int i = 0; i < line_count; i++) {
@@ -241,6 +244,10 @@ int M3U_removeTrack(const char* m3u_path, int index) {
 		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
 			len--;
 		if (len == 0 || line[0] == '#')
+			continue;
+		char path[sizeof(buf)];
+		snprintf(path, sizeof(path), "%.*s", len, line);
+		if (access(path, F_OK) != 0)
 			continue;
 
 		if (track_idx == index) {

@@ -8,7 +8,10 @@
 #include "vp_defines.h"
 #include "parson/parson.h"
 
+// Overridable so the host test (tests/test_iptv_user.c) works in /tmp
+#ifndef IPTV_CHANNELS_DIR
 #define IPTV_CHANNELS_DIR APP_DATA_DIR "/tv"
+#endif
 #define IPTV_CHANNELS_FILE IPTV_CHANNELS_DIR "/channels.json"
 
 static IPTVChannel user_channels[IPTV_MAX_USER_CHANNELS];

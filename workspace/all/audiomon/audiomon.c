@@ -21,6 +21,7 @@
 #include "msettings.h"
 #include "defines.h"
 #include "spk_guard.h"
+#include "audiomon_parse.h"
 
 #define AUDIO_FILE USERDATA_PATH "/.asoundrc"
 #define UUID_A2DP "0000110b-0000-1000-8000-00805f9b34fb"
@@ -268,22 +269,7 @@ static void spk_guard_poll(void) {
 static int read_cfg_int(const char* key, int fallback) {
 	char path[512];
 	snprintf(path, sizeof(path), "%s/minuisettings.txt", SHARED_USERDATA_PATH);
-	FILE* f = fopen(path, "r");
-	if (!f)
-		return fallback;
-	char line[256];
-	char pattern[64];
-	snprintf(pattern, sizeof(pattern), "%s=%%i", key);
-	int value = fallback;
-	while (fgets(line, sizeof(line), f)) {
-		int v;
-		if (sscanf(line, pattern, &v) == 1) {
-			value = v;
-			break;
-		}
-	}
-	fclose(f);
-	return value;
+	return audiomon_cfg_int(path, key, fallback);
 }
 
 // A2DP negotiated rate: the raw bluealsa PCM (not via plug) constrains
@@ -552,25 +538,9 @@ static void clear_audio_file(void) {
 	}
 }
 
-// Extract MAC address from D-Bus object path
-// Path format: .../dev_AA_BB_CC_DD_EE_FF/...
-// Returns length written to out (excluding NUL), or 0 on failure
+// Extract MAC address from D-Bus object path (see audiomon_parse.h)
 static int path_to_mac(const char* path, char* out, size_t out_size) {
-	const char* p = strstr(path, "dev_");
-	if (!p || out_size < 18)
-		return 0;
-
-	p += 4; // skip "dev_"
-
-	// Copy up to 17 chars (AA_BB_CC_DD_EE_FF), replacing '_' with ':'
-	int i = 0;
-	while (*p && *p != '/' && i < 17) {
-		out[i] = (*p == '_') ? ':' : *p;
-		i++;
-		p++;
-	}
-	out[i] = '\0';
-	return i;
+	return audiomon_path_to_mac(path, out, out_size);
 }
 
 // Extract ALSA card number from udev device

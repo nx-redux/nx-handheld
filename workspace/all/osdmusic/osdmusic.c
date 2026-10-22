@@ -12,6 +12,7 @@
 
 #include "../musicplayer/music_balance.h"
 #include "../musicplayer/music_client.h"
+#include "osdmusic_config.h"
 #if defined(PLATFORM_TG5050)
 #include "../../tg5050/libmsettings/msettings.h"
 #else
@@ -213,22 +214,7 @@ static SDL_Surface* load_png(const char* name, int size) {
 	return load_png_path(path, size, size);
 }
 
-// Pull "key" : number out of the widget's config.json (flat JSON, no nesting).
-static int config_int(const char* json, const char* key, int fallback) {
-	char needle[64];
-	snprintf(needle, sizeof(needle), "\"%s\"", key);
-	const char* at = strstr(json, needle);
-	if (!at)
-		return fallback;
-	at = strchr(at + strlen(needle), ':');
-	if (!at)
-		return fallback;
-	int value = fallback;
-	if (sscanf(at + 1, " %d", &value) != 1)
-		return fallback;
-	return value;
-}
-
+// Canvas and grid size from the widget's config.json (flat JSON, no nesting).
 static void load_geometry(void) {
 	FILE* f = fopen(CONFIG_PATH, "r");
 	if (!f)
@@ -237,10 +223,10 @@ static void load_geometry(void) {
 	size_t n = fread(json, 1, sizeof(json) - 1, f);
 	fclose(f);
 	json[n] = '\0';
-	CANVAS_W = config_int(json, "canvaswidth", CANVAS_W);
-	CANVAS_H = config_int(json, "canvasheight", CANVAS_H);
-	GRID_W = config_int(json, "gridwidth", GRID_W);
-	GRID_H = config_int(json, "gridheight", GRID_H);
+	CANVAS_W = osdmusic_config_int(json, "canvaswidth", CANVAS_W);
+	CANVAS_H = osdmusic_config_int(json, "canvasheight", CANVAS_H);
+	GRID_W = osdmusic_config_int(json, "gridwidth", GRID_W);
+	GRID_H = osdmusic_config_int(json, "gridheight", GRID_H);
 }
 
 // Widget background: the cover art scaled to fill the tile, dimmed, and

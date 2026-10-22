@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "iptv_curated.h"
+#include "iptv_text.h"
 #include "net_cache.h"
 #include "m3u.h"
 #include "tz_country.h"
@@ -91,29 +92,13 @@ const CuratedTVCountry* IPTV_curated_get_countries(void) {
 	return curated_countries;
 }
 
-// Lowercase a country code into dst for the URL/cache filename, keeping only
-// [a-z0-9]. The code is third-party data (iptv-org countries.json) and flows
-// into the fetch URL and a cache file path, so stripping other characters
-// prevents shell-metacharacter injection and path traversal (e.g. "../").
-static void lc_code(const char* code, char* dst, int dst_sz) {
-	int j = 0;
-	for (int i = 0; code[i] && j < dst_sz - 1; i++) {
-		char ch = code[i];
-		if (ch >= 'A' && ch <= 'Z')
-			ch = (char)(ch - 'A' + 'a');
-		if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
-			dst[j++] = ch;
-	}
-	dst[j] = '\0';
-}
-
 int IPTV_curated_loadCountryChannels(const char* country_code, bool force,
 									 volatile bool* should_stop, volatile int* progress) {
 	if (!country_code || !country_code[0])
 		return -1;
 
 	char lc[8];
-	lc_code(country_code, lc, sizeof(lc));
+	IPTV_lcCode(country_code, lc, sizeof(lc));
 
 	char url[256];
 	char cache[600];

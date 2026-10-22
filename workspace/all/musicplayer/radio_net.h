@@ -4,10 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Parse URL into components
-// Returns 0 on success, -1 on error
-int radio_net_parse_url(const char* url, char* host, int host_size,
-						int* port, char* path, int path_size, bool* is_https);
+// URL parsing: radio_net_parse_url
+#include "radio_url.h"
 
 // Fetch content from URL into buffer
 // Returns bytes read on success, -1 on error

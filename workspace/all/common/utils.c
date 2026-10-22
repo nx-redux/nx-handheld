@@ -439,11 +439,14 @@ void cleanName(char* name_out, const char* file_name) {
 	free(no_underscores);
 }
 bool pathRelativeTo(char* path_out, const char* dir_from, const char* file_to) {
+	// path_out is MAX_PATH bytes. realpath() allocates: a resolved path can be up to
+	// PATH_MAX, far past MAX_PATH, so it never writes into a fixed buffer here.
 	path_out[0] = '\0';
 
-	char abs_from[MAX_PATH];
-	char abs_to[MAX_PATH];
-	if (realpath(dir_from, abs_from) == NULL || realpath(file_to, abs_to) == NULL) {
+	char* abs_from = realpath(dir_from, NULL);
+	char* abs_to = abs_from ? realpath(file_to, NULL) : NULL;
+	if (!abs_from || !abs_to) {
+		free(abs_from);
 		return false;
 	}
 
@@ -462,15 +465,27 @@ bool pathRelativeTo(char* path_out, const char* dir_from, const char* file_to) {
 		++p2;
 	}
 
+	size_t used = 0;
+	bool ok = true;
 	if (strlen(p1) > 0) {
 		int num_parens = countChar(p1, '/') + 1;
-		for (int i = 0; i < num_parens; i++) {
-			strcat(path_out, "../");
+		for (int i = 0; ok && i < num_parens; i++) {
+			int n = snprintf(path_out + used, MAX_PATH - used, "../");
+			ok = n >= 0 && (size_t)n < MAX_PATH - used;
+			if (ok)
+				used += n;
 		}
 	}
-	strcat(path_out, p2);
+	if (ok) {
+		int n = snprintf(path_out + used, MAX_PATH - used, "%s", p2);
+		ok = n >= 0 && (size_t)n < MAX_PATH - used;
+	}
+	if (!ok)
+		path_out[0] = '\0'; // too long for MAX_PATH: report failure, never a cut path
 
-	return true;
+	free(abs_from);
+	free(abs_to);
+	return ok;
 }
 
 void getDisplayName(const char* in_name, char* out_name) { // NOTE: out_name needs to be MAX_PATH length!

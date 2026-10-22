@@ -131,6 +131,20 @@ static void test_path_relative(void) {
 	assert(strcmp(out, "../bd/x") == 0);
 	assert(!pathRelativeTo(out, SDCARD_PATH "/rel/nope", SDCARD_PATH "/rel/a/f"));
 	assert(out[0] == '\0');
+
+	// Regression: realpath() wrote into MAX_PATH buffers, and a result longer than
+	// MAX_PATH overflowed path_out. A 700-byte real path must fail cleanly instead.
+	char deep[2048];
+	int n = snprintf(deep, sizeof(deep), SDCARD_PATH "/rel/a");
+	for (int i = 0; i < 7; i++)
+		n += snprintf(deep + n, sizeof(deep) - n, "/%s", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+	char cmd[2200];
+	snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", deep);
+	sh(cmd);
+	snprintf(deep + n, sizeof(deep) - n, "/f");
+	put(deep, "");
+	assert(!pathRelativeTo(out, SDCARD_PATH "/rel/a/bc", deep));
+	assert(out[0] == '\0');
 }
 
 static bool collect(const char* disc_path, int index, void* ctx) {

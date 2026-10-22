@@ -14,6 +14,7 @@
 #include "audio_manager.h"
 #include "display_helper.h"
 #include "ffplay_engine.h"
+#include "ffplay_parse.h"
 
 // PID of the currently running ffplay child process (0 = none).
 // volatile sig_atomic_t: read by FfplayEngine_signalStop() from the app's
@@ -44,41 +45,16 @@ static void on_ffplay_audio_changed(int sink_type) {
 	audio_device_changed = true;
 }
 
-// Escape a value for inclusion inside single quotes in an ffmpeg filtergraph.
-// Inside '...' only the closing quote is special, so a literal ' must be written
-// as '\'' (close-quote, backslash-quote, reopen-quote). Without this, a subtitle
-// path containing an apostrophe (e.g. "my'movie.srt") ends the quoted value early
-// and the rest of the filename is parsed as filtergraph syntax, breaking playback.
-static void escape_filter_squote(const char* in, char* out, size_t out_size) {
-	size_t j = 0;
-	for (size_t i = 0; in[i] && j + 4 < out_size; i++) {
-		if (in[i] == '\'') {
-			out[j++] = '\'';
-			out[j++] = '\\';
-			out[j++] = '\'';
-			out[j++] = '\'';
-		} else {
-			out[j++] = in[i];
-		}
-	}
-	out[j] = '\0';
-}
-
-// ffplay/ffmpeg exits 0 even when it fails to OPEN the input (e.g. "Invalid
-// data found when processing input", "Server returned 403 Forbidden"). On a
-// fatal open failure it prints a line beginning with the input URL followed by
-// ':'. Detect that in the captured stderr — distinct from benign mid-stream
-// warnings like "[https @ ...] Stream ends prematurely" which a working stream
-// may print. Returns true if a fatal open error was found.
+// Scans the captured stderr for ffplay's fatal open-error line (see
+// FfplayParse_isFatalLine). Returns true if one was found.
 static bool ffplay_stderr_has_fatal(const char* url) {
 	FILE* f = fopen(FFPLAY_ERR_FILE, "r");
 	if (!f)
 		return false;
-	size_t urllen = strlen(url);
 	char line[1024];
 	bool fatal = false;
 	while (fgets(line, sizeof(line), f)) {
-		if (urllen > 0 && strncmp(line, url, urllen) == 0 && line[urllen] == ':') {
+		if (FfplayParse_isFatalLine(line, url)) {
 			LOG_error("ffplay input error: %s", line);
 			fatal = true;
 			break;
@@ -146,7 +122,7 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 		// Multiple external subtitle files — one -vf per file + empty for "off"
 		for (int i = 0; i < config->subtitle_count; i++) {
 			char sub_esc[2048];
-			escape_filter_squote(config->subtitle_paths[i], sub_esc, sizeof(sub_esc));
+			FfplayParse_escapeFilterSquote(config->subtitle_paths[i], sub_esc, sizeof(sub_esc));
 			if (scale_filter[0]) {
 				snprintf(vf_strs[i], sizeof(vf_strs[0]),
 						 "%s,subtitles='%s':fontsdir='%s':force_style='Fontname=%s,FontSize=32'",
@@ -175,7 +151,7 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 		// force_style: only for external subs (SRT has no styling); skip for embedded
 		//              ASS/SSA which have their own fonts and positioning
 		char sub_esc[2048];
-		escape_filter_squote(config->subtitle_path, sub_esc, sizeof(sub_esc));
+		FfplayParse_escapeFilterSquote(config->subtitle_path, sub_esc, sizeof(sub_esc));
 		if (config->subtitle_is_external) {
 			snprintf(vf_str, sizeof(vf_str),
 					 "%s%ssubtitles='%s':fontsdir='%s':force_style='Fontname=%s,FontSize=32'",
