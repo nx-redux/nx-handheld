@@ -384,21 +384,11 @@ static bool rat_download_badge(const char* game_dir, const char* url, const char
 	char path[1024];
 	if (!RA_BadgePath_inDir(game_dir, badge_name, locked, path, sizeof(path)))
 		return false;
-	struct stat st;
-	if (stat(path, &st) == 0 && st.st_size > 0)
+	if (RA_BadgePath_exists(path))
 		return true; // already cached
-	bool ok = false;
 	HTTP_Response* resp = HTTP_get(url);
-	if (resp && resp->data && !resp->error && resp->http_status == 200 && resp->size > 0) {
-		FILE* f = fopen(path, "wb");
-		if (f) {
-			size_t wr = fwrite(resp->data, 1, resp->size, f);
-			bool close_ok = fclose(f) == 0;
-			ok = wr == resp->size && close_ok;
-			if (!ok)
-				remove(path); // truncated write must not satisfy the size>0 skip forever
-		}
-	}
+	bool ok = resp && resp->data && !resp->error && resp->http_status == 200 &&
+			  RA_BadgePath_save(path, resp->data, resp->size);
 	if (resp)
 		HTTP_freeResponse(resp);
 	return ok;

@@ -28,7 +28,6 @@ typedef struct {
 
 void ListDialog_init(const char* title);
 void ListDialog_setItems(ListDialogItem* items, int count);
-void ListDialog_setStatus(const char* status);
 ListDialogResult ListDialog_handleInput(void);
 void ListDialog_render(SDL_Surface* screen);
 void ListDialog_quit(void);

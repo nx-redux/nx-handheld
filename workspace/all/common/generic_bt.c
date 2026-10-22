@@ -599,6 +599,16 @@ int PLAT_bluetoothScan(struct BT_device* devices, int max) {
 	return count;
 }
 
+// Append more bluetoothctl output lines to out (out_size bytes), on a line of their own
+static void bt_append_lines(char* out, size_t out_size, const char* more) {
+	size_t len = strlen(out);
+	if (len > 0 && out[len - 1] != '\n' && len + 1 < out_size) {
+		out[len++] = '\n';
+		out[len] = '\0';
+	}
+	strncat(out, more, out_size - len - 1);
+}
+
 int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 	if (!PLAT_bluetoothEnabled()) {
 		return 0;
@@ -628,26 +638,14 @@ int PLAT_bluetoothPaired(struct BT_devicePaired* paired, int max) {
 	if (bt_version_gte(5, 70)) {
 		char trusted_output[4096];
 		if (bt_run_cmd("bluetoothctl devices Trusted 2>/dev/null", trusted_output, sizeof(trusted_output)) == 0 &&
-			trusted_output[0]) {
-			size_t len = strlen(output);
-			if (len > 0 && output[len - 1] != '\n') {
-				strncat(output, "\n", sizeof(output) - len - 1);
-				len++;
-			}
-			strncat(output, trusted_output, sizeof(output) - len - 1);
-		}
+			trusted_output[0])
+			bt_append_lines(output, sizeof(output), trusted_output);
 	}
 
 	// Also get connected devices and append any that aren't already listed
 	if (bt_run_cmd("bluetoothctl devices Connected 2>/dev/null", connected_output, sizeof(connected_output)) == 0 &&
-		connected_output[0]) {
-		size_t len = strlen(output);
-		if (len > 0 && output[len - 1] != '\n') {
-			strncat(output, "\n", sizeof(output) - len - 1);
-			len++;
-		}
-		strncat(output, connected_output, sizeof(output) - len - 1);
-	}
+		connected_output[0])
+		bt_append_lines(output, sizeof(output), connected_output);
 
 	int count = 0;
 	char* line = strtok(output, "\n");

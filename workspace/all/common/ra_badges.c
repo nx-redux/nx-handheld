@@ -155,43 +155,6 @@ static void ensure_cache_dir(void) {
 	mkdir(RA_BADGE_CACHE_DIR, 0755);
 }
 
-// Check if cache file exists
-static bool cache_file_exists(const char* path) {
-	struct stat st;
-	return stat(path, &st) == 0 && st.st_size > 0;
-}
-
-// Save HTTP response data to cache file
-static bool save_to_cache(const char* path, const char* data, size_t size) {
-	FILE* f = fopen(path, "wb");
-	if (!f) {
-		// the game's folder was missing (a badge outside prefetch)
-		char dir[MAX_PATH];
-		snprintf(dir, sizeof(dir), "%s", path);
-		char* slash = strrchr(dir, '/');
-		if (slash) {
-			*slash = '\0';
-			if (RA_BadgePath_ensureDir(dir))
-				f = fopen(path, "wb");
-		}
-	}
-	if (!f) {
-		BADGE_LOG_ERROR("Failed to open cache file for writing: %s\n", path);
-		return false;
-	}
-
-	size_t written = fwrite(data, 1, size, f);
-	fclose(f);
-
-	if (written != size) {
-		BADGE_LOG_ERROR("Failed to write cache file: %s\n", path);
-		unlink(path);
-		return false;
-	}
-
-	return true;
-}
-
 // Load badge image from cache
 static SDL_Surface* load_from_cache(const char* path) {
 	SDL_Surface* surface = IMG_Load(path);
@@ -338,7 +301,7 @@ static void badge_download_callback(HTTP_Response* response, void* userdata) {
 	// Just save to disk - don't load into memory during prefetch
 	// Images will be loaded lazily when actually needed for display
 	if (response && response->data && response->http_status == 200 && !response->error) {
-		success = save_to_cache(ctx->cache_path, response->data, response->size);
+		success = RA_BadgePath_save(ctx->cache_path, response->data, response->size);
 		if (!success) {
 			BADGE_LOG_WARN("Failed to save badge %s%s to cache\n",
 						   ctx->badge_name, ctx->locked ? "_lock" : "");
@@ -403,7 +366,7 @@ static void start_download(uint32_t game_id, const char* badge_name, bool locked
 	char cache_path[MAX_PATH];
 	if (!RA_Badges_getCachePath(game_id, badge_name, locked, cache_path, sizeof(cache_path)))
 		return;
-	if (cache_file_exists(cache_path)) {
+	if (RA_BadgePath_exists(cache_path)) {
 		entry->state = RA_BADGE_STATE_CACHED;
 		return;
 	}
@@ -552,7 +515,7 @@ static int prefetch_worker(void* data) {
 		char cache_path[MAX_PATH];
 		if (!RA_BadgePath_inDir(game_dir, name, locked, cache_path, sizeof(cache_path)))
 			continue;
-		bool exists = cache_file_exists(cache_path); // slow part, no lock held
+		bool exists = RA_BadgePath_exists(cache_path); // slow part, no lock held
 
 		SDL_LockMutex(badge_mutex);
 		if (exists) {

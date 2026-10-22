@@ -1,5 +1,6 @@
 #include "ra_offline_net.h"
 #include "http.h"
+#include "ra_auth_parse.h"
 
 #include <dirent.h>
 #include <stdbool.h>
@@ -89,11 +90,6 @@ static void ra_net_progress(int done, int total, void* userdata) {
 		ctx->user_progress(done, total, ctx->user_userdata);
 }
 
-int RA_OfflineNet_syncAll(const char* username, const char* token,
-						  RA_SyncProgressFn progress, void* progress_userdata) {
-	return RA_OfflineNet_syncAllEx(username, token, progress, NULL, progress_userdata);
-}
-
 int RA_OfflineNet_syncAllEx(const char* username, const char* token,
 							RA_SyncProgressFn progress, RA_CancelFn cancel,
 							void* userdata) {
@@ -124,20 +120,14 @@ int RA_OfflineNet_cacheLogin(const char* username, const char* token) {
 	HTTP_Response* resp = HTTP_post(request.url, request.post_data, request.content_type);
 	int result = -1;
 	if (resp && resp->data && !resp->error && resp->http_status == 200) {
-		rc_api_server_response_t server_response;
-		memset(&server_response, 0, sizeof(server_response));
-		server_response.body = resp->data;
-		server_response.body_length = resp->size;
-		server_response.http_status_code = resp->http_status;
-
-		rc_api_login_response_t login;
-		if (rc_api_process_login_server_response(&login, &server_response) == RC_OK &&
-			login.response.succeeded) {
+		// the pak's password login (ra_auth.c) uses the same parser
+		RA_AuthResponse login = {0};
+		RA_Auth_parseLogin(resp->data, &login);
+		if (login.result == RA_AUTH_SUCCESS) {
 			// same write-through path minarch uses for its own online login
 			RA_Offline_cacheResponse(request.post_data, resp->data, resp->size);
 			result = RA_Offline_hasLoginCache() ? 0 : -1;
 		}
-		rc_api_destroy_login_response(&login);
 	}
 	if (resp)
 		HTTP_freeResponse(resp);

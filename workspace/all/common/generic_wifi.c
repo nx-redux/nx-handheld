@@ -331,6 +331,105 @@ int PLAT_wifiConnection(struct WIFI_connection* connection_info) {
 	return 0;
 }
 
+// Called per `wpa_cli list_networks` row: its id, ssid and flags (the last field, may be empty). Return false
+// to stop.
+typedef bool (*WifiNetworkFn)(int id, const char* ssid, const char* flags, void* ctx);
+
+// Run `wpa_cli list_networks` and call fn for each row under the header. The format is
+// "network id / ssid / bssid / flags", one tab-separated row per network:
+//   0	MyNetwork	any	[CURRENT]
+// The SSID cannot contain a tab (rejected on connect). False when wpa_cli failed.
+static bool wifi_list_networks(WifiNetworkFn fn, void* ctx) {
+	char list_results[8192];
+	char cmd[128];
+	snprintf(cmd, sizeof(cmd), "%s list_networks 2>/dev/null", WPA_CLI_CMD);
+	if (wifi_run_cmd(cmd, list_results, sizeof(list_results)) != 0)
+		return false;
+
+	const char* current = strchr(list_results, '\n'); // skip the header line
+	current = current ? current + 1 : NULL;
+	char line[256];
+	while (current && *current) {
+		const char* next = strchr(current, '\n');
+		size_t len = next ? (size_t)(next - current) : strlen(current);
+		if (len >= sizeof(line))
+			len = sizeof(line) - 1;
+		memcpy(line, current, len);
+		line[len] = '\0';
+		current = next ? next + 1 : NULL;
+
+		char* tab = strchr(line, '\t');
+		if (!tab || tab == line)
+			continue; // malformed
+		*tab = '\0';
+		char* ssid = tab + 1;
+		char* last = strrchr(ssid, '\t');
+		const char* flags = last ? last + 1 : "";
+		char* end = strchr(ssid, '\t');
+		if (end)
+			*end = '\0';
+		if (!fn(atoi(line), ssid, flags, ctx))
+			break;
+	}
+	return true;
+}
+
+typedef struct {
+	const char* ssid;
+	int id; // -1: not found
+} WifiFindCtx;
+
+static bool wifi_find_ssid(int id, const char* ssid, const char* flags, void* ctx) {
+	WifiFindCtx* find = (WifiFindCtx*)ctx;
+	if (strcmp(ssid, find->ssid) != 0)
+		return true;
+	find->id = id;
+	return false;
+}
+
+typedef struct {
+	const char* prefix;
+	size_t prefix_len;
+	int ids[128];
+	int n_ids;
+} WifiPrefixCtx;
+
+static bool wifi_match_prefix(int id, const char* ssid, const char* flags, void* ctx) {
+	WifiPrefixCtx* match = (WifiPrefixCtx*)ctx;
+	if (strncmp(ssid, match->prefix, match->prefix_len) == 0)
+		match->ids[match->n_ids++] = id;
+	return match->n_ids < (int)(sizeof(match->ids) / sizeof(match->ids[0]));
+}
+
+typedef struct {
+	int id;
+	bool temp_disabled;
+} WifiFlagsCtx;
+
+static bool wifi_check_temp_disabled(int id, const char* ssid, const char* flags, void* ctx) {
+	WifiFlagsCtx* find = (WifiFlagsCtx*)ctx;
+	if (id != find->id)
+		return true;
+	find->temp_disabled = strstr(flags, "[TEMP-DISABLED]") != NULL;
+	return false;
+}
+
+// Helper to find network ID by SSID
+static int wifi_find_network_id(const char* ssid) {
+	wifilog("wifi_find_network_id: Looking for network '%s'...\n", ssid);
+	WifiFindCtx find = {ssid, -1};
+	if (!wifi_list_networks(wifi_find_ssid, &find)) {
+		wifilog("wifi_find_network_id: Failed to get network list\n");
+		return -1;
+	}
+	if (find.id >= 0) {
+		wifilog("wifi_find_network_id: Found network '%s' with id %d\n", ssid, find.id);
+		return find.id;
+	}
+	wifilog("wifi_find_network_id: Network '%s' not found\n", ssid);
+	return -1;
+}
+
 bool PLAT_wifiHasCredentials(char* ssid, WifiSecurityType sec) {
 	// Validate input SSID (reject tabs/newlines)
 	for (int i = 0; ssid[i]; ++i) {
@@ -345,108 +444,7 @@ bool PLAT_wifiHasCredentials(char* ssid, WifiSecurityType sec) {
 		return false;
 	}
 
-	// Get list of configured networks from wpa_cli
-	char list_results[4096];
-	char cmd[128];
-	snprintf(cmd, sizeof(cmd), "%s list_networks 2>/dev/null", WPA_CLI_CMD);
-	if (wifi_run_cmd(cmd, list_results, sizeof(list_results)) != 0) {
-		wifilog("PLAT_wifiHasCredentials: failed to get network list.\n");
-		return false;
-	}
-
-	wifilog("LIST:\n%s\n", list_results);
-
-	// wpa_cli list_networks format:
-	// network id / ssid / bssid / flags
-	// 0	MyNetwork	any	[CURRENT]
-
-	const char* current = list_results;
-
-	// Skip header line
-	const char* next = strchr(current, '\n');
-	if (!next) {
-		LOG_warn("PLAT_wifiHasCredentials: network list has no data lines.\n");
-		return false;
-	}
-	current = next + 1;
-
-	char line[256];
-
-	while (current && *current) {
-		next = strchr(current, '\n');
-		size_t len = next ? (size_t)(next - current) : strlen(current);
-		if (len >= sizeof(line)) {
-			LOG_warn("PLAT_wifiHasCredentials: line too long, truncating.\n");
-			len = sizeof(line) - 1;
-		}
-
-		memcpy(line, current, len);
-		line[len] = '\0';
-
-		wifilog("Parsing line: '%s'\n", line);
-
-		// Tokenize line by tabs
-		char* saveptr = NULL;
-		char* token_id = strtok_r(line, "\t", &saveptr);
-		char* token_ssid = strtok_r(NULL, "\t", &saveptr);
-
-		if (!(token_id && token_ssid)) {
-			LOG_warn("PLAT_wifiHasCredentials: Malformed line skipped: '%s'\n", line);
-			current = next ? next + 1 : NULL;
-			continue;
-		}
-
-		if (strcmp(token_ssid, ssid) == 0) {
-			return true;
-		}
-
-		current = next ? next + 1 : NULL;
-	}
-
-	return false;
-}
-
-// Helper to find network ID by SSID
-static int wifi_find_network_id(const char* ssid) {
-	wifilog("wifi_find_network_id: Looking for network '%s'...\n", ssid);
-	char list_results[4096];
-	char cmd[128];
-	snprintf(cmd, sizeof(cmd), "%s list_networks 2>/dev/null", WPA_CLI_CMD);
-	if (wifi_run_cmd(cmd, list_results, sizeof(list_results)) != 0) {
-		wifilog("wifi_find_network_id: Failed to get network list\n");
-		return -1;
-	}
-
-	const char* current = list_results;
-	const char* next = strchr(current, '\n');
-	if (!next)
-		return -1;
-	current = next + 1;
-
-	char line[256];
-	while (current && *current) {
-		next = strchr(current, '\n');
-		size_t len = next ? (size_t)(next - current) : strlen(current);
-		if (len >= sizeof(line))
-			len = sizeof(line) - 1;
-		memcpy(line, current, len);
-		line[len] = '\0';
-
-		char* saveptr = NULL;
-		char* token_id = strtok_r(line, "\t", &saveptr);
-		char* token_ssid = strtok_r(NULL, "\t", &saveptr);
-
-		if (token_id && token_ssid && strcmp(token_ssid, ssid) == 0) {
-			int id = atoi(token_id);
-			wifilog("wifi_find_network_id: Found network '%s' with id %d\n", ssid, id);
-			return id;
-		}
-
-		current = next ? next + 1 : NULL;
-	}
-
-	wifilog("wifi_find_network_id: Network '%s' not found\n", ssid);
-	return -1;
+	return wifi_find_network_id(ssid) >= 0;
 }
 
 void PLAT_wifiForget(char* ssid, WifiSecurityType sec) {
@@ -480,49 +478,20 @@ int PLAT_wifiForgetPrefix(const char* prefix) {
 	if (!prefix || !prefix[0])
 		return 0;
 
-	char list_results[8192];
-	char cmd[128];
-	snprintf(cmd, sizeof(cmd), "%s list_networks 2>/dev/null", WPA_CLI_CMD);
-	if (wifi_run_cmd(cmd, list_results, sizeof(list_results)) != 0) {
+	WifiPrefixCtx match = {prefix, strlen(prefix), {0}, 0};
+	if (!wifi_list_networks(wifi_match_prefix, &match)) {
 		wifilog("PLAT_wifiForgetPrefix: failed to get network list\n");
 		return 0;
 	}
-
-	size_t prefix_len = strlen(prefix);
-	int ids[128];
-	int n_ids = 0;
-
-	// Skip the header line ("network id / ssid / bssid / flags").
-	const char* current = strchr(list_results, '\n');
-	current = current ? current + 1 : NULL;
-
-	char line[256];
-	while (current && *current && n_ids < (int)(sizeof(ids) / sizeof(ids[0]))) {
-		const char* next = strchr(current, '\n');
-		size_t len = next ? (size_t)(next - current) : strlen(current);
-		if (len >= sizeof(line))
-			len = sizeof(line) - 1;
-		memcpy(line, current, len);
-		line[len] = '\0';
-
-		char* saveptr = NULL;
-		char* token_id = strtok_r(line, "\t", &saveptr);
-		char* token_ssid = strtok_r(NULL, "\t", &saveptr);
-
-		if (token_id && token_ssid && strncmp(token_ssid, prefix, prefix_len) == 0) {
-			ids[n_ids++] = atoi(token_id);
-		}
-
-		current = next ? next + 1 : NULL;
-	}
-
+	int n_ids = match.n_ids;
 	if (n_ids == 0)
 		return 0;
 
 	// remove_network does not renumber the remaining networks, so removing by the
 	// ids we collected up front is safe.
+	char cmd[128];
 	for (int i = 0; i < n_ids; i++) {
-		snprintf(cmd, sizeof(cmd), "%s remove_network %d 2>/dev/null", WPA_CLI_CMD, ids[i]);
+		snprintf(cmd, sizeof(cmd), "%s remove_network %d 2>/dev/null", WPA_CLI_CMD, match.ids[i]);
 		system(cmd);
 	}
 	system(WPA_CLI_CMD " save_config 2>/dev/null");
@@ -562,38 +531,8 @@ static bool wifi_connected_to(int network_id) {
 // list_networks is the reliable "wrong password" signal -- wpa_state alone
 // just drops back to SCANNING with no hint why.
 static bool wifi_network_temp_disabled(int network_id) {
-	char list_results[4096];
-	char cmd[128];
-	snprintf(cmd, sizeof(cmd), "%s list_networks 2>/dev/null", WPA_CLI_CMD);
-	if (wifi_run_cmd(cmd, list_results, sizeof(list_results)) != 0)
-		return false;
-
-	// Skip the header line ("network id / ssid / bssid / flags").
-	const char* current = strchr(list_results, '\n');
-	current = current ? current + 1 : NULL;
-
-	char line[256];
-	while (current && *current) {
-		const char* next = strchr(current, '\n');
-		size_t len = next ? (size_t)(next - current) : strlen(current);
-		if (len >= sizeof(line))
-			len = sizeof(line) - 1;
-		memcpy(line, current, len);
-		line[len] = '\0';
-
-		// id <tab> ssid <tab> bssid <tab> flags. Flags is the last field (may
-		// be empty); the SSID cannot contain a tab (rejected on connect).
-		char* tab = strchr(line, '\t');
-		if (tab) {
-			*tab = '\0';
-			if (atoi(line) == network_id) {
-				const char* flags = strrchr(tab + 1, '\t');
-				return flags && strstr(flags, "[TEMP-DISABLED]") != NULL;
-			}
-		}
-		current = next ? next + 1 : NULL;
-	}
-	return false;
+	WifiFlagsCtx find = {network_id, false};
+	return wifi_list_networks(wifi_check_temp_disabled, &find) && find.temp_disabled;
 }
 
 int PLAT_wifiConnect(char* ssid, WifiSecurityType sec) {

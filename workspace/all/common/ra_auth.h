@@ -26,23 +26,6 @@ typedef struct {
 } RA_AuthResponse;
 
 /**
- * Callback for async authentication requests.
- * @param response Authentication response (valid until callback returns)
- * @param userdata User-provided data passed to the auth request
- */
-typedef void (*RA_AuthCallback)(const RA_AuthResponse* response, void* userdata);
-
-/**
- * Authenticate with RetroAchievements using username and password.
- * This is an async operation - the callback will be called when complete.
- * 
- * @param username RetroAchievements username
- * @param password RetroAchievements password (will be URL-encoded)
- * @param callback Function to call with the result
- * @param userdata User data to pass to callback
- */
-
-/**
  * Synchronous authentication (blocks until complete).
  * Useful for simpler contexts where async isn't needed.
  * 

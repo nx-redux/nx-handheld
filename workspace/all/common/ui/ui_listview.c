@@ -166,11 +166,6 @@ bool UI_listViewBusy(ListView* v) {
 		   ScrollText_needsRender(&v->marquee);
 }
 
-bool UI_listViewMarqueeBusy(ListView* v) {
-	return ScrollText_isScrolling(&v->marquee) ||
-		   ScrollText_needsRender(&v->marquee);
-}
-
 void UI_listViewTickIdle(ListView* v) {
 	ScrollText_activateAfterDelay(&v->marquee);
 	if (ScrollText_isScrolling(&v->marquee))

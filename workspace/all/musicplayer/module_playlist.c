@@ -131,7 +131,6 @@ static void rename_playlist(SDL_Surface** screen_p, int idx) {
 
 ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 	M3U_init();
-	UIKeyboard_init();
 	refresh_playlists();
 
 	PlaylistInternalState state = PLAYLIST_INTERNAL_LIST;

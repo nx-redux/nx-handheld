@@ -7,23 +7,18 @@
 
 #include "ra_offline.h"
 
-/**
- * Synchronously submit all journaled unlocks for `username`.
- * Server "already unlocked" responses count as success. Blocking —
- * call from a background thread (minarch) or a modal screen (pak).
- * @return number of entries synced, -1 if nothing could be attempted.
- */
-int RA_OfflineNet_syncAll(const char* username, const char* token,
-						  RA_SyncProgressFn progress, void* progress_userdata);
-
 /** Cancel poll shared by the sync and refresh entry points: return non-zero
  *  to stop before the next request. Polled between entries only. */
 typedef int (*RA_CancelFn)(void* userdata);
 
 /**
- * RA_OfflineNet_syncAll with a cancel poll. Once `cancel` fires, every entry
- * not yet submitted is left in the journal for the next sync (the entry in
- * flight always completes; a curl call cannot be interrupted).
+ * Synchronously submit all journaled unlocks for `username`.
+ * Server "already unlocked" responses count as success. Blocking —
+ * call from a background thread (minarch) or a modal screen (pak).
+ * Once `cancel` (may be NULL) fires, every entry not yet submitted is left
+ * in the journal for the next sync (the entry in flight always completes;
+ * a curl call cannot be interrupted).
+ * @return number of entries synced, -1 if nothing could be attempted.
  */
 int RA_OfflineNet_syncAllEx(const char* username, const char* token,
 							RA_SyncProgressFn progress, RA_CancelFn cancel,

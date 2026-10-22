@@ -947,7 +947,6 @@ static void fetchUserInfoIfOnline(void) {
 // Prompt for a credential field via the on-screen keyboard, persist it,
 // and refresh account info if both credentials are now set.
 static void editCredentialField(const char* prompt, char* field, size_t field_size) {
-	UIKeyboard_init();
 	char* input = UIKeyboard_open(prompt);
 	PAD_poll();
 	PAD_reset();

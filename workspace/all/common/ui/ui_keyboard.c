@@ -39,11 +39,6 @@ static const char* kb_upper[KB_ROWS][KB_COLS] = {
 	{"~", "\"", "_", "+", "{", "}", "|", NULL, NULL, NULL},
 	{"Space", "Confirm", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL}};
 
-void UIKeyboard_init(void) {
-	// No-op: nothing to initialize since the external binary was replaced
-	// by this in-process implementation.
-}
-
 static int kb_row_len(const char* layout[KB_ROWS][KB_COLS], int row) {
 	int n = 0;
 	while (n < KB_COLS && layout[row][n])

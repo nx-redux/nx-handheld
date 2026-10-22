@@ -43,4 +43,12 @@ bool RA_BadgePath_file(const char* fallback_dir, const char* rom_path, uint32_t 
 // console folder, .ra) must exist. True when the game folder exists afterwards.
 bool RA_BadgePath_ensureDir(const char* game_dir);
 
+// True when the badge file at path (RA_BadgePath_file) is on disk and not empty.
+bool RA_BadgePath_exists(const char* path);
+
+// Write a downloaded badge image to path, atomically (temp + rename: a power
+// cut never leaves a torn file the exists check would accept), making its
+// game folder first when it is missing. False for empty data or a failed write.
+bool RA_BadgePath_save(const char* path, const void* data, size_t size);
+
 #endif // __RA_BADGE_PATH_H__

@@ -115,8 +115,9 @@ RC=../../minarch/rcheevos/src
 if [ -d "$RC/src/rapi" ]; then
 	RC=$(cd "$RC" && pwd)
 	mkdir -p /tmp/nx_rcinc && ln -sfn "$RC/include" /tmp/nx_rcinc/rcheevos
-	cc -std=gnu99 -w -fsanitize=address -g -I.. -I/tmp/nx_rcinc -I"$RC/include" -I"$RC/src" \
-		-o /tmp/nx_test_ra_offline_net test_ra_offline_net.c ../ra_offline_net.c ../ra_offline.c \
+	cc -std=gnu99 -w -fsanitize=address -g -I.. -I../../../tg5040/platform -DPLATFORM=\"tg5040\" \
+		-I/tmp/nx_rcinc -I"$RC/include" -I"$RC/src" \
+		-o /tmp/nx_test_ra_offline_net test_ra_offline_net.c ../ra_offline_net.c ../ra_offline.c ../utils.c \
 		"$RC"/src/rapi/*.c "$RC"/src/rcheevos/*.c "$RC/src/rc_util.c" "$RC/src/rc_compat.c" \
 		"$RC/src/rc_version.c" "$RC/src/rhash/md5.c"
 	/tmp/nx_test_ra_offline_net

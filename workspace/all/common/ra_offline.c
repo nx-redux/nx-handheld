@@ -1,4 +1,5 @@
 #include "ra_offline.h"
+#include "ra_file.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -25,58 +26,8 @@ static pthread_mutex_t ra_off_mutex = PTHREAD_MUTEX_INITIALIZER;
  * Small helpers
  *****************************************************************************/
 
-static bool ra_off_read_file(const char* path, char** out, size_t* out_len) {
-	FILE* f = fopen(path, "rb");
-	if (!f)
-		return false;
-	fseek(f, 0, SEEK_END);
-	long sz = ftell(f);
-	fseek(f, 0, SEEK_SET);
-	if (sz < 0 || sz > 8 * 1024 * 1024) {
-		fclose(f);
-		return false;
-	}
-	char* buf = (char*)malloc((size_t)sz + 1);
-	if (!buf) {
-		fclose(f);
-		return false;
-	}
-	size_t rd = fread(buf, 1, (size_t)sz, f);
-	fclose(f);
-	if (rd != (size_t)sz) {
-		free(buf);
-		return false;
-	}
-	buf[sz] = '\0';
-	*out = buf;
-	if (out_len)
-		*out_len = (size_t)sz;
-	return true;
-}
-
-// Write via temp file + rename so a power cut never leaves a torn file.
-static bool ra_off_write_file_atomic(const char* path, const char* data, size_t len) {
-	// per-thread tmp name: concurrent writers to the same path each stage
-	// their own complete copy and the last rename wins
-	char tmp[RA_OFFLINE_MAX_PATH + 32];
-	snprintf(tmp, sizeof(tmp), "%s.%lu.tmp", path, (unsigned long)pthread_self());
-	FILE* f = fopen(tmp, "wb");
-	if (!f)
-		return false;
-	size_t wr = fwrite(data, 1, len, f);
-	fflush(f);
-	fsync(fileno(f));
-	fclose(f);
-	if (wr != len) {
-		remove(tmp);
-		return false;
-	}
-	if (rename(tmp, path) != 0) {
-		remove(tmp);
-		return false;
-	}
-	return true;
-}
+// cached server responses are small; refuse anything absurd
+#define RA_OFFLINE_MAX_FILE (8 * 1024 * 1024)
 
 // hashes / game ids / usernames only: refuse anything that could escape the
 // cache dir (server- or caller-supplied strings become path components)
@@ -234,7 +185,7 @@ void RA_Offline_cacheResponse(const char* post_data, const char* body, size_t bo
 	if (!ra_root[0] || !post_data || !body || body_len == 0)
 		return;
 	// don't clobber good cache with server errors
-	if (!strstr(body, "\"Success\":true"))
+	if (!ra_off_body_valid(body))
 		return;
 
 	// callers include detached HTTP worker threads: serialize only the
@@ -260,7 +211,7 @@ void RA_Offline_cacheResponse(const char* post_data, const char* body, size_t bo
 		*last_slash = '/';
 	}
 
-	ra_off_write_file_atomic(path, body, body_len);
+	RA_File_writeAtomic(path, body, body_len);
 
 	// a fresh online session lists every unlock the server has for this
 	// game, so confirmed entries it already covers are redundant
@@ -275,7 +226,7 @@ bool RA_Offline_readCacheFile(const char* relpath, char** out_body, size_t* out_
 		return false;
 	char path[RA_OFFLINE_MAX_PATH];
 	snprintf(path, sizeof(path), "%s/%s", ra_root, relpath);
-	return ra_off_read_file(path, out_body, out_len);
+	return RA_File_read(path, RA_OFFLINE_MAX_FILE, out_body, out_len);
 }
 
 bool RA_Offline_hasLoginCache(void) {
@@ -306,7 +257,7 @@ void RA_Offline_setGameRomPath(const char* game_hash, const char* rom_path) {
 
 	char path[RA_OFFLINE_MAX_PATH + 16];
 	snprintf(path, sizeof(path), "%s/rom.txt", dir);
-	ra_off_write_file_atomic(path, rom_path, strlen(rom_path));
+	RA_File_writeAtomic(path, rom_path, strlen(rom_path));
 }
 
 bool RA_Offline_getGameRomPath(const char* game_hash, char* out, size_t out_size) {
@@ -318,10 +269,10 @@ bool RA_Offline_getGameRomPath(const char* game_hash, char* out, size_t out_size
 
 	char* body = NULL;
 	size_t len = 0;
-	if (!ra_off_read_file(path, &body, &len) || !body)
+	if (!RA_File_read(path, RA_OFFLINE_MAX_FILE, &body, &len) || !body)
 		return false;
 
-	// strip a single trailing newline, if any (ra_off_write_file_atomic
+	// strip a single trailing newline, if any (RA_File_writeAtomic
 	// writes exactly what it's given, but be defensive)
 	while (len > 0 && (body[len - 1] == '\n' || body[len - 1] == '\r'))
 		body[--len] = '\0';
@@ -373,10 +324,13 @@ static bool ra_off_journal_parse_line(const char* line, RA_PendingUnlock* out) {
 	return true;
 }
 
+typedef void (*RA_OffPathFn)(char* p, size_t n);
+
 // caller must hold ra_off_mutex
-static bool ra_off_journal_contains_locked(const char* user, uint32_t aid, const char* hash) {
+static bool ra_off_unlocks_contain_locked(RA_OffPathFn path_fn, const char* user, uint32_t aid,
+										  const char* hash) {
 	char path[RA_OFFLINE_MAX_PATH];
-	ra_off_journal_path(path, sizeof(path));
+	path_fn(path, sizeof(path));
 	FILE* f = fopen(path, "r");
 	if (!f)
 		return false;
@@ -395,14 +349,20 @@ static bool ra_off_journal_contains_locked(const char* user, uint32_t aid, const
 	return found;
 }
 
-static void ra_off_journal_append(const char* user, uint32_t aid,
+// Append-only, locked, dedup, durable fsync. Used for the journal (an
+// unlock earned offline) and the confirmed file (RA_Offline_sync, when a
+// submit succeeds). The confirmed file is only pruned of entries a fresh
+// online session already lists (ra_off_confirmed_prune): entries are tiny
+// and the cached server body + skip-if-present check in
+// ra_off_build_session_body supersede the rest.
+static void ra_off_unlocks_append(RA_OffPathFn path_fn, const char* user, uint32_t aid,
 								  const char* hash, time_t when) {
 	if (!ra_root[0] || !user || !*user || aid == 0 || !hash || !*hash)
 		return;
 	pthread_mutex_lock(&ra_off_mutex);
-	if (!ra_off_journal_contains_locked(user, aid, hash)) {
+	if (!ra_off_unlocks_contain_locked(path_fn, user, aid, hash)) {
 		char path[RA_OFFLINE_MAX_PATH];
-		ra_off_journal_path(path, sizeof(path));
+		path_fn(path, sizeof(path));
 		FILE* f = fopen(path, "a");
 		if (f) {
 			fprintf(f, "{\"u\":\"%s\",\"a\":%u,\"m\":\"%s\",\"t\":%lld}\n",
@@ -415,50 +375,51 @@ static void ra_off_journal_append(const char* user, uint32_t aid,
 	pthread_mutex_unlock(&ra_off_mutex);
 }
 
-// caller must hold ra_off_mutex
-static bool ra_off_confirmed_contains_locked(const char* user, uint32_t aid, const char* hash) {
-	char path[RA_OFFLINE_MAX_PATH];
-	ra_off_confirmed_path(path, sizeof(path));
-	FILE* f = fopen(path, "r");
-	if (!f)
-		return false;
+// Rewrite an unlock file without the entries drop() matches. Unparseable
+// lines, and the pieces of a line longer than the read buffer, are kept
+// verbatim: never silently delete data we didn't understand. Atomic (temp +
+// fsync + rename), and the file is left alone when nothing was dropped.
+static void ra_off_unlocks_filter(RA_OffPathFn path_fn,
+								  bool (*drop)(const RA_PendingUnlock* e, const void* ctx),
+								  const void* ctx) {
+	pthread_mutex_lock(&ra_off_mutex);
+	char path[RA_OFFLINE_MAX_PATH], tmp[RA_OFFLINE_MAX_PATH + 8];
+	path_fn(path, sizeof(path));
+	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	FILE* in = fopen(path, "r");
+	FILE* out = in ? fopen(tmp, "w") : NULL;
+	if (!out) {
+		if (in)
+			fclose(in);
+		pthread_mutex_unlock(&ra_off_mutex);
+		return;
+	}
+	bool failed = false;
+	int dropped = 0;
 	char line[512];
 	RA_PendingUnlock e;
-	bool found = false;
-	while (fgets(line, sizeof(line), f)) {
-		if (ra_off_journal_parse_line(line, &e) &&
-			strcasecmp(e.username, user) == 0 && e.achievement_id == aid &&
-			strcmp(e.game_hash, hash) == 0) {
-			found = true;
+	bool line_start = true; // fgets hands a line longer than the buffer over in pieces
+	while (fgets(line, sizeof(line), in)) {
+		size_t len = strlen(line);
+		bool whole = line_start && ((len > 0 && line[len - 1] == '\n') || feof(in));
+		line_start = len > 0 && line[len - 1] == '\n';
+		// only a whole line is an entry: a piece of a longer one that happens to read as one is kept with the rest
+		if (whole && ra_off_journal_parse_line(line, &e) && drop(&e, ctx)) {
+			dropped++;
+			continue;
+		}
+		if (fputs(line, out) == EOF) {
+			failed = true;
 			break;
 		}
 	}
-	fclose(f);
-	return found;
-}
-
-// mirrors ra_off_journal_append: append-only, locked, dedup, durable fsync.
-// Called from RA_Offline_sync when a submit succeeds. The confirmed file is
-// never rewritten/pruned — entries are tiny and a fresh online session
-// naturally supersedes them via the cached server body + skip-if-present
-// check in ra_off_build_session_body.
-static void ra_off_confirmed_append(const char* user, uint32_t aid,
-									const char* hash, time_t when) {
-	if (!ra_root[0] || !user || !*user || aid == 0 || !hash || !*hash)
-		return;
-	pthread_mutex_lock(&ra_off_mutex);
-	if (!ra_off_confirmed_contains_locked(user, aid, hash)) {
-		char path[RA_OFFLINE_MAX_PATH];
-		ra_off_confirmed_path(path, sizeof(path));
-		FILE* f = fopen(path, "a");
-		if (f) {
-			fprintf(f, "{\"u\":\"%s\",\"a\":%u,\"m\":\"%s\",\"t\":%lld}\n",
-					user, aid, hash, (long long)when);
-			fflush(f);
-			fsync(fileno(f)); // survive battery pulls
-			fclose(f);
-		}
-	}
+	fclose(in);
+	if (!failed && (fflush(out) != 0 || fsync(fileno(out)) != 0))
+		failed = true;
+	if (fclose(out) != 0)
+		failed = true;
+	if (failed || dropped == 0 || rename(tmp, path) != 0)
+		remove(tmp);
 	pthread_mutex_unlock(&ra_off_mutex);
 }
 
@@ -599,7 +560,7 @@ void RA_Offline_updateCachedScores(uint32_t score, uint32_t softcore_score) {
 	if (s1 || s2) {
 		char path[RA_OFFLINE_MAX_PATH];
 		snprintf(path, sizeof(path), "%s/cache/login.json", ra_root);
-		ra_off_write_file_atomic(path, final_body, strlen(final_body));
+		RA_File_writeAtomic(path, final_body, strlen(final_body));
 	}
 
 	free(s1);
@@ -684,51 +645,24 @@ int RA_Offline_readConfirmedFor(const char* user, const char* hash,
 	return ra_off_confirmed_entries_for(user, hash, out, max);
 }
 
+typedef struct {
+	const char* user;
+	const char* session_body;
+} RA_OffPruneCtx;
+
+static bool ra_off_prune_drop(const RA_PendingUnlock* e, const void* ctx) {
+	const RA_OffPruneCtx* c = (const RA_OffPruneCtx*)ctx;
+	return strcasecmp(e->username, c->user) == 0 && ra_off_id_in_body(c->session_body, e->achievement_id);
+}
+
 // Drop confirmed entries for `user` whose achievement the server's session
 // body already lists as unlocked (achievement IDs are unique across RA, so
-// no hash/game mapping is needed). Malformed lines are kept verbatim; the
-// rewrite is atomic.
+// no hash/game mapping is needed).
 static void ra_off_confirmed_prune(const char* user, const char* session_body) {
 	if (!ra_root[0] || !user || !*user || !session_body)
 		return;
-	pthread_mutex_lock(&ra_off_mutex);
-	char path[RA_OFFLINE_MAX_PATH], tmp[RA_OFFLINE_MAX_PATH + 8];
-	ra_off_confirmed_path(path, sizeof(path));
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-	FILE* in = fopen(path, "r");
-	if (!in) {
-		pthread_mutex_unlock(&ra_off_mutex);
-		return;
-	}
-	FILE* out = fopen(tmp, "w");
-	if (!out) {
-		fclose(in);
-		pthread_mutex_unlock(&ra_off_mutex);
-		return;
-	}
-	bool failed = false;
-	int dropped = 0;
-	char line[512];
-	RA_PendingUnlock e;
-	while (fgets(line, sizeof(line), in)) {
-		if (ra_off_journal_parse_line(line, &e) && strcasecmp(e.username, user) == 0 &&
-			ra_off_id_in_body(session_body, e.achievement_id)) {
-			dropped++;
-			continue;
-		}
-		if (fputs(line, out) == EOF) {
-			failed = true;
-			break;
-		}
-	}
-	fclose(in);
-	if (!failed && (fflush(out) != 0 || fsync(fileno(out)) != 0))
-		failed = true;
-	if (fclose(out) != 0)
-		failed = true;
-	if (failed || dropped == 0 || rename(tmp, path) != 0)
-		remove(tmp);
-	pthread_mutex_unlock(&ra_off_mutex);
+	RA_OffPruneCtx ctx = {user, session_body};
+	ra_off_unlocks_filter(ra_off_confirmed_path, ra_off_prune_drop, &ctx);
 }
 
 // Copy a startsession body with the journal + confirmed unlocks for
@@ -863,7 +797,7 @@ static char* ra_off_build_session_body(const char* g, const char* user, size_t* 
 char* RA_Offline_mergeSession(const char* post_data, const char* body, size_t body_len,
 							  size_t* out_len) {
 	char r[32], u[64], m[64];
-	if (!ra_root[0] || !post_data || !body || !strstr(body, "\"Success\":true") ||
+	if (!ra_root[0] || !post_data || !ra_off_body_valid(body) ||
 		!RA_Offline_getParam(post_data, "r", r, sizeof(r)) || strcmp(r, "startsession") != 0 ||
 		!RA_Offline_getParam(post_data, "u", u, sizeof(u)))
 		return NULL;
@@ -955,7 +889,7 @@ bool RA_Offline_handleRequest(const char* post_data, char** out_body,
 			uint32_t aid = (uint32_t)strtoul(a, NULL, 10);
 			if (!RA_Offline_getParam(post_data, "m", m, sizeof(m)) || !ra_off_safe_component(m))
 				ra_off_hash_get(m, sizeof(m));
-			ra_off_journal_append(u, aid, m, time(NULL));
+			ra_off_unlocks_append(ra_off_journal_path, u, aid, m, time(NULL));
 			char body[96];
 			snprintf(body, sizeof(body), "{\"Success\":true,\"AchievementID\":%u}", aid);
 			return ra_off_serve(body, out_body, out_len, out_status);
@@ -981,7 +915,7 @@ bool RA_Offline_journalAward(const char* post_data) {
 	uint32_t aid = (uint32_t)strtoul(a, NULL, 10);
 	if (aid == 0 || !u[0])
 		return false;
-	ra_off_journal_append(u, aid, m, time(NULL));
+	ra_off_unlocks_append(ra_off_journal_path, u, aid, m, time(NULL));
 	return true;
 }
 
@@ -1011,8 +945,30 @@ RA_AwardOutcome RA_Offline_classifyAwardResponse(int http_status, const char* bo
 	return RA_AWARD_RETRY;
 }
 
+typedef struct {
+	const RA_PendingUnlock* entries;
+	const bool* synced;
+	int count;
+} RA_OffSyncedCtx;
+
+static bool ra_off_synced_drop(const RA_PendingUnlock* e, const void* ctx) {
+	const RA_OffSyncedCtx* c = (const RA_OffSyncedCtx*)ctx;
+	for (int i = 0; i < c->count; i++) {
+		if (c->synced[i] && strcasecmp(c->entries[i].username, e->username) == 0 &&
+			c->entries[i].achievement_id == e->achievement_id &&
+			strcmp(c->entries[i].game_hash, e->game_hash) == 0)
+			return true;
+	}
+	return false;
+}
+
+// Rewrite the journal without the entries marked in synced[] (entries as
+// read; synced[i] marks entry i for removal).
 static void ra_off_journal_rewrite(const RA_PendingUnlock* entries, const bool* synced,
-								   int count);
+								   int count) {
+	RA_OffSyncedCtx ctx = {entries, synced, count};
+	ra_off_unlocks_filter(ra_off_journal_path, ra_off_synced_drop, &ctx);
+}
 
 void RA_Offline_removePending(const char* user, uint32_t achievement_id,
 							  const char* game_hash) {
@@ -1040,7 +996,7 @@ static void ra_off_write_lastsync(time_t t) {
 	ra_off_lastsync_path(path, sizeof(path));
 	char buf[32];
 	int len = snprintf(buf, sizeof(buf), "%lld\n", (long long)t);
-	ra_off_write_file_atomic(path, buf, (size_t)len);
+	RA_File_writeAtomic(path, buf, (size_t)len);
 }
 
 time_t RA_Offline_lastSyncTime(void) {
@@ -1049,83 +1005,11 @@ time_t RA_Offline_lastSyncTime(void) {
 	char path[RA_OFFLINE_MAX_PATH];
 	ra_off_lastsync_path(path, sizeof(path));
 	char* body = NULL;
-	if (!ra_off_read_file(path, &body, NULL))
+	if (!RA_File_read(path, RA_OFFLINE_MAX_FILE, &body, NULL))
 		return 0;
 	long long t = atoll(body);
 	free(body);
 	return (time_t)(t > 0 ? t : 0);
-}
-
-// Rewrite the journal keeping: unparseable lines (verbatim) and parseable
-// entries NOT in synced[]. Atomic (temp + rename). Caller passes the entries
-// as read; synced[i] marks entry i for removal.
-static void ra_off_journal_rewrite(const RA_PendingUnlock* entries, const bool* synced,
-								   int count) {
-	pthread_mutex_lock(&ra_off_mutex);
-	char path[RA_OFFLINE_MAX_PATH], tmp[RA_OFFLINE_MAX_PATH + 8];
-	ra_off_journal_path(path, sizeof(path));
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-
-	FILE* in = fopen(path, "r");
-	FILE* out = fopen(tmp, "w");
-	if (!in || !out) {
-		if (in)
-			fclose(in);
-		if (out) {
-			fclose(out);
-			remove(tmp);
-		}
-		pthread_mutex_unlock(&ra_off_mutex);
-		return;
-	}
-
-	bool failed = false;
-	char line[512];
-	RA_PendingUnlock e;
-	bool line_start = true; // fgets hands a line longer than the buffer over in pieces
-	while (fgets(line, sizeof(line), in)) {
-		bool drop = false;
-		size_t len = strlen(line);
-		bool whole = line_start && ((len > 0 && line[len - 1] == '\n') || feof(in));
-		line_start = len > 0 && line[len - 1] == '\n';
-		// only a whole line is an entry: a piece of a longer one that happens to read as one is kept with the rest
-		if (whole && ra_off_journal_parse_line(line, &e)) {
-			for (int i = 0; i < count; i++) {
-				if (synced[i] &&
-					strcasecmp(entries[i].username, e.username) == 0 &&
-					entries[i].achievement_id == e.achievement_id &&
-					strcmp(entries[i].game_hash, e.game_hash) == 0) {
-					drop = true;
-					break;
-				}
-			}
-		}
-		// malformed lines fail the parse and are kept verbatim — never
-		// silently delete data we didn't understand
-		if (!drop) {
-			if (fputs(line, out) == EOF) {
-				failed = true;
-				break;
-			}
-		}
-	}
-	fclose(in);
-
-	if (!failed) {
-		if (fflush(out) != 0)
-			failed = true;
-		else if (fsync(fileno(out)) != 0)
-			failed = true;
-	}
-
-	if (fclose(out) != 0)
-		failed = true;
-
-	if (failed || rename(tmp, path) != 0) {
-		remove(tmp);
-	}
-
-	pthread_mutex_unlock(&ra_off_mutex);
 }
 
 int RA_Offline_sync(const char* username, time_t now, RA_SubmitFn submit,
@@ -1169,8 +1053,8 @@ int RA_Offline_sync(const char* username, time_t now, RA_SubmitFn submit,
 			ok++;
 			// record before the journal rewrite so a cached session that
 			// predates this sync can't re-trigger the achievement offline
-			ra_off_confirmed_append(all[i].username, all[i].achievement_id,
-									all[i].game_hash, all[i].when);
+			ra_off_unlocks_append(ra_off_confirmed_path, all[i].username, all[i].achievement_id,
+								  all[i].game_hash, all[i].when);
 		} else if (rc == 1) {
 			// rejected for good (achievement removed): stop resubmitting it
 			// forever, but it was never unlocked so it isn't confirmed

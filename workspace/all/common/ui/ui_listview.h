@@ -98,10 +98,6 @@ void UI_listViewRender(ListView* v, SDL_Surface* screen);
 // busy - drive it with UI_listViewTickIdle from the idle branch.
 bool UI_listViewBusy(ListView* v);
 
-// Marquee mid-scroll or pre-scroll: for hosts (nextui) whose idle loop
-// separates "needs GPU tick" from "needs full redraw".
-bool UI_listViewMarqueeBusy(ListView* v);
-
 // Idle marquee tick: activate-after-delay + animate. Call in the idle
 // (non-dirty) branch of the main loop.
 void UI_listViewTickIdle(ListView* v);

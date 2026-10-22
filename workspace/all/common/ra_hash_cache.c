@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "cjson/cJSON.h"
+#include "ra_file.h"
 
 #define RA_HC_MAX_PATH 1024
 #define RA_HC_MAX_FILE (16 * 1024 * 1024)
@@ -186,25 +187,11 @@ bool RA_HashCache_folderDir(const char* rom_path, char* buf, size_t n) {
  *****************************************************************************/
 
 static cJSON* hc_load(const char* path) {
-	FILE* f = fopen(path, "rb");
-	if (!f)
+	char* buf = NULL;
+	size_t len = 0;
+	if (!RA_File_read(path, RA_HC_MAX_FILE, &buf, &len))
 		return NULL;
-	fseek(f, 0, SEEK_END);
-	long sz = ftell(f);
-	fseek(f, 0, SEEK_SET);
-	if (sz <= 0 || sz > RA_HC_MAX_FILE) {
-		fclose(f);
-		return NULL;
-	}
-	char* buf = (char*)malloc((size_t)sz + 1);
-	if (!buf) {
-		fclose(f);
-		return NULL;
-	}
-	size_t rd = fread(buf, 1, (size_t)sz, f);
-	fclose(f);
-	buf[rd] = '\0';
-	cJSON* root = cJSON_Parse(buf);
+	cJSON* root = len ? cJSON_Parse(buf) : NULL;
 	free(buf);
 	if (root && !cJSON_IsObject(root)) {
 		cJSON_Delete(root);
@@ -213,26 +200,13 @@ static cJSON* hc_load(const char* path) {
 	return root;
 }
 
-// Whole-file rewrite via hashes.json.tmp + rename, so a power cut never leaves a torn file
+// Whole-file rewrite via a temp file + rename, so a power cut never leaves a torn file
 static bool hc_save(const char* dir, const char* path, cJSON* root) {
 	mkdir(dir, 0755);
 	char* text = cJSON_PrintUnformatted(root);
 	if (!text)
 		return false;
-	char tmp[RA_HC_MAX_PATH + 8];
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-	bool ok = false;
-	FILE* f = fopen(tmp, "wb");
-	if (f) {
-		size_t len = strlen(text);
-		ok = fwrite(text, 1, len, f) == len;
-		fflush(f);
-		fsync(fileno(f));
-		ok = (fclose(f) == 0) && ok;
-		ok = ok && rename(tmp, path) == 0;
-		if (!ok)
-			remove(tmp);
-	}
+	bool ok = RA_File_writeAtomic(path, text, strlen(text));
 	cJSON_free(text);
 	if (!ok)
 		fprintf(stderr, "[RA] hash cache: could not write %s\n", path);

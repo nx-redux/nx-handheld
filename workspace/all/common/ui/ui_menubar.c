@@ -158,20 +158,8 @@ int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char*
 	return text->w;
 }
 
-int UI_renderPageTitle(SDL_Surface* dst, int x, const char* title, const char* suffix, int max_w) {
-	return UI_renderPageTitleEx(dst, x, title, suffix, max_w, false);
-}
-
 int UI_renderMenuBar(SDL_Surface* screen, const char* title) {
 	return UI_renderMenuBarAt(screen, title, NULL, -1, true, false);
-}
-
-int UI_renderMenuBarEx(SDL_Surface* screen, const char* title, bool scrim) {
-	return UI_renderMenuBarAt(screen, title, NULL, -1, scrim, false);
-}
-
-int UI_renderMenuBarShadowed(SDL_Surface* screen, const char* title, bool scrim, bool title_shadow) {
-	return UI_renderMenuBarAt(screen, title, NULL, -1, scrim, title_shadow);
 }
 
 int UI_renderMenuBarAt(SDL_Surface* screen, const char* title, const char* suffix, int x, bool scrim,

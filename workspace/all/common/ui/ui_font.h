@@ -17,9 +17,6 @@
 TTF_Font* UIFont_get(float sp, bool bold);
 // The same at an exact px size (NX_SP already applied): text sized off the list label (UI_textRole, rich rows).
 TTF_Font* UIFont_getPx(int px, bool bold);
-// Ink extent of UTF-8 text from its glyph boxes, in px relative to the baseline (+ is up): top is the
-// highest maxy, bottom the lowest miny. Both 0 for empty text or a NULL font.
-void UIFont_inkBounds(TTF_Font* f, const char* text, int* top, int* bottom);
 // Close every cached font.
 void UIFont_quit(void);
 

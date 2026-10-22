@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <sys/wait.h>
 
 // SDL is used here only for threading (SDL_CreateThread/SDL_DetachThread)
@@ -15,7 +14,7 @@
 // CA-bundle resolver shared with wget_fetch.c: picks the bundle to verify TLS
 // against, or NULL on a card without one.
 #include "ca_bundle.h"
-#include "utils.h" // shellQuoteAlloc
+#include "utils.h" // shellQuoteAlloc, urlEncode
 
 // Build version info (defined in makefile)
 #ifndef BUILD_HASH
@@ -404,27 +403,11 @@ void HTTP_freeResponse(HTTP_Response* response) {
 char* HTTP_urlEncode(const char* str) {
 	if (!str)
 		return NULL;
-
-	// Count required size (worst case: every char becomes %XX)
-	size_t len = strlen(str);
-	char* encoded = malloc(len * 3 + 1);
-	if (!encoded)
-		return NULL;
-
-	char* p = encoded;
-	for (size_t i = 0; i < len; i++) {
-		unsigned char c = (unsigned char)str[i];
-		if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-			*p++ = c;
-		} else if (c == ' ') {
-			*p++ = '+';
-		} else {
-			sprintf(p, "%%%02X", c);
-			p += 3;
-		}
-	}
-	*p = '\0';
-
+	// worst case every byte becomes %XX; urlEncode stops 4 bytes short of the end
+	size_t size = strlen(str) * 3 + 4;
+	char* encoded = malloc(size);
+	if (encoded)
+		urlEncode(str, encoded, size);
 	return encoded;
 }
 

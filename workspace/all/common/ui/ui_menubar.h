@@ -27,9 +27,8 @@ int UI_pageTitleX(void);
 // NULL if the font fails to open.
 TTF_Font* UI_pageTitleFont(void);
 // Draw a page title at x in the top strip, fitted into max_w px (<= 0: no limit beyond the screen). suffix
-// may be NULL. Returns the drawn width.
-int UI_renderPageTitle(SDL_Surface* dst, int x, const char* title, const char* suffix, int max_w);
-// The same; shadow draws the dark shadow (black 60%, SCALE1(1) offset) under it, for a title over a picture.
+// may be NULL; shadow draws the dark shadow (black 60%, SCALE1(1) offset) under it, for a title over a
+// picture. Returns the drawn width.
 int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char* suffix, int max_w, bool shadow);
 
 // Render the top menu bar: semi-transparent background, page title (left),
@@ -37,13 +36,10 @@ int UI_renderPageTitleEx(SDL_Surface* dst, int x, const char* title, const char*
 // callers that need it. The title is at UI_pageTitleX(), at most
 // min(0.8 x screen width, the room left of the hardware group) wide.
 int UI_renderMenuBar(SDL_Surface* screen, const char* title);
-// The same; scrim=false skips the background (the caller draws its own fade).
-int UI_renderMenuBarEx(SDL_Surface* screen, const char* title, bool scrim);
-// The same; title_shadow draws the title with the dark shadow (black 60%, SCALE1(1) offset), for a bar over a
-// picture (nextui's Backdrop).
-int UI_renderMenuBarShadowed(SDL_Surface* screen, const char* title, bool scrim, bool title_shadow);
 // The full form: the title at x (< 0: UI_pageTitleX()) with an optional never-truncated suffix (NULL for
-// none), for pages whose content starts elsewhere (settings option rows, the 24 dp game-list gutter).
+// none), for pages whose content starts elsewhere (settings option rows, the 24 dp game-list gutter);
+// scrim=false skips the background (the caller draws its own fade); title_shadow draws the title with the
+// dark shadow (black 60%, SCALE1(1) offset), for a bar over a picture (nextui's Backdrop).
 int UI_renderMenuBarAt(SDL_Surface* screen, const char* title, const char* suffix, int x, bool scrim,
 					   bool title_shadow);
 // "<tool> | <page>" (LIST-LAYOUT §10.1: a page inside a tool names its tool), or tool alone when page is NULL or

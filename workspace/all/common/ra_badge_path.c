@@ -1,5 +1,6 @@
 #include "ra_badge_path.h"
 
+#include "ra_file.h"
 #include "ra_hash_cache.h"
 
 #include <errno.h>
@@ -93,4 +94,25 @@ bool RA_BadgePath_ensureDir(const char* game_dir) {
 	if (mkdir(path, 0755) == 0 || errno == EEXIST)
 		return is_dir(path);
 	return false;
+}
+
+bool RA_BadgePath_exists(const char* path) {
+	struct stat st;
+	return path && stat(path, &st) == 0 && st.st_size > 0;
+}
+
+bool RA_BadgePath_save(const char* path, const void* data, size_t size) {
+	if (!path || !data || size == 0)
+		return false;
+	if (RA_File_writeAtomic(path, data, size))
+		return true;
+	// the game's folder was missing (a badge outside prefetch)
+	char dir[RA_BADGE_MAX_PATH];
+	if (!fits(snprintf(dir, sizeof(dir), "%s", path), sizeof(dir)))
+		return false;
+	char* slash = strrchr(dir, '/');
+	if (!slash)
+		return false;
+	*slash = '\0';
+	return RA_BadgePath_ensureDir(dir) && RA_File_writeAtomic(path, data, size);
 }

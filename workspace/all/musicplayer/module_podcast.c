@@ -130,7 +130,6 @@ static void return_to_episodes(PodcastInternalState* state, bool* dirty) {
 
 ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 	Podcast_init();
-	UIKeyboard_init();
 
 	// Auto-check for new episodes once per app session
 	static bool auto_refreshed = false;
