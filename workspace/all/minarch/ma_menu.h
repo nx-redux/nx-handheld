@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <SDL2/SDL_ttf.h>
 #include "ma_save_paths.h"
+#include "ma_alias.h"
 
 // Forward declaration (full def in ma_frontend_opts.h); guarded because C99
 // forbids repeating a typedef and both headers may land in the same TU.
@@ -37,7 +38,6 @@ void Menu_progressNotice(const char* title, const char* detail);
 void Options_updateVisibility(void);
 void OptionSaveChanges_updateDesc(void);
 void OptionAchievements_updateDesc(void);
-bool getAlias(char* path, char* alias);
 int save_screenshot_thread(void* data);
 SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format);
 void Menu_queueScreenshotSave(const char* png_path);

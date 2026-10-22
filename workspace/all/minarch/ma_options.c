@@ -2,17 +2,6 @@
 #include "utils.h"
 #include "ma_options.h"
 
-int Option_getValueIndex(Option* item, const char* value) {
-	if (!value || !item || !item->values)
-		return 0;
-	int i = 0;
-	while (item->values[i]) {
-		if (!strcmp(item->values[i], value))
-			return i;
-		i++;
-	}
-	return 0;
-}
 static void Option_setValue(Option* item, const char* value) {
 	// TODO: store previous value?
 	item->value = Option_getValueIndex(item, value);
@@ -189,55 +178,7 @@ void OptionList_vars(const struct retro_variable* vars) {
 		config.core.options = calloc(count + 1, sizeof(Option));
 
 		for (int i = 0; i < config.core.count; i++) {
-			int len;
-			const struct retro_variable* var = &vars[i];
-			Option* item = &config.core.options[i];
-
-			len = strlen(var->key) + 1;
-			item->key = calloc(len, sizeof(char));
-			strcpy(item->key, var->key);
-
-			len = strlen(var->value) + 1;
-			item->var = calloc(len, sizeof(char));
-			strcpy(item->var, var->value);
-
-			// spec format is "Name; val1|val2" — tolerate a missing "; "
-			// separator: fall back to the key for the name and treat the whole
-			// string as the value list (was a NULL deref below)
-			char* tmp = strchr(item->var, ';');
-			if (tmp && *(tmp + 1) == ' ') {
-				*tmp = '\0';
-				item->name = item->var;
-				tmp += 2;
-			} else {
-				item->name = strdup(item->key);
-				tmp = item->var;
-			}
-
-			char* opt = tmp;
-			for (count = 0; (tmp = strchr(tmp, '|')); tmp++, count++)
-				;
-			count += 1; // last entry after final '|'
-
-			item->count = count;
-			item->values = calloc(count + 1, sizeof(char*));
-			item->labels = calloc(count + 1, sizeof(char*));
-
-			tmp = opt;
-			int j;
-			for (j = 0; (tmp = strchr(tmp, '|')); j++) {
-				item->values[j] = opt;
-				item->labels[j] = opt;
-				*tmp = '\0';
-				tmp += 1;
-				opt = tmp;
-			}
-			item->values[j] = opt;
-			item->labels[j] = opt;
-
-			// no native default_value support for retro vars
-			item->value = 0;
-			item->default_value = item->value;
+			Option_initVar(&config.core.options[i], vars[i].key, vars[i].value);
 		}
 	}
 }
@@ -246,31 +187,7 @@ void OptionList_reset(void) {
 		return;
 
 	for (int i = 0; i < config.core.count; i++) {
-		Option* item = &config.core.options[i];
-		if (item->var) {
-			// values/labels are all points to var
-			// so no need to free individually
-			free(item->var);
-		} else {
-			if (item->desc)
-				free(item->desc);
-			if (item->full)
-				free(item->full);
-			for (int j = 0; j < item->count; j++) {
-				char* value = item->values[j];
-				char* label = item->labels[j];
-				if (label != value)
-					free(label);
-				free(value);
-			}
-		}
-		free(item->values);
-		free(item->labels);
-		free(item->key);
-		// legacy vars alias name to the same allocation as var (freed above)
-		if (item->name != item->var)
-			free(item->name);
-		free(item->category);
+		Option_free(&config.core.options[i]);
 	}
 	free(config.core.options);
 	config.core.options = NULL;
@@ -287,26 +204,6 @@ void OptionList_reset(void) {
 	}
 }
 
-Option* OptionList_getOption(OptionList* list, const char* key) {
-	for (int i = 0; i < list->count; i++) {
-		Option* item = &list->options[i];
-		if (!strcmp(item->key, key))
-			return item;
-	}
-	return NULL;
-}
-char* OptionList_getOptionValue(OptionList* list, const char* key) {
-	Option* item = OptionList_getOption(list, key);
-	if (item) {
-		int count = 0;
-		while (item->values && item->values[count])
-			count++;
-		if (item->value >= 0 && item->value < count) {
-			return item->values[item->value];
-		}
-	}
-	return NULL;
-}
 void OptionList_setOptionRawValue(OptionList* list, const char* key, int value) {
 	Option* item = OptionList_getOption(list, key);
 	if (item) {

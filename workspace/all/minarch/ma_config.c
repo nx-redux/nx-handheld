@@ -5,7 +5,7 @@
 #include "ma_options.h"
 #include "ma_rewind.h"
 #include "ma_cpu_profile.h"
-#include <dirent.h>
+#include "ma_config_value.h"
 
 char* onoff_labels[] = {
 	"Off",
@@ -784,34 +784,6 @@ struct Config config = {
 	.shortcuts = (ButtonMapping[]){SHORTCUT_LIST(SHORTCUT_MAPPING_){NULL}},
 #undef SHORTCUT_MAPPING_
 };
-static int Config_getValue(char* cfg, const char* key, char* out_value, int* lock) { // gets value from string
-	size_t key_len = strlen(key);
-	char* tmp = cfg;
-	while ((tmp = strstr(tmp, key))) {
-		// only accept matches anchored to the start of a line (optionally
-		// behind a `-` lock marker) and followed by " = " — a raw substring
-		// hit can land inside a longer key or an unrelated value
-		char* at = tmp;
-		tmp += key_len;
-		int locked = at > cfg && *(at - 1) == '-';
-		char* line_start = locked ? at - 1 : at;
-		if ((line_start == cfg || *(line_start - 1) == '\n') && !strncmp(tmp, " = ", 3)) {
-			if (lock != NULL && locked)
-				*lock = 1; // prefixed with a `-` means lock
-			break;		   // matched
-		}
-	};
-	if (!tmp)
-		return 0;
-	tmp += 3;
-
-	strncpy(out_value, tmp, 256);
-	out_value[256 - 1] = '\0';
-	// the value ends at the line ending, "\n" or "\r\n" (a CRLF cfg from a PC
-	// editor must not leave a '\r' on it; emu-options reads it the same way)
-	out_value[strcspn(out_value, "\r\n")] = '\0';
-	return 1;
-}
 
 
 void setOverclock(int i) {
@@ -975,108 +947,6 @@ void Config_syncFrontend(char* key, int value) {
 			ff_paused_by_rewind_hold = 0;
 		}
 	}
-}
-
-char** list_files_in_folder(const char* folderPath, int* fileCount, const char* defaultElement, const char* extensionFilter) {
-	*fileCount = 0; // callers read this even when we return NULL
-
-	DIR* dir = opendir(folderPath);
-	if (!dir) {
-		perror("opendir");
-		return NULL;
-	}
-
-	struct dirent* entry;
-	struct stat fileStat;
-	char** fileList = NULL;
-
-	if (defaultElement) {
-		fileList = malloc(sizeof(char*) * 2);
-		char* first = strdup(defaultElement);
-		if (!fileList || !first) {
-			free(fileList);
-			free(first);
-			closedir(dir);
-			return NULL;
-		}
-		fileList[0] = first;
-		fileList[1] = NULL;
-		(*fileCount)++;
-	}
-
-	while ((entry = readdir(dir)) != NULL) {
-		// skip all entries starting with ._ (hidden files on macOS)
-		if (entry->d_name[0] == '.' && entry->d_name[1] == '_')
-			continue;
-		// skip macOS .DS_Store files
-		if (strcmp(entry->d_name, ".DS_Store") == 0)
-			continue;
-
-		char fullPath[1024];
-		snprintf(fullPath, sizeof(fullPath), "%s/%s", folderPath, entry->d_name);
-
-		if (stat(fullPath, &fileStat) == 0 && S_ISREG(fileStat.st_mode)) {
-			if (extensionFilter) {
-				const char* ext = strrchr(entry->d_name, '.');
-				if (!ext || strcmp(ext, extensionFilter) != 0) {
-					continue;
-				}
-			}
-
-			char** temp = realloc(fileList, sizeof(char*) * (*fileCount + 1));
-			if (!temp) {
-				perror("realloc");
-				for (int i = 0; i < *fileCount; ++i) {
-					free(fileList[i]);
-				}
-				free(fileList);
-				closedir(dir);
-				*fileCount = 0;
-				return NULL;
-			}
-			fileList = temp;
-			fileList[*fileCount] = strdup(entry->d_name);
-			if (fileList[*fileCount]) // out of memory: leave the file out
-				(*fileCount)++;
-		}
-	}
-
-	closedir(dir);
-
-	// Alphabetical sort
-	for (int i = 0; i < *fileCount - 1; ++i) {
-		for (int j = i + 1; j < *fileCount; ++j) {
-			if (strcmp(fileList[i], fileList[j]) > 0) {
-				char* temp = fileList[i];
-				fileList[i] = fileList[j];
-				fileList[j] = temp;
-			}
-		}
-	}
-
-	// NUll terminate the list
-	char** temp = realloc(fileList, sizeof(char*) * (*fileCount + 1));
-	if (!temp) {
-		perror("realloc");
-		for (int i = 0; i < *fileCount; ++i) {
-			free(fileList[i]);
-		}
-		free(fileList);
-		*fileCount = 0;
-		return NULL;
-	}
-	fileList = temp;
-	fileList[*fileCount] = NULL;
-
-	return fileList;
-}
-
-void free_file_list(char** list) {
-	if (!list)
-		return;
-	for (int i = 0; list[i]; i++)
-		free(list[i]);
-	free(list);
 }
 
 // CONFIG_WRITE_ALL/CONFIG_WRITE_GAME live in ma_internal.h

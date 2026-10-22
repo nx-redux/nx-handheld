@@ -15,6 +15,7 @@
 #include "defines.h"
 #include "api.h"
 #include "emu_shortcuts.h"
+#include "ma_option_types.h"
 
 struct Core {
 	int initialized;
@@ -173,36 +174,7 @@ static inline int ButtonMapping_btn(const ButtonMapping* mapping) {
 	return (mapping->local < 0) ? BTN_NONE : 1 << mapping->local;
 }
 
-typedef struct Option {
-	char* key;
-	char* name; // desc
-	char* desc; // info, truncated
-	char* full; // info, longer but possibly still truncated
-	char* category;
-	char* var;
-	int default_value;
-	int value;
-	int count; // TODO: drop this?
-	int lock;
-	int hidden;
-	char** values;
-	char** labels;
-} Option;
-typedef struct OptionCategory {
-	char* key;
-	char* desc;
-	char* info;
-} OptionCategory;
-typedef struct OptionList {
-	int count;
-	int changed;
-	Option* options;
-
-	int enabled_count;
-	Option** enabled_options;
-
-	OptionCategory* categories;
-} OptionList;
+// Option, OptionCategory, OptionList live in ma_option_types.h
 
 struct Config {
 	char* system_cfg;	  // system.cfg based on system limitations

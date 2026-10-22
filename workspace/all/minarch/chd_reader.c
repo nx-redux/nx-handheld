@@ -12,21 +12,7 @@
 
 #include <libchdr/chd.h>
 #include <libchdr/cdrom.h>
-
-/*****************************************************************************
- * Track info structure
- *****************************************************************************/
-
-typedef struct {
-	int type;			// CD_TRACK_* type
-	int frames;			// Total frames in track
-	int pregap_frames;	// Pregap frames
-	int postgap_frames; // Postgap frames
-	int start_frame;	// Starting frame (cumulative)
-	int is_gdrom;		// Track came from GD-ROM metadata
-	int lba_start;		// Absolute disc LBA of the track's first sector (see
-						// chd_first_track_sector)
-} chd_track_info_t;
+#include "chd_tracks.h"
 
 /*****************************************************************************
  * CHD track handle
@@ -61,30 +47,6 @@ typedef struct {
 	uint32_t cached_hunk;
 } chd_track_handle_t;
 
-/*****************************************************************************
- * Helper: Parse track type string
- *****************************************************************************/
-
-static int parse_track_type(const char* type_str) {
-	if (strcmp(type_str, "MODE1") == 0)
-		return CD_TRACK_MODE1;
-	if (strcmp(type_str, "MODE1_RAW") == 0 || strcmp(type_str, "MODE1/2352") == 0)
-		return CD_TRACK_MODE1_RAW;
-	if (strcmp(type_str, "MODE2") == 0)
-		return CD_TRACK_MODE2;
-	if (strcmp(type_str, "MODE2_FORM1") == 0)
-		return CD_TRACK_MODE2_FORM1;
-	if (strcmp(type_str, "MODE2_FORM2") == 0)
-		return CD_TRACK_MODE2_FORM2;
-	if (strcmp(type_str, "MODE2_FORM_MIX") == 0)
-		return CD_TRACK_MODE2_FORM_MIX;
-	if (strcmp(type_str, "MODE2_RAW") == 0 || strcmp(type_str, "MODE2/2352") == 0)
-		return CD_TRACK_MODE2_RAW;
-	if (strcmp(type_str, "AUDIO") == 0)
-		return CD_TRACK_AUDIO;
-
-	return CD_TRACK_MODE1; // Default
-}
 
 /*****************************************************************************
  * Helper: Parse CHD track metadata
@@ -123,196 +85,16 @@ static int parse_chd_tracks(chd_file* chd, chd_track_info_t* tracks, int* num_tr
 			metadata_size = sizeof(metadata) - 1;
 		metadata[metadata_size] = '\0';
 
-		// Parse the metadata string
-		int track_num, frames, pad = 0, pregap = 0, postgap = 0;
-		char type_str[32] = {0};
-		char subtype_str[32] = {0};
-		char pgtype_str[32] = {0};
-		char pgsub_str[32] = {0};
-
-		int parsed;
-		if (is_gdrom) {
-			// "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PAD:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
-			parsed = sscanf(metadata, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d PAD:%d PREGAP:%d PGTYPE:%31s PGSUB:%31s POSTGAP:%d",
-							&track_num, type_str, subtype_str, &frames, &pad, &pregap, pgtype_str, pgsub_str, &postgap);
-		} else {
-			// Full format 2: "TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
-			parsed = sscanf(metadata, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d PREGAP:%d PGTYPE:%31s PGSUB:%31s POSTGAP:%d",
-							&track_num, type_str, subtype_str, &frames, &pregap, pgtype_str, pgsub_str, &postgap);
-		}
-
-		if (parsed < 4) {
-			// Try format 1 (no pregap info)
-			parsed = sscanf(metadata, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d",
-							&track_num, type_str, subtype_str, &frames);
-			pregap = 0;
-		}
-
-		if (parsed >= 4) {
-			tracks[track_idx].type = parse_track_type(type_str);
-			tracks[track_idx].frames = frames;
-			tracks[track_idx].pregap_frames = pregap;
-			tracks[track_idx].postgap_frames = postgap;
-			tracks[track_idx].is_gdrom = is_gdrom;
-
-			// CHD format: 'frames' is the actual data frames, NOT including pregap.
-			// The cumulative frame_offset points to the first frame of this track's allocation.
-			tracks[track_idx].start_frame = cumulative_frames;
-
-			// Calculate padding for 4-frame alignment (per CHD spec)
-			int padding = ((frames + 3) & ~3) - frames;
-			cumulative_frames += frames + padding;
+		if (ChdTrack_parseMetadata(metadata, is_gdrom, &tracks[track_idx], &cumulative_frames))
 			track_idx++;
-		}
 	}
 
-	// Absolute LBAs. rcheevos addresses sectors by disc LBA: first_track_sector()
-	// must return the track's LBA and read_sector() receives LBAs (ISO9660
-	// directory records hold absolute LBAs, and the Dreamcast hasher follows
-	// them). A CHD stores tracks back to back with no notion of disc position,
-	// so derive it: on a CD the track's frame offset doubles as its LBA (track
-	// 1 sits at 0, which is all the PS1/Sega CD/PC Engine hashers rely on). On
-	// a GD-ROM the high-density area (track 3 onward) always starts at LBA
-	// 45000 regardless of how short the low-density session was, so the
-	// ~44000-sector gap the CHD omits has to be added back or every ISO lookup
-	// in the data track lands outside the image.
-	int gd_base = -1;
-	for (int i = 0; i < track_idx; i++) {
-		if (tracks[i].is_gdrom && i + 1 >= 3) {
-			if (gd_base < 0)
-				gd_base = tracks[i].start_frame;
-			tracks[i].lba_start = 45000 + (tracks[i].start_frame - gd_base);
-		} else {
-			tracks[i].lba_start = tracks[i].start_frame;
-		}
-	}
+	ChdTrack_assignLbas(tracks, track_idx);
 
 	*num_tracks = track_idx;
 	return track_idx > 0 ? 0 : -1;
 }
 
-/*****************************************************************************
- * Helper: Check if track is data track
- *****************************************************************************/
-
-static int is_data_track(int type) {
-	return type != CD_TRACK_AUDIO;
-}
-
-/*****************************************************************************
- * Helper: Determine sector header size from track type
- * 
- * Based on rcheevos cdreader.c logic:
- * - MODE1/2352 (MODE1_RAW): 16 bytes (12 sync + 4 header)
- * - MODE2/2352 (MODE2_RAW): 24 bytes (12 sync + 4 header + 8 subheader)
- * - MODE1/2048, MODE2/2048: 0 bytes (cooked)
- * - AUDIO: 0 bytes (raw audio)
- *****************************************************************************/
-
-static void get_sector_format(int track_type, int frame_size, int* header_size, int* data_size) {
-	// Default: cooked 2048-byte sectors
-	*data_size = 2048;
-	*header_size = 0;
-
-	switch (track_type) {
-	case CD_TRACK_MODE1_RAW:
-		// MODE1/2352: sync(12) + header(4) + data(2048) + ecc(288)
-		if (frame_size >= 2352) {
-			*header_size = 16;
-			*data_size = 2048;
-		}
-		break;
-
-	case CD_TRACK_MODE2_RAW:
-	case CD_TRACK_MODE2_FORM_MIX:
-		// MODE2/2352: sync(12) + header(4) + subheader(8) + data(2048) + ecc(280)
-		if (frame_size >= 2352) {
-			*header_size = 24;
-			*data_size = 2048;
-		}
-		break;
-
-	case CD_TRACK_MODE2_FORM1:
-	case CD_TRACK_MODE2_FORM2:
-		// MODE2 without sync: subheader(8) + data
-		if (frame_size == 2336) {
-			*header_size = 8;
-			*data_size = 2048;
-		}
-		break;
-
-	case CD_TRACK_MODE1:
-	case CD_TRACK_MODE2:
-		// Cooked sectors, no header
-		*header_size = 0;
-		*data_size = 2048;
-		break;
-
-	case CD_TRACK_AUDIO:
-		// Audio tracks have no header, all 2352 bytes are data
-		*header_size = 0;
-		*data_size = 2352;
-		break;
-
-	default:
-		// Unknown type, try to determine from frame size
-		if (frame_size >= 2352) {
-			// Assume raw with MODE1 header
-			*header_size = 16;
-			*data_size = 2048;
-		}
-		break;
-	}
-}
-
-/*****************************************************************************
- * Helper: Find requested track
- *****************************************************************************/
-
-static int find_track(chd_track_handle_t* handle, uint32_t track_request) {
-	if (handle->num_tracks == 0)
-		return -1;
-
-	// Handle special track requests
-	if (track_request == (uint32_t)-1) {
-		// RC_HASH_CDTRACK_FIRST_DATA - first data track
-		for (int i = 0; i < handle->num_tracks; i++) {
-			if (is_data_track(handle->tracks[i].type))
-				return i;
-		}
-		return -1;
-	} else if (track_request == (uint32_t)-2) {
-		// RC_HASH_CDTRACK_LAST - last track
-		return handle->num_tracks - 1;
-	} else if (track_request == (uint32_t)-3) {
-		// RC_HASH_CDTRACK_LARGEST - largest track
-		int largest_idx = 0;
-		int largest_frames = 0;
-		for (int i = 0; i < handle->num_tracks; i++) {
-			if (handle->tracks[i].frames > largest_frames) {
-				largest_frames = handle->tracks[i].frames;
-				largest_idx = i;
-			}
-		}
-		return largest_idx;
-	} else if (track_request == (uint32_t)-4) {
-		// RC_HASH_CDTRACK_FIRST_OF_SECOND_SESSION - CHD track metadata carries
-		// no session numbers, so approximate: the first data track that follows
-		// an audio track. That matches the Jaguar CD layout this request exists
-		// for (session 1 is audio, session 2 opens with the boot data track);
-		// a wrong pick fails safely in the caller's ATARI-header check.
-		for (int i = 1; i < handle->num_tracks; i++) {
-			if (is_data_track(handle->tracks[i].type) && !is_data_track(handle->tracks[i - 1].type))
-				return i;
-		}
-		return -1;
-	} else if (track_request > 0 && track_request <= (uint32_t)handle->num_tracks) {
-		// Specific track number (1-based)
-		return track_request - 1;
-	}
-
-	return -1;
-}
 
 /*****************************************************************************
  * CD Reader callbacks
@@ -381,7 +163,7 @@ void* chd_open_track_iterator(const char* path, uint32_t track, const void* iter
 	}
 
 	// Find requested track
-	int track_idx = find_track(handle, track);
+	int track_idx = ChdTrack_find(handle->tracks, handle->num_tracks, track);
 	if (track_idx < 0) {
 		free(handle->hunk_buffer);
 		chd_close(chd);
@@ -397,8 +179,8 @@ void* chd_open_track_iterator(const char* path, uint32_t track, const void* iter
 	handle->track_pregap = handle->tracks[track_idx].pregap_frames;
 
 	// Determine sector format based on track type
-	get_sector_format(handle->track_type, handle->frame_size,
-					  &handle->sector_header_size, &handle->raw_data_size);
+	ChdTrack_sectorFormat(handle->track_type, handle->frame_size, &handle->sector_header_size,
+						  &handle->raw_data_size);
 
 	return handle;
 }
@@ -424,7 +206,7 @@ size_t chd_read_sector(void* track_handle, uint32_t sector, void* buffer, size_t
 
 	// Always skip pregap for data tracks - the pregap frames are allocated
 	// in the CHD regardless of whether they contain real data or silence.
-	if (is_data_track(handle->track_type) && handle->track_pregap > 0) {
+	if (ChdTrack_isData(handle->track_type) && handle->track_pregap > 0) {
 		frame += handle->track_pregap;
 	}
 
@@ -482,10 +264,8 @@ size_t chd_read_sector(void* track_handle, uint32_t sector, void* buffer, size_t
 	// Clamp to the physical frame: a hostile CHD can declare a unitbytes
 	// smaller than the track type's nominal data size (e.g. an audio track
 	// with frame_size < 2352), which would over-read the hunk buffer.
-	if (header_skip >= handle->frame_size)
+	if (!ChdTrack_clampData(handle->frame_size, header_skip, &data_size))
 		return 0;
-	if (data_size > handle->frame_size - header_skip)
-		data_size = handle->frame_size - header_skip;
 
 	// Copy the data
 	size_t to_copy = requested_bytes;

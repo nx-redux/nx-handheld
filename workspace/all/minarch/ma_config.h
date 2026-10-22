@@ -1,6 +1,7 @@
 #pragma once
 
 #include "emu_shortcuts.h"
+#include "ma_file_list.h"
 
 void setOverclock(int i);
 void Config_getPath(char* filename, int override);
@@ -20,5 +21,3 @@ extern int shortcut_override[SHORTCUT_COUNT];
 void Config_applyShortcuts(void);
 void Config_write(int override);
 void Config_restore(void);
-char** list_files_in_folder(const char* folderPath, int* fileCount, const char* defaultElement, const char* extensionFilter);
-void free_file_list(char** list);

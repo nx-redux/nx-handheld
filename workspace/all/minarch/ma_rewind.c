@@ -1,6 +1,7 @@
 #include "ma_internal.h"
 #include "ma_rewind.h"
 #include "ma_rewind_budget.h"
+#include "ma_rewind_ring.h"
 #include <errno.h>
 #include <lz4.h>
 
@@ -30,17 +31,8 @@ static struct {
 	int enable, buf_mb, gran, audio, compress, accel;
 } rewind_last_init;
 
-static RewindBufferState Rewind_buffer_state_locked(void) {
-	if (rewind_ctx.entry_count == 0)
-		return REWIND_BUF_EMPTY;
-	// head == tail with entries means the ring buffer wrapped and is full
-	if (rewind_ctx.head == rewind_ctx.tail)
-		return REWIND_BUF_FULL;
-	return REWIND_BUF_HAS_DATA;
-}
 
 static void* Rewind_worker_thread(void* arg);
-static int Rewind_write_entry_locked(const uint8_t* compressed, size_t dest_len, int is_keyframe);
 static int Rewind_compress_state(const uint8_t* src, size_t* dest_len, int* is_keyframe_out);
 static void Rewind_wait_for_worker_idle(void);
 
@@ -119,28 +111,6 @@ static void Rewind_reset(void) {
 	rewinding = 0;
 }
 
-static size_t Rewind_free_space_locked(void) {
-	RewindBufferState state = Rewind_buffer_state_locked();
-	if (state == REWIND_BUF_FULL)
-		return 0;
-	if (state == REWIND_BUF_EMPTY)
-		return rewind_ctx.capacity;
-	if (rewind_ctx.head >= rewind_ctx.tail)
-		return rewind_ctx.capacity - (rewind_ctx.head - rewind_ctx.tail);
-	else
-		return rewind_ctx.tail - rewind_ctx.head;
-}
-static void Rewind_drop_oldest_locked(void) {
-	if (!rewind_ctx.entry_count)
-		return;
-	RewindEntry* e = &rewind_ctx.entries[rewind_ctx.entry_tail];
-	rewind_ctx.tail = (e->offset + e->size) % rewind_ctx.capacity;
-	rewind_ctx.entry_tail = (rewind_ctx.entry_tail + 1) % rewind_ctx.entry_capacity;
-	rewind_ctx.entry_count -= 1;
-	if (rewind_ctx.entry_count == 0) {
-		rewind_ctx.head = rewind_ctx.tail = 0;
-	}
-}
 
 // Block until the worker has drained its queue and is not holding any slots.
 // The worker signals slot_cv every time it returns a slot to the free stack.
@@ -153,79 +123,16 @@ static void Rewind_wait_for_worker_idle(void) {
 	pthread_mutex_unlock(&rewind_ctx.queue_mx);
 }
 
-// Check if an entry overlaps with range [range_start, range_end) in a non-wrapping buffer region
-static int Rewind_entry_overlaps_range(int entry_idx, size_t range_start, size_t range_end) {
-	RewindEntry* e = &rewind_ctx.entries[entry_idx];
-	size_t e_start = e->offset;
-	size_t e_end = e->offset + e->size;
-	// Check for overlap: ranges overlap if start < other_end AND other_start < end
-	return (e_start < range_end) && (range_start < e_end);
-}
 
+// Stores a compressed entry in the ring; caller holds rewind_ctx.lock.
 static int Rewind_write_entry_locked(const uint8_t* compressed, size_t dest_len, int is_keyframe) {
-	if (dest_len >= rewind_ctx.capacity) {
+	int res = RewindRing_write(&rewind_ctx, compressed, dest_len, is_keyframe);
+	if (res == REWIND_RING_TOO_BIG)
 		LOG_error("Rewind: state does not fit in buffer\n");
-		return 0;
-	}
-
-	// If the entry table is full, drop the oldest entry *before* writing so we don't
-	// overwrite its metadata (entry_head == entry_tail when full).
-	if (rewind_ctx.entry_count == rewind_ctx.entry_capacity) {
-		Rewind_drop_oldest_locked();
-	}
-
-	size_t write_offset = rewind_ctx.head;
-
-	// If this write would go past the end of the buffer, wrap to 0
-	if (write_offset + dest_len > rewind_ctx.capacity) {
-		write_offset = 0;
-		rewind_ctx.head = 0;
-		if (rewind_ctx.entry_count == 0) {
-			rewind_ctx.tail = 0;
-		}
-	}
-
-	// Drop entries until none overlap the region we're about to write:
-	// [write_offset, write_offset + dest_len). Entries can only be dropped from
-	// the tail (the delta chain must stay contiguous), but after a wrap the
-	// overlapping entries are the *newer* ones at low offsets — behind a
-	// non-overlapping oldest entry at high offsets — so find the newest
-	// overlapping entry and drop everything up to and including it.
-	int drops = 0;
-	for (int k = 0; k < rewind_ctx.entry_count; k++) {
-		int idx = (rewind_ctx.entry_tail + k) % rewind_ctx.entry_capacity;
-		if (Rewind_entry_overlaps_range(idx, write_offset, write_offset + dest_len))
-			drops = k + 1;
-	}
-	while (drops-- > 0)
-		Rewind_drop_oldest_locked();
-
-	// Still need to make room based on free space calculation
-	while (rewind_ctx.entry_count > 0 && Rewind_free_space_locked() <= dest_len) {
-		Rewind_drop_oldest_locked();
-	}
-
-	// Safety check: if we still can't fit, there's a logic error
-	if (Rewind_free_space_locked() <= dest_len && rewind_ctx.entry_count > 0) {
-		LOG_error("Rewind: unable to make room for entry (need %zu, have %zu)\n", dest_len, Rewind_free_space_locked());
-		return 0;
-	}
-
-	memcpy(rewind_ctx.buffer + write_offset, compressed, dest_len);
-
-	RewindEntry* e = &rewind_ctx.entries[rewind_ctx.entry_head];
-	e->offset = write_offset;
-	e->size = dest_len;
-	e->is_keyframe = is_keyframe ? 1 : 0;
-
-	rewind_ctx.head = write_offset + dest_len;
-	if (rewind_ctx.head >= rewind_ctx.capacity)
-		rewind_ctx.head = 0;
-
-	rewind_ctx.entry_head = (rewind_ctx.entry_head + 1) % rewind_ctx.entry_capacity;
-	// the table-full pre-drop above guarantees room here
-	rewind_ctx.entry_count += 1;
-	return 1;
+	else if (res == REWIND_RING_NO_ROOM)
+		LOG_error("Rewind: unable to make room for entry (need %zu, have %zu)\n", dest_len,
+				  RewindRing_freeSpace(&rewind_ctx));
+	return res == 1;
 }
 
 // Commit src as the delta-encode reference. Call only after its entry was
@@ -617,16 +524,6 @@ void Rewind_push(int force) {
 	pthread_mutex_unlock(&rewind_ctx.lock);
 }
 
-// pop the newest entry and reclaim its ring bytes so rewind-then-play cycles
-// don't shrink the usable history; caller holds rewind_ctx.lock
-static void Rewind_pop_newest_locked(int idx, const RewindEntry* e) {
-	rewind_ctx.entry_head = idx;
-	rewind_ctx.entry_count -= 1;
-	if (rewind_ctx.entry_count == 0)
-		rewind_ctx.head = rewind_ctx.tail = 0;
-	else
-		rewind_ctx.head = e->offset;
-}
 
 // REWIND_STEP_* live in ma_rewind.h
 int Rewind_step_back(void) {
@@ -656,15 +553,13 @@ int Rewind_step_back(void) {
 	}
 
 	pthread_mutex_lock(&rewind_ctx.lock);
-	RewindBufferState buf_state = Rewind_buffer_state_locked();
+	RewindBufferState buf_state = RewindRing_state(&rewind_ctx);
 	if (buf_state == REWIND_BUF_EMPTY) {
 		pthread_mutex_unlock(&rewind_ctx.lock);
 		return REWIND_STEP_EMPTY;
 	}
 
-	int idx = rewind_ctx.entry_head - 1;
-	if (idx < 0)
-		idx += rewind_ctx.entry_capacity;
+	int idx = RewindRing_newestIndex(&rewind_ctx);
 	RewindEntry* e = &rewind_ctx.entries[idx];
 
 	int decode_ok = 1;
@@ -718,7 +613,7 @@ int Rewind_step_back(void) {
 	}
 	if (!decode_ok) {
 		// On decode failure, drop the corrupted newest entry instead of oldest
-		Rewind_pop_newest_locked(idx, e);
+		RewindRing_popNewest(&rewind_ctx, idx, e);
 		pthread_mutex_unlock(&rewind_ctx.lock);
 		return REWIND_STEP_EMPTY;
 	}
@@ -728,12 +623,12 @@ int Rewind_step_back(void) {
 		// dropping the oldest would retry the same bad entry forever while
 		// silently draining the history from the other end
 		LOG_error("Rewind: unserialize failed\n");
-		Rewind_pop_newest_locked(idx, e);
+		RewindRing_popNewest(&rewind_ctx, idx, e);
 		pthread_mutex_unlock(&rewind_ctx.lock);
 		return REWIND_STEP_EMPTY;
 	}
 
-	Rewind_pop_newest_locked(idx, e);
+	RewindRing_popNewest(&rewind_ctx, idx, e);
 	pthread_mutex_unlock(&rewind_ctx.lock);
 
 	rewinding = 1;
