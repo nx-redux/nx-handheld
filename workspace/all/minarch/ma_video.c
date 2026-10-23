@@ -638,6 +638,12 @@ static void screen_flip(SDL_Surface* screen) {
 // freed in Video_cleanup at shutdown
 static uint32_t* fade_buffer = NULL;
 static size_t fade_buffer_len = 0;
+#define FADE_IN_FRAMES 8
+static int fade_in_frame = 0;
+
+void Video_skipFadeIn(void) {
+	fade_in_frame = FADE_IN_FRAMES;
+}
 
 static void applyFadeIn(uint32_t** data, size_t pitch, unsigned width, unsigned height, int* frame_counter, int max_frames) {
 	size_t pixels_per_row = pitch / sizeof(uint32_t);
@@ -787,10 +793,8 @@ static void video_refresh_callback_main(const void* data, unsigned width, unsign
 	// debug
 	drawDebugHud(data, width, height, pitch, fmt);
 
-	static int frame_counter = 0;
-	const int max_frames = 8;
-	if (frame_counter < max_frames) {
-		applyFadeIn((uint32_t**)&data, pitch, width, height, &frame_counter, max_frames);
+	if (fade_in_frame < FADE_IN_FRAMES) {
+		applyFadeIn((uint32_t**)&data, pitch, width, height, &fade_in_frame, FADE_IN_FRAMES);
 	}
 
 	renderer.src = (void*)data;

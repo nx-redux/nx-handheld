@@ -28,6 +28,8 @@
 #include <sys/mman.h>
 #include <sys/file.h>
 #include "shader_strip.h"
+#include <linux/fb.h>
+#include <sys/ioctl.h>
 
 static void bandShadowInvalidate(void);
 
@@ -953,6 +955,54 @@ void PLAT_resetShaders() {
 	shaderResetRequested = 1;
 }
 
+// Shown by PLAT_clearAll's flips instead of black while set (minarch: the
+// resume state's screenshot, so the screen goes from the menu to the paused
+// game to the running game without a black frame).
+static SDL_Surface* clear_image = NULL;
+void PLAT_setClearImage(SDL_Surface* image) {
+	clear_image = image;
+}
+void PLAT_drawClearImage(SDL_Surface* screen) {
+	if (clear_image)
+		SDL_BlitScaled(clear_image, NULL, screen, NULL);
+}
+
+// Creating the window blanks the framebuffer, and the renderer takes another
+// ~130 ms before anything can be presented: write the clear image straight
+// into the scanned-out fbdev buffer meanwhile. Where /dev/fb0 is not what
+// the panel shows (DRM), this changes nothing on screen.
+static void fbShowClearImage(void) {
+	int fd = open("/dev/fb0", O_RDWR);
+	if (fd < 0)
+		return;
+	struct fb_var_screeninfo vi;
+	struct fb_fix_screeninfo fi;
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) || ioctl(fd, FBIOGET_FSCREENINFO, &fi) || vi.bits_per_pixel != 32) {
+		close(fd);
+		return;
+	}
+	size_t off = (size_t)vi.yoffset * fi.line_length;
+	size_t len = (size_t)vi.yres * fi.line_length;
+	if (off + len > fi.smem_len || off % sysconf(_SC_PAGESIZE)) {
+		close(fd);
+		return;
+	}
+	void* fb = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, off);
+	close(fd);
+	if (fb == MAP_FAILED)
+		return;
+	Uint32 rmask = ((1u << vi.red.length) - 1) << vi.red.offset;
+	Uint32 gmask = ((1u << vi.green.length) - 1) << vi.green.offset;
+	Uint32 bmask = ((1u << vi.blue.length) - 1) << vi.blue.offset;
+	Uint32 amask = vi.transp.length ? ((1u << vi.transp.length) - 1) << vi.transp.offset : 0;
+	SDL_Surface* dst = SDL_CreateRGBSurfaceFrom(fb, vi.xres, vi.yres, 32, fi.line_length, rmask, gmask, bmask, amask);
+	if (dst) {
+		SDL_BlitScaled(clear_image, NULL, dst, NULL);
+		SDL_FreeSurface(dst);
+	}
+	munmap(fb, len);
+}
+
 SDL_Surface* PLAT_initVideo(void) {
 #if NEXTUI_TSAN
 	/*
@@ -976,6 +1026,8 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "1");
 
 	vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+	if (vid.window && clear_image)
+		fbShowClearImage();
 	if (vid.window) {
 		vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 	}
@@ -1067,6 +1119,14 @@ SDL_Surface* PLAT_initVideo(void) {
 	device_pitch = p;
 
 	vid.sharpness = SHARPNESS_SOFT;
+
+	// creating the window blanked the screen: put the clear image up now,
+	// not after the fonts and assets load
+	if (clear_image) {
+		PLAT_clearLayers(0); // new layer textures hold whatever was in that memory
+		PLAT_drawClearImage(vid.screen);
+		PLAT_flip(vid.screen, 0);
+	}
 
 	return vid.screen;
 }
@@ -1177,6 +1237,12 @@ void PLAT_setShaders(int nr) {
 	reloadShaderTextures = 1;
 }
 
+// PLAT_keepScreenOnQuit: the app that comes next draws over this frame itself
+static bool keep_screen_on_quit = false;
+void PLAT_keepScreenOnQuit(void) {
+	keep_screen_on_quit = true;
+}
+
 static void clearVideo(void) {
 	SDL_FillRect(vid.screen, NULL, SDL_transparentBlack);
 	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
@@ -1234,7 +1300,8 @@ void PLAT_quitVideo(void) {
 	}
 	capture_active = false;
 
-	clearVideo();
+	if (!keep_screen_on_quit)
+		clearVideo();
 
 	// Make sure the GL context is current before tearing down textures/renderer
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
@@ -1291,6 +1358,7 @@ void PLAT_clearAll(void) {
 	// ok honestely mixing SDL and OpenGL is really bad, but hey it works just got to sometimes clear gpu stuff and pull context back to SDL
 	// so yeah clear all layers and pull a flip() to make it switch back to SDL before clearing
 	PLAT_clearLayers(0);
+	PLAT_drawClearImage(vid.screen);
 	PLAT_flip(vid.screen, 0);
 	PLAT_clearLayers(0);
 	PLAT_flip(vid.screen, 0);

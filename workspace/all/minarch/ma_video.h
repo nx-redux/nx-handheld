@@ -8,3 +8,4 @@ void selectScaler(int src_w, int src_h, int src_p);
 void video_refresh_callback(const void* data, unsigned width, unsigned height, size_t pitch);
 void Video_cleanup(void);
 int Video_ffFrameDue(void);
+void Video_skipFadeIn(void); // no fade from black on the first frames (a resume shows its screenshot first)

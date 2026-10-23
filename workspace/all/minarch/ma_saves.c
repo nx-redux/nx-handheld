@@ -6,6 +6,7 @@
 #include "ma_state_read.h"
 #include "notification.h"
 #include "ra_integration.h"
+#include <SDL2/SDL_image.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
@@ -423,6 +424,33 @@ static int State_readSlot(int slot) {
 	if (ok)
 		Rewind_on_state_change();
 	return ok;
+}
+
+SDL_Surface* State_loadResumePreview(const char* rom_path, const char* tag_name) {
+	// netplay starts from a clean boot (see main), and a client's slot
+	// markers live in its isolated dir
+	if (getenv("NETPLAY_ROLE") || getenv("NX_CORE_NETPLAY") || getenv("NETPLAY_SAVES_DIR"))
+		return NULL;
+	if (!exists(RESUME_SLOT_PATH))
+		return NULL;
+	int slot = getInt(RESUME_SLOT_PATH);
+	if (slot < 0 || slot > AUTO_RESUME_SLOT)
+		return NULL;
+	// named like Menu_init's slot files: the m3u's name for a multi-disc game
+	char m3u_path[MAX_PATH];
+	const char* name = M3U_findForRom(rom_path, m3u_path, sizeof(m3u_path)) ? baseName(m3u_path) : baseName(rom_path);
+	char path[MAX_PATH];
+	snprintf(path, sizeof(path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, tag_name, name, slot);
+	if (!exists(path))
+		return NULL;
+	SDL_Surface* image = IMG_Load(path); // a PNG despite the name
+	if (!image)
+		return NULL;
+	SDL_Surface* converted = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
+	SDL_FreeSurface(image);
+	if (converted)
+		SDL_SetSurfaceBlendMode(converted, SDL_BLENDMODE_NONE);
+	return converted;
 }
 
 void State_resume(void) {

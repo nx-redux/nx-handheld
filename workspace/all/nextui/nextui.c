@@ -545,9 +545,13 @@ int main(int argc, char* argv[]) {
 				menuBarSurface = UI_captureMenuBar(screen);
 
 			if (startgame) {
-				GFX_clearLayers(LAYER_ALL);
-				GFX_clear(screen);
-				GFX_flipHidden();
+				// a resume leaves the last frame for minarch's screenshot to replace: a
+				// black hidden flip here is what the display shows once nextui exits
+				if (!Launcher_isResumeLaunch()) {
+					GFX_clearLayers(LAYER_ALL);
+					GFX_clear(screen);
+					GFX_flipHidden();
+				}
 			} else if (drawScreen == SCREEN_GAMESWITCHER) {
 				GameSwitcher_render(lastScreen, blackBG, gsanimdir, ow);
 				lastScreen = SCREEN_GAMESWITCHER;
@@ -791,6 +795,10 @@ int main(int argc, char* argv[]) {
 	// External launches replace this process, so the OS can reclaim its memory,
 	// descriptors, and worker threads. The parent reads /tmp/next only after exit.
 	if (startgame || exists("/tmp/next")) {
+		// a resume: minarch puts the state's screenshot up over this frame,
+		// so leaving it there skips a black flash between the two
+		if (Launcher_isResumeLaunch())
+			PLAT_keepScreenOnQuit();
 		GFX_quit();
 		_exit(0);
 	}

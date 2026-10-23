@@ -202,6 +202,12 @@ int main(int argc, char* argv[]) {
 	snprintf(rom_path, sizeof(rom_path), "%s", argv[2]);
 	getEmuName(rom_path, tag_name);
 
+	// resuming: the startup flips show the state's screenshot, not black
+	SDL_Surface* resume_preview = State_loadResumePreview(rom_path, tag_name);
+	PLAT_setClearImage(resume_preview);
+	if (resume_preview)
+		Video_skipFadeIn(); // the game goes on from the frame already on screen
+
 	screen = GFX_init(MODE_MENU);
 
 	// initialize default shaders
@@ -309,8 +315,10 @@ int main(int argc, char* argv[]) {
 	GFX_clear(screen);
 
 	// need to draw real black background first otherwise u get weird pixels sometimes
-
+	// (the resume screenshot instead, until the core's first frame replaces it)
+	PLAT_drawClearImage(screen);
 	GFX_flip(screen);
+	GFX_clear(screen);
 
 	Special_init(); // after config
 
@@ -381,6 +389,11 @@ int main(int argc, char* argv[]) {
 			run_frame();
 		}
 		Input_runDeferredShortcut(); // save/load/reset shortcuts: never from inside core.run()
+		if (resume_preview) {		 // the first frame's scaler setup (GFX_clearAll) showed it too: done
+			PLAT_setClearImage(NULL);
+			SDL_FreeSurface(resume_preview);
+			resume_preview = NULL;
+		}
 		Core_applyPendingAV();
 		if (Netplay_isActive()) {
 			Netplay_postFrame();

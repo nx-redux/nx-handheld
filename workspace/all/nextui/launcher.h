@@ -64,6 +64,7 @@ void openPak(char* path);
 void openPakInPlace(char* path);
 void openScript(char* script_path, char* arg, char* last_path);
 void openRom(char* path, char* last);
+bool Launcher_isResumeLaunch(void); // the last openRom resumes a save state
 void Entry_open(Entry* self);
 
 // Spawn the Artwork Manager pak's headless fetch for one ROM, fire-and-forget.

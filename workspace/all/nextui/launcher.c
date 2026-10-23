@@ -332,8 +332,14 @@ void openScript(char* script_path, char* arg, char* last_path) {
 	}
 	queueNext(cmd);
 }
+static bool resume_launch = false;
+bool Launcher_isResumeLaunch(void) {
+	return resume_launch;
+}
+
 void openRom(char* path, char* last) {
 	LOG_info("openRom(%s,%s)\n", path, last);
+	resume_launch = false;
 
 	char sd_path[MAX_PATH];
 	strcpy(sd_path, path);
@@ -356,6 +362,7 @@ void openRom(char* path, char* last) {
 		getFile(resume.slot_path, slot, 16);
 		putFile(RESUME_SLOT_PATH, slot);
 		resume.should_resume = false;
+		resume_launch = true;
 
 		if (has_m3u) {
 			char rom_file[MAX_PATH];

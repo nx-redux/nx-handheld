@@ -713,6 +713,9 @@ SDL_Surface* PLAT_initVideo(void);
 void PLAT_quitVideo(void);
 void PLAT_clearVideo(SDL_Surface* screen);
 void PLAT_clearAll(void);
+void PLAT_setClearImage(SDL_Surface* image); // NULL: back to black
+void PLAT_keepScreenOnQuit(void);			 // GFX_quit leaves the last frame up instead of clearing to black
+void PLAT_drawClearImage(SDL_Surface* screen);
 void PLAT_setVsync(int vsync);
 SDL_Surface* PLAT_resizeVideo(int w, int h, int pitch);
 void PLAT_setSharpness(int sharpness);
