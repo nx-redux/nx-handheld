@@ -8,16 +8,18 @@ root="$here/../../../.."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# Fake nextval.elf: echoes whatever the test wants for the debugLogging key.
-mkdir -p "$tmp/bin"
-cat > "$tmp/bin/nextval.elf" <<'FAKE'
-#!/bin/sh
-[ "$1" = "debugLogging" ] && { printf '{"debugLogging": %s}\n' "$FAKE_DEBUG_LOGGING"; exit 0; }
-echo '{}'
-FAKE
-chmod +x "$tmp/bin/nextval.elf"
-export PATH="$tmp/bin:$PATH"
+# The helper reads debugLogging from minuisettings.txt itself; each case
+# writes the file it needs.
 export USERDATA_PATH="$tmp/userdata"
+export SHARED_USERDATA_PATH="$tmp/shared"
+mkdir -p "$SHARED_USERDATA_PATH"
+settings() { # settings <debugLogging value, or "" for no key>
+	{
+		echo "fontSize=1"
+		[ -n "$1" ] && echo "debugLogging=$1"
+		echo "haptics=1"
+	} > "$SHARED_USERDATA_PATH/minuisettings.txt"
+}
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -32,21 +34,29 @@ for plat in tg5040 tg5050; do
 
 	# 1. setting on -> persistent path, created, flag exported, stale tmpfs dir removed
 	mkdir -p "$tmp/nx-logs"; echo stale > "$tmp/nx-logs/old.txt"
-	out=$(FAKE_DEBUG_LOGGING=1 sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$NX_DEBUG_LOGGING $LOGS_PATH"')
+	settings 1
+	out=$(sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$NX_DEBUG_LOGGING $LOGS_PATH"')
 	[ "$out" = "1 $USERDATA_PATH/logs" ] || fail "$plat on: got '$out'"
 	[ -d "$USERDATA_PATH/logs" ] || fail "$plat on: logs dir not created"
 	[ ! -e "$tmp/nx-logs" ] || fail "$plat on: stale tmpfs dir not removed"
 
 	# 2. setting off -> tmpfs path, pre-existing file wiped
 	mkdir -p "$tmp/nx-logs"; echo stale > "$tmp/nx-logs/old.txt"
-	out=$(FAKE_DEBUG_LOGGING=0 sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$NX_DEBUG_LOGGING $LOGS_PATH"')
+	settings 0
+	out=$(sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$NX_DEBUG_LOGGING $LOGS_PATH"')
 	[ "$out" = "0 $tmp/nx-logs" ] || fail "$plat off: got '$out'"
 	[ -d "$tmp/nx-logs" ] || fail "$plat off: tmpfs dir not created"
 	[ ! -e "$tmp/nx-logs/old.txt" ] || fail "$plat off: stale log not wiped"
 
 	# 3. key absent (old settings file) -> behaves as off
-	out=$(FAKE_DEBUG_LOGGING= sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$LOGS_PATH"')
+	settings ""
+	out=$(sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$LOGS_PATH"')
 	[ "$out" = "$tmp/nx-logs" ] || fail "$plat missing key: got '$out'"
+
+	# 4. no settings file yet (first boot) -> behaves as off
+	rm -f "$SHARED_USERDATA_PATH/minuisettings.txt"
+	out=$(sh -c '. "'"$tmp"'/helper_t.sh"; nx_update_logs_path; echo "$LOGS_PATH"')
+	[ "$out" = "$tmp/nx-logs" ] || fail "$plat no settings file: got '$out'"
 	rm -rf "$USERDATA_PATH" "$tmp/nx-logs"
 done
 echo "test_launcher_logs_path: OK"

@@ -191,18 +191,23 @@ audiomon.elf & #&> $SDCARD_PATH/audiomon.txt &
 # tmpfs (wiped before every launch) so nothing lands on the SD card; when on,
 # keep the persistent .userdata/<plat>/logs directory. Re-evaluated before
 # each launch so toggling it in Settings applies without a reboot.
+# The setting is read with the shell's own read loop, not nextval.elf | sed:
+# this runs right before every launch, and the two processes cost ~60 ms.
 nx_update_logs_path() {
-	dbglog=$(nextval.elf debugLogging | sed -n 's/.*"debugLogging": \([0-9]*\).*/\1/p')
+	dbglog=0
+	[ -f "$SHARED_USERDATA_PATH/minuisettings.txt" ] && while IFS= read -r line; do
+		case "$line" in debugLogging=*) dbglog="${line#debugLogging=}" ;; esac
+	done < "$SHARED_USERDATA_PATH/minuisettings.txt"
 	if [ "$dbglog" = "1" ]; then
 		export NX_DEBUG_LOGGING=1
 		export LOGS_PATH="$USERDATA_PATH/logs"
-		rm -rf /tmp/nx-logs
+		[ -e /tmp/nx-logs ] && rm -rf /tmp/nx-logs
 	else
 		export NX_DEBUG_LOGGING=0
 		export LOGS_PATH="/tmp/nx-logs"
 		rm -rf "$LOGS_PATH"
 	fi
-	mkdir -p "$LOGS_PATH"
+	[ -d "$LOGS_PATH" ] || mkdir -p "$LOGS_PATH"
 }
 nx_update_logs_path
 # musicplayerd runs for the whole session, so its log cannot live in the
