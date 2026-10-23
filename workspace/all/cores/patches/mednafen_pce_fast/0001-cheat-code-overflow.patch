@@ -1,0 +1,33 @@
+# license: modifies beetle-pce-fast-libretro (https://github.com/libretro/beetle-pce-fast-libretro), GPL-2.0 (COPYING); this patch is distributed under the same license.
+# retro_cheat_set copied each code with strcpy into char temp[256]: a code of 256+
+# characters (about 26 parts) overflowed the stack. Copy it with strdup instead.
+--- a/libretro.cpp
++++ b/libretro.cpp
+@@ -2649,14 +2649,17 @@
+ void retro_cheat_set(unsigned index, bool enabled, const char *code)
+ {
+    char name[256];
+-   char temp[256];
++   char *temp;
+    char *codepart;
+ 
+    if (code == NULL)
+       return;
+ 
+    sprintf(name, "N/A");
+-   strcpy(temp, code);
++   /* database codes run past 256 characters: copy to the heap, not a fixed buffer */
++   temp = strdup(code);
++   if (!temp)
++      return;
+    codepart = strtok(temp, "+,;._ ");
+ 
+    while (codepart)
+@@ -2716,6 +2719,7 @@
+          log_cb(RETRO_LOG_DEBUG, "Invalid or unknown code: '%s'\n", codepart);
+       codepart = strtok(NULL,"+,;._ ");
+    }
++   free(temp);
+ }
+ 
+ extern "C" void MDFN_DispMessage(const char *format, ...)

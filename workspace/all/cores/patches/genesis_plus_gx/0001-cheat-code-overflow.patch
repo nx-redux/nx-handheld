@@ -1,0 +1,50 @@
+# license: modifies Genesis Plus GX (https://github.com/libretro/Genesis-Plus-GX), non-commercial license (LICENSE.txt); this patch is distributed under the same license.
+# retro_cheat_set cut codes at 255 characters (database codes reach 479), and
+# decode_cheat wrote cheatlist[maxcheats] even with the list full (MAX_CHEATS), past the
+# array; it also reads up to 2 bytes past a short part's end. Copy the code to a
+# zero-padded heap buffer and stop once the list is full. libretro.c has CRLF line endings.
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -3364,22 +3364,31 @@
+ 
+ void retro_cheat_set(unsigned index, bool enabled, const char *code)
+ {
+-	char codeCopy[256];
++	char *codeCopy;
+ 	char *buff;
++	size_t len;
+ 
+ 	/* Avoid crashing when giving no input */
+ 	if (code==NULL) return;
++
++	/* database codes reach 479 characters: copy the whole code to the heap; the
++	   zero padding keeps decode_cheat's reads past a short part's end in the buffer */
++	len = strlen(code);
++	codeCopy = (char *)calloc(len + 4, 1);
++	if (!codeCopy) return;
++	memcpy(codeCopy, code, len);
+ 
+ 	/* clear existing ROM patches */
+ 	clear_cheats();
+ 
+ 	/* Detect and split multiline cheats */
+-	strncpy(codeCopy,code,255);
+-	codeCopy[255] = '\0';
+ 	buff = strtok(codeCopy,"+");
+ 
+ 	while (buff != NULL)
+ 	{
++      /* decode_cheat writes cheatlist[maxcheats]: stop when the list is full */
++      if (maxcheats >= MAX_CHEATS)
++         break;
+       /* interpret code and check if this is a valid cheat code */
+       if (decode_cheat((char *)buff, maxcheats))
+       {
+@@ -3405,6 +3414,7 @@
+       }
+       buff = strtok(NULL,"+");
+ 	}
++	free(codeCopy);
+ 
+ 	/* apply ROM patches */
+ 	apply_cheats();
