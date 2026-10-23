@@ -3476,12 +3476,16 @@ void PLAT_GL_Swap() {
 			notif.clear_frames--;
 	}
 
-	SDL_Rect dst_rect = {0, 0, device_width, device_height};
-	setRectToAspectRatio(&dst_rect);
-
 	if (!hwr.frame_ready && (!vid.blit || !vid.blit->src)) {
 		return;
 	}
+
+	// vid.blit is gone after the in-game menu: quitting from it captures the
+	// screen through here, and reading it crashed every Save & Quit (before the
+	// RTC write and the core's unload)
+	SDL_Rect dst_rect = {0, 0, device_width, device_height};
+	if (vid.blit)
+		setRectToAspectRatio(&dst_rect);
 
 	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
 
