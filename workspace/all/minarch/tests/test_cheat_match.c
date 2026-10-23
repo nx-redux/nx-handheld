@@ -161,6 +161,41 @@ int main(void) {
 		CHECK(strcmp(loose, "quakeiiiarena") == 0, "loose stem of a ROM display name");
 	}
 
+	// 14. one cheat folder per console, whichever core runs it
+	{
+		const char *first, *second;
+		CheatMatch_consoleFolders("MGBA", "/Roms/GBA/Game.gba", &first, &second);
+		CHECK(!strcmp(first, "GBA") && !second, "MGBA reads Cheats/GBA");
+		CheatMatch_consoleFolders("SUPA", NULL, &first, &second);
+		CHECK(!strcmp(first, "SFC") && !second, "SUPA reads Cheats/SFC");
+		CheatMatch_consoleFolders("PSX", NULL, &first, &second);
+		CHECK(!strcmp(first, "PS"), "PSX reads Cheats/PS");
+		CheatMatch_consoleFolders("DCX", NULL, &first, &second);
+		CHECK(!strcmp(first, "DC"), "DCX reads Cheats/DC");
+		CheatMatch_consoleFolders("GPGX", "/Roms/Sega Genesis (GPGX)/Comix Zone.md", &first, &second);
+		CHECK(!strcmp(first, "MD") && !second, "GPGX Mega Drive ROM reads Cheats/MD");
+		CheatMatch_consoleFolders("GPGX", "/Roms/x/Sonic.GG", &first, &second);
+		CHECK(!strcmp(first, "GG"), "GPGX Game Gear ROM reads Cheats/GG (extension case ignored)");
+		CheatMatch_consoleFolders("GPGX", "/Roms/x/Alex Kidd.sms", &first, &second);
+		CHECK(!strcmp(first, "SMS"), "GPGX Master System ROM reads Cheats/SMS");
+		CheatMatch_consoleFolders("GPGX", "/Roms/x/Flicky.sg", &first, &second);
+		CHECK(!strcmp(first, "SG1000"), "GPGX SG-1000 ROM reads Cheats/SG1000");
+		CheatMatch_consoleFolders("GPGX", "/Roms/x/Sonic CD.chd", &first, &second);
+		CHECK(!strcmp(first, "SEGACD"), "GPGX Sega CD disc reads Cheats/SEGACD");
+		CheatMatch_consoleFolders("GPGX", "/Roms/v1.gg/Game", &first, &second);
+		CHECK(!strcmp(first, "MD"), "a dot in a folder name is not the ROM's extension");
+		CheatMatch_consoleFolders("GPGX", NULL, &first, &second);
+		CHECK(!strcmp(first, "MD"), "GPGX with no ROM yet defaults to Cheats/MD");
+		CheatMatch_consoleFolders("GB", NULL, &first, &second);
+		CHECK(!strcmp(first, "GB") && second && !strcmp(second, "GBC"), "GB reads GB, then GBC");
+		CheatMatch_consoleFolders("GBC", NULL, &first, &second);
+		CHECK(!strcmp(first, "GBC") && second && !strcmp(second, "GB"), "GBC reads GBC, then GB");
+		CheatMatch_consoleFolders("SGB", NULL, &first, &second);
+		CHECK(!strcmp(first, "SGB") && !second, "Super Game Boy keeps its own folder");
+		CheatMatch_consoleFolders("FC", NULL, &first, &second);
+		CHECK(!strcmp(first, "FC") && !second, "any other tag reads its own folder");
+	}
+
 	printf(fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", fails);
 	return fails ? 1 : 0;
 }

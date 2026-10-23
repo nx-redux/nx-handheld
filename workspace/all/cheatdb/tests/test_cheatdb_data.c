@@ -97,7 +97,12 @@ int main(void) {
 	remove(sentinel);
 
 	// mapping sanity
-	CHECK(CHEATDB_MAP_COUNT == 36, "36 tag mappings");
+	CHECK(CHEATDB_MAP_COUNT == 33, "33 tag mappings");
+	// one folder per console: a second core's tag has no copy of its own
+	for (int i = 0; i < CHEATDB_MAP_COUNT; i++)
+		CHECK(strcmp(CHEATDB_MAP[i].tag, "MGBA") && strcmp(CHEATDB_MAP[i].tag, "SUPA") &&
+				  strcmp(CHEATDB_MAP[i].tag, "PSX") && strcmp(CHEATDB_MAP[i].tag, "GPGX"),
+			  "no per-core copy (MGBA/SUPA/PSX/GPGX read their console's folder)");
 	int msx = 0, msx2 = 0;
 	for (int i = 0; i < CHEATDB_MAP_COUNT; i++)
 		if (strcmp(CHEATDB_MAP[i].tag, "MSX") == 0) {

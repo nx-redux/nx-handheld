@@ -28,3 +28,13 @@ void CheatMatch_looseStem(const char* name, char* out, size_t out_len);
 // e.g. "Contra (USA) (GameShark).cht" -> "GameShark". Writes "" when the file
 // carries no recognised source tag (only region/version tags, or none).
 void CheatMatch_sourceLabel(const char* basename, char* out, size_t out_len);
+
+// The Cheats/ folder a core tag reads: one folder per console, the one its
+// Roms/ folder and the cheat database use. A second core for a console reads
+// that console's folder (MGBA -> GBA, SUPA -> SFC, PSX -> PS, DCX -> DC), and
+// GPGX picks by the ROM's extension (Game Gear, Master System, SG-1000, Sega CD,
+// else Mega Drive). *second is a folder to try when the first has no match
+// (Game Boy and Game Boy Color read each other's for dual-mode carts), or NULL.
+// rom_path may be NULL (then GPGX reads MD). Any other tag reads its own name.
+void CheatMatch_consoleFolders(const char* tag, const char* rom_path, const char** first,
+							   const char** second);

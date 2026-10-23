@@ -371,3 +371,30 @@ int CheatMatch_select(const char* rom_display, const char* rom_fullname,
 	free(qualified);
 	return count;
 }
+
+void CheatMatch_consoleFolders(const char* tag, const char* rom_path, const char** first,
+							   const char** second) {
+	static const char* const same_console[][2] = {
+		{"MGBA", "GBA"}, {"SUPA", "SFC"}, {"PSX", "PS"}, {"DCX", "DC"}, {NULL, NULL}};
+	*first = tag;
+	*second = NULL;
+	for (int i = 0; same_console[i][0]; i++)
+		if (strcmp(tag, same_console[i][0]) == 0)
+			*first = same_console[i][1];
+
+	if (strcmp(tag, "GB") == 0)
+		*second = "GBC";
+	else if (strcmp(tag, "GBC") == 0)
+		*second = "GB";
+	else if (strcmp(tag, "GPGX") == 0) {
+		static const char* const by_ext[][2] = {
+			{"gg", "GG"}, {"sms", "SMS"}, {"sg", "SG1000"}, {"sc", "SG1000"}, {"cue", "SEGACD"}, {"chd", "SEGACD"}, {"iso", "SEGACD"}, {"m3u", "SEGACD"}, {NULL, NULL}};
+		*first = "MD";
+		const char* dot = rom_path ? strrchr(rom_path, '.') : NULL;
+		const char* slash = rom_path ? strrchr(rom_path, '/') : NULL;
+		if (dot && (!slash || dot > slash))
+			for (int i = 0; by_ext[i][0]; i++)
+				if (strcasecmp(dot + 1, by_ext[i][0]) == 0)
+					*first = by_ext[i][1];
+	}
+}

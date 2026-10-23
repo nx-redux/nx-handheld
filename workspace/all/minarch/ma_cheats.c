@@ -228,7 +228,8 @@ static int load_loose_matches(void) {
 	return loaded;
 }
 
-bool Cheats_load() {
+// One pass of the lookups below over core.cheats_dir.
+static bool load_from_cheats_dir(void) {
 	int success = 0;
 	size_t i;
 
@@ -302,6 +303,21 @@ bool Cheats_load() {
 
 	if (!success)
 		success = load_loose_matches();
+	return success;
+}
+
+bool Cheats_load() {
+	// The console's folder (MGBA reads Cheats/GBA, GPGX a Game Gear ROM Cheats/GG),
+	// then a second one when it has nothing for this game (Game Boy and Game Boy
+	// Color read each other's).
+	const char* rom = game.tmp_path[0] ? game.tmp_path : game.path;
+	const char* folders[2];
+	CheatMatch_consoleFolders(core.tag, rom, &folders[0], &folders[1]);
+	bool success = false;
+	for (int i = 0; i < 2 && !success && folders[i]; i++) {
+		snprintf((char*)core.cheats_dir, sizeof(core.cheats_dir), "%s/Cheats/%s", SDCARD_PATH, folders[i]);
+		success = load_from_cheats_dir();
+	}
 	if (!success)
 		Cheats_free();
 	return success;

@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "ma_core.h"
 #include "ma_cheats.h"
+#include "ma_cheat_match.h"
 #include "ra_integration.h"
 #include "ma_saves.h"
 #include "ma_input.h"
@@ -151,7 +152,12 @@ void Core_open(const char* core_path, const char* tag_name) {
 		else
 			sprintf((char*)core.bios_dir, "%s/Bios/%s", SDCARD_PATH, core.tag);
 	}
-	sprintf((char*)core.cheats_dir, "%s/Cheats/%s", SDCARD_PATH, core.tag);
+	{
+		// the console's folder, shared by its cores (Cheats_load refines it per ROM)
+		const char *cheats, *cheats_second;
+		CheatMatch_consoleFolders(core.tag, NULL, &cheats, &cheats_second);
+		sprintf((char*)core.cheats_dir, "%s/Cheats/%s", SDCARD_PATH, cheats);
+	}
 	sprintf((char*)core.overlays_dir, "%s/Overlays/%s", SDCARD_PATH, core.tag);
 
 	mkdir_p(core.config_dir);
