@@ -15,6 +15,8 @@
 // against, or NULL on a card without one.
 #include "ca_bundle.h"
 #include "utils.h" // shellQuoteAlloc, urlEncode
+#include "defines.h"
+#include "api.h" // PWR_pinBackgroundThread
 
 // Build version info (defined in makefile)
 #ifndef BUILD_HASH
@@ -252,6 +254,9 @@ typedef struct {
 } AsyncRequestData;
 
 static int async_request_thread(void* data) {
+	// curl inherits this: its TLS work shared the emulator's core on the Smart
+	// Pro S (late frames until the requests at game start were done)
+	PWR_pinBackgroundThread();
 	AsyncRequestData* req = (AsyncRequestData*)data;
 
 	HTTP_Response* response;

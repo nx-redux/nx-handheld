@@ -901,6 +901,11 @@ void PLAT_pinThreadsByCommToCoreSet(const char* comm_prefix, int set); // thread
 // call PWR_pinHelperThread() when they start. No-op in every other app.
 void PWR_setHelperThreadCoreSet(int set_or_minus1);
 void PWR_pinHelperThread(void);
+// Background work that is not part of a frame (RetroAchievements requests and
+// the curl they run, badge downloads): moves the calling thread, and anything
+// it spawns, to the slow core set, off the core the emulator is pinned to.
+// No-op where there is one cluster.
+void PWR_pinBackgroundThread(void);
 void PLAT_setRumble(int strength);
 void PLAT_captureRecStop(void);
 void PLAT_pokeCapture(void); // republish a frame for the OSD capture daemons when the app is idle

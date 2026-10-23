@@ -563,6 +563,7 @@ static void ra_bg_invoke(rc_client_server_callback_t callback, void* callback_da
 }
 
 static int ra_bg_thread(void* arg) {
+	PWR_pinBackgroundThread();
 	RA_BgResponse* r = (RA_BgResponse*)arg;
 	ra_bg_invoke(r->callback, r->callback_data, r->body, r->body_length, r->http_status);
 	free(r->body);
@@ -925,7 +926,7 @@ static int ra_sync_cancelled(void* userdata) {
 }
 
 static int ra_sync_thread_fn(void* data) {
-	PWR_pinHelperThread(); // minarch_cpu_affinity=big -> SLOW set (no-op otherwise)
+	PWR_pinBackgroundThread();
 	(void)data;
 	int synced = RA_OfflineNet_syncAllEx(ra_sync_user, ra_sync_token, NULL, ra_sync_cancelled, NULL);
 	ra_sync_synced = synced;

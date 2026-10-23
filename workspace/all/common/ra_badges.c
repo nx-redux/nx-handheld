@@ -500,6 +500,7 @@ static void mark_cached(uint32_t game_id, const char* badge_name, bool locked) {
 }
 
 static int prefetch_worker(void* data) {
+	PWR_pinBackgroundThread();
 	PrefetchJob* job = (PrefetchJob*)data;
 	// the game's folder: downloads land there
 	char game_dir[MAX_PATH];

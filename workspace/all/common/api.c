@@ -300,6 +300,9 @@ void PWR_pinHelperThread(void) {
 	if (helper_thread_core_set >= 0)
 		PLAT_pinToCoreSet(helper_thread_core_set);
 }
+void PWR_pinBackgroundThread(void) {
+	PLAT_pinToCoreSet(CPU_SET_SLOW);
+}
 
 FALLBACK_IMPLEMENTATION void* PLAT_cpu_monitor(void* arg) {
 	return NULL;
