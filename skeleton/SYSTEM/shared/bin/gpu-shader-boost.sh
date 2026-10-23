@@ -23,13 +23,25 @@
 # there is one, else the console's; below those the pak's default and then the
 # system config. A "-key = value" line is a locked key, read the same.
 
+# Pure shell (no sed/basename/dirname/cat): each process costs ~10-15 ms on the
+# Smart Pro S, and this runs before every launch (it was ~300 ms of black).
+NX_CR="$(printf '\r')"
 NX_GPU_GOVERNOR_PATH="${NX_GPU_GOVERNOR_PATH:-/sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor}"
 
 # nx_cfg_value <file> <key>: the key's value in a minarch cfg; fails when the
 # file or the key is missing
 nx_cfg_value() {
 	[ -f "$1" ] || return 1
-	sed -n "s/^-\{0,1\}$2 = //p" "$1" | tail -n 1 | tr -d '\r' | grep .
+	_v=""
+	while IFS= read -r _l || [ -n "$_l" ]; do
+		case "$_l" in
+		"$2 = "*) _v="${_l#"$2 = "}" ;;
+		"-$2 = "*) _v="${_l#"-$2 = "}" ;;
+		esac
+	done < "$1"
+	case "$_v" in *"$NX_CR") _v="${_v%"$NX_CR"}" ;; esac
+	[ -n "$_v" ] || return 1
+	echo "$_v"
 }
 
 # nx_shader_count: minarch_nrofshaders for this game ("off", "1", "2" or "3")
@@ -37,9 +49,10 @@ nx_shader_count() {
 	_dir="$USERDATA_PATH/$EMU_TAG-$EMU_EXE"
 	_dev="${DEVICE:+-$DEVICE}"
 	_user="$_dir/minarch$_dev.cfg"
-	[ -f "$_dir/$(basename "$ROM")$_dev.cfg" ] && _user="$_dir/$(basename "$ROM")$_dev.cfg"
-	_default="$(dirname "$0")/default.cfg"
-	[ -n "$DEVICE" ] && [ -f "$(dirname "$0")/default-$DEVICE.cfg" ] && _default="$(dirname "$0")/default-$DEVICE.cfg"
+	[ -f "$_dir/${ROM##*/}$_dev.cfg" ] && _user="$_dir/${ROM##*/}$_dev.cfg"
+	_pak="${0%/*}"
+	_default="$_pak/default.cfg"
+	[ -n "$DEVICE" ] && [ -f "$_pak/default-$DEVICE.cfg" ] && _default="$_pak/default-$DEVICE.cfg"
 	_system="$SYSTEM_PATH/system.cfg"
 	[ -n "$DEVICE" ] && [ -f "$SYSTEM_PATH/system-$DEVICE.cfg" ] && _system="$SYSTEM_PATH/system-$DEVICE.cfg"
 	for _cfg in "$_user" "$_default" "$_system"; do
@@ -59,7 +72,8 @@ nx_shader_on() {
 
 nx_gpu_shader_boost() {
 	[ -w "$NX_GPU_GOVERNOR_PATH" ] || return 0
-	_base="$(cat "$NX_GPU_GOVERNOR_PATH" 2>/dev/null)"
+	_base=""
+	read -r _base < "$NX_GPU_GOVERNOR_PATH" 2>/dev/null
 	[ -n "$_base" ] || return 0
 	export NX_GPU_SHADER_BOOST="$_base"
 	nx_shader_on && echo performance > "$NX_GPU_GOVERNOR_PATH" 2>/dev/null
