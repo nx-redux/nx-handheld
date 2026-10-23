@@ -548,6 +548,7 @@ finish:
 	// Reenable as soon as we have a more recent SDL available, if ever.
 	//SND_quit();
 	PAD_quit();
+	PLAT_keepScreenOnQuit(); // the fade-out already ended on black
 	GFX_quit();
 	Menu_waitScreenshotSave();
 	// Last: QuitSettings() munmaps the libmsettings shared memory. It used to run

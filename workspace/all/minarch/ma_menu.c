@@ -1445,6 +1445,8 @@ static bool Menu_canAutosaveQuit(void) {
 static void Menu_autosaveQuit(void) {
 	if (!Menu_canAutosaveQuit())
 		return;
+	// leaving: the menu's low clock would only slow the save and the teardown
+	PWR_setCPUSpeed(CPU_SPEED_PERFORMANCE);
 
 	// disc path marker for multi-disc games, matching Menu_saveState
 	if (menu.total_discs && menu.disc >= 0) {
@@ -1455,13 +1457,12 @@ static void Menu_autosaveQuit(void) {
 	}
 
 	// switcher screenshot for the auto slot; the menu is open, so menu.bitmap
-	// holds the frame the user quit on
+	// holds the frame the user quit on. Encoded in the background (~0.3 s)
+	// while minarch winds down; main waits for it before exiting
 	if (menu.bitmap) {
 		char bmp_path[MAX_PATH];
 		snprintf(bmp_path, sizeof(bmp_path), "%s/%s.%d.bmp", menu.minui_dir, game.name, AUTO_RESUME_SLOT);
-		SDL_RWops* rw = SDL_RWFromFile(bmp_path, "wb");
-		if (rw)
-			IMG_SavePNG_RW(menu.bitmap, rw, 1);
+		Menu_queueSurfaceSave(menu.bitmap, bmp_path);
 	}
 
 	// only repoint RESUME at the auto slot if the state actually wrote —
