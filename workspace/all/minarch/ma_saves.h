@@ -24,3 +24,4 @@ void State_resume(void);
 SDL_Surface* State_loadResumePreview(const char* rom_path, const char* tag_name);
 // Retries a resume the core refused before its first frame; call every frame.
 void State_resumePending(void);
+int State_isResumePending(void); // a resume the core refused at load, still being retried

@@ -175,6 +175,8 @@ static void updateLinkCpuBoost(void) {
 	LOG_info("GBALink: link cable %s, CPU %s\n", want ? "busy" : "quiet", want ? "Performance" : "back to setting");
 }
 
+#define RESUME_PREVIEW_FRAMES 30 // frames the resume screenshot stays the clear image
+
 int main(int argc, char* argv[]) {
 	if (argc >= 4 && argc <= 5 && !strcmp(argv[1], "--dump-options"))
 		return OptsDump_run(argv[2], argv[3], argc == 5 ? argv[4] : NULL);
@@ -319,6 +321,7 @@ int main(int argc, char* argv[]) {
 	PLAT_drawClearImage(screen);
 	GFX_flip(screen);
 	GFX_clear(screen);
+	PLAT_holdFrames(resume_preview && State_isResumePending()); // see the main loop
 
 	Special_init(); // after config
 
@@ -389,10 +392,18 @@ int main(int argc, char* argv[]) {
 			run_frame();
 		}
 		Input_runDeferredShortcut(); // save/load/reset shortcuts: never from inside core.run()
-		if (resume_preview) {		 // the first frame's scaler setup (GFX_clearAll) showed it too: done
-			PLAT_setClearImage(NULL);
-			SDL_FreeSurface(resume_preview);
-			resume_preview = NULL;
+		if (resume_preview) {
+			// a state the core takes late (mupen64plus-next): its boot frames stay
+			// behind the screenshot. Then it stays the clear image a little longer,
+			// for a core whose frame size settles on a later frame (flycast)
+			static int preview_frames = 0;
+			int pending = State_isResumePending();
+			PLAT_holdFrames(pending);
+			if (!pending && ++preview_frames >= RESUME_PREVIEW_FRAMES) {
+				PLAT_setClearImage(NULL);
+				SDL_FreeSurface(resume_preview);
+				resume_preview = NULL;
+			}
 		}
 		Core_applyPendingAV();
 		if (Netplay_isActive()) {

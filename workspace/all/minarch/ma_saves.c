@@ -477,6 +477,10 @@ void State_resume(void) {
 	LOG_info("Resume state not accepted yet, retrying once the core runs\n");
 }
 
+int State_isResumePending(void) {
+	return pending_resume_slot >= 0;
+}
+
 void State_resumePending(void) {
 	if (pending_resume_slot < 0 || --pending_resume_wait > 0)
 		return;

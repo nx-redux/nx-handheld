@@ -962,6 +962,13 @@ static SDL_Surface* clear_image = NULL;
 void PLAT_setClearImage(SDL_Surface* image) {
 	clear_image = image;
 }
+// While set, PLAT_GL_Swap shows nothing new: the clear image stays up over a
+// core's frames (minarch: a resume mupen64plus-next only takes once its
+// emulation runs, whose first frames are the game booting from scratch)
+static bool hold_frames = false;
+void PLAT_holdFrames(bool hold) {
+	hold_frames = hold;
+}
 void PLAT_drawClearImage(SDL_Surface* screen) {
 	if (clear_image)
 		SDL_BlitScaled(clear_image, NULL, screen, NULL);
@@ -3442,6 +3449,10 @@ int prepareFrameThread(void* data) {
 static SDL_Thread* prepare_thread = NULL;
 
 void PLAT_GL_Swap() {
+	if (hold_frames) {
+		SDL_Delay(16); // the vsync the skipped swap would have waited for
+		return;
+	}
 	capture_check();
 
 	if (prepare_thread == NULL) {
