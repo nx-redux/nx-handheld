@@ -3255,101 +3255,106 @@ typedef struct {
 
 static FramePreparation frame_prep = {0};
 
-int prepareFrameThread(void* data) {
-	PWR_pinHelperThread();
-	while (1) {
-		updateEffect();
+// One pass of the effect/overlay loading: PrepareFrameThread's loop, and once
+// on the main thread before the first frame so that frame already has them.
+static void prepareFrame(void) {
+	updateEffect();
 
-		// Check effectUpdated flag with mutex
-		pthread_mutex_lock(&video_prep_mutex);
-		int effect_updated = effectUpdated;
-		pthread_mutex_unlock(&video_prep_mutex);
+	// Check effectUpdated flag with mutex
+	pthread_mutex_lock(&video_prep_mutex);
+	int effect_updated = effectUpdated;
+	pthread_mutex_unlock(&video_prep_mutex);
 
-		if (effect_updated) {
-			LOG_info("effect updated %s\n", effect_path);
-			if (effect_path) {
-				SDL_Surface* tmp = IMG_Load(effect_path);
-				SDL_Surface* converted = NULL;
-				if (tmp) {
-					converted = SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_RGBA32, 0);
-					SDL_FreeSurface(tmp);
-				}
-
-				pthread_mutex_lock(&video_prep_mutex);
-				SDL_Surface* old = frame_prep.loaded_effect;
-				frame_prep.loaded_effect = converted;
-				effectUpdated = 0;
-				frame_prep.effect_ready = 1;
-				pthread_mutex_unlock(&video_prep_mutex);
-				// PLAT_GL_Swap only touches loaded_* while holding the mutex
-				SDL_FreeSurface(old);
-			} else {
-				pthread_mutex_lock(&video_prep_mutex);
-				SDL_Surface* old = frame_prep.loaded_effect;
-				frame_prep.loaded_effect = 0;
-				effectUpdated = 0;
-				frame_prep.effect_ready = 1;
-				pthread_mutex_unlock(&video_prep_mutex);
-				SDL_FreeSurface(old);
+	if (effect_updated) {
+		LOG_info("effect updated %s\n", effect_path);
+		if (effect_path) {
+			SDL_Surface* tmp = IMG_Load(effect_path);
+			SDL_Surface* converted = NULL;
+			if (tmp) {
+				converted = SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_RGBA32, 0);
+				SDL_FreeSurface(tmp);
 			}
-		}
 
-		// Check if effect is disabled
-		pthread_mutex_lock(&video_prep_mutex);
-		int effect_type = effect.type;
-		SDL_Surface* loaded_effect = frame_prep.loaded_effect;
-		pthread_mutex_unlock(&video_prep_mutex);
-
-		if (effect_type == EFFECT_NONE && loaded_effect != 0) {
+			pthread_mutex_lock(&video_prep_mutex);
+			SDL_Surface* old = frame_prep.loaded_effect;
+			frame_prep.loaded_effect = converted;
+			effectUpdated = 0;
+			frame_prep.effect_ready = 1;
+			pthread_mutex_unlock(&video_prep_mutex);
+			// PLAT_GL_Swap only touches loaded_* while holding the mutex
+			SDL_FreeSurface(old);
+		} else {
 			pthread_mutex_lock(&video_prep_mutex);
 			SDL_Surface* old = frame_prep.loaded_effect;
 			frame_prep.loaded_effect = 0;
+			effectUpdated = 0;
 			frame_prep.effect_ready = 1;
 			pthread_mutex_unlock(&video_prep_mutex);
 			SDL_FreeSurface(old);
 		}
+	}
 
-		// Check overlayUpdated flag with mutex
+	// Check if effect is disabled
+	pthread_mutex_lock(&video_prep_mutex);
+	int effect_type = effect.type;
+	SDL_Surface* loaded_effect = frame_prep.loaded_effect;
+	pthread_mutex_unlock(&video_prep_mutex);
+
+	if (effect_type == EFFECT_NONE && loaded_effect != 0) {
 		pthread_mutex_lock(&video_prep_mutex);
-		int overlay_updated = overlayUpdated;
+		SDL_Surface* old = frame_prep.loaded_effect;
+		frame_prep.loaded_effect = 0;
+		frame_prep.effect_ready = 1;
 		pthread_mutex_unlock(&video_prep_mutex);
+		SDL_FreeSurface(old);
+	}
 
-		if (overlay_updated) {
-			LOG_info("overlay updated\n");
-			// Copy the path: PLAT_setOverlay may replace it on the main thread
-			// while IMG_Load runs.
-			char path[MAX_PATH];
-			pthread_mutex_lock(&video_prep_mutex);
-			int have_path = overlay_path != NULL;
-			if (have_path)
-				snprintf(path, sizeof(path), "%s", overlay_path);
-			pthread_mutex_unlock(&video_prep_mutex);
-			if (have_path) {
-				SDL_Surface* tmp = path[0] ? IMG_Load(path) : NULL;
-				SDL_Surface* converted = NULL;
-				if (tmp) {
-					converted = SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_RGBA32, 0);
-					SDL_FreeSurface(tmp);
-				}
+	// Check overlayUpdated flag with mutex
+	pthread_mutex_lock(&video_prep_mutex);
+	int overlay_updated = overlayUpdated;
+	pthread_mutex_unlock(&video_prep_mutex);
 
-				pthread_mutex_lock(&video_prep_mutex);
-				SDL_Surface* old = frame_prep.loaded_overlay;
-				frame_prep.loaded_overlay = converted;
-				frame_prep.overlay_ready = 1;
-				overlayUpdated = 0;
-				pthread_mutex_unlock(&video_prep_mutex);
-				SDL_FreeSurface(old);
-			} else {
-				pthread_mutex_lock(&video_prep_mutex);
-				SDL_Surface* old = frame_prep.loaded_overlay;
-				frame_prep.loaded_overlay = 0;
-				frame_prep.overlay_ready = 1;
-				overlayUpdated = 0;
-				pthread_mutex_unlock(&video_prep_mutex);
-				SDL_FreeSurface(old);
+	if (overlay_updated) {
+		LOG_info("overlay updated\n");
+		// Copy the path: PLAT_setOverlay may replace it on the main thread
+		// while IMG_Load runs.
+		char path[MAX_PATH];
+		pthread_mutex_lock(&video_prep_mutex);
+		int have_path = overlay_path != NULL;
+		if (have_path)
+			snprintf(path, sizeof(path), "%s", overlay_path);
+		pthread_mutex_unlock(&video_prep_mutex);
+		if (have_path) {
+			SDL_Surface* tmp = path[0] ? IMG_Load(path) : NULL;
+			SDL_Surface* converted = NULL;
+			if (tmp) {
+				converted = SDL_ConvertSurfaceFormat(tmp, SDL_PIXELFORMAT_RGBA32, 0);
+				SDL_FreeSurface(tmp);
 			}
-		}
 
+			pthread_mutex_lock(&video_prep_mutex);
+			SDL_Surface* old = frame_prep.loaded_overlay;
+			frame_prep.loaded_overlay = converted;
+			frame_prep.overlay_ready = 1;
+			overlayUpdated = 0;
+			pthread_mutex_unlock(&video_prep_mutex);
+			SDL_FreeSurface(old);
+		} else {
+			pthread_mutex_lock(&video_prep_mutex);
+			SDL_Surface* old = frame_prep.loaded_overlay;
+			frame_prep.loaded_overlay = 0;
+			frame_prep.overlay_ready = 1;
+			overlayUpdated = 0;
+			pthread_mutex_unlock(&video_prep_mutex);
+			SDL_FreeSurface(old);
+		}
+	}
+}
+
+int prepareFrameThread(void* data) {
+	PWR_pinHelperThread();
+	while (1) {
+		prepareFrame();
 		SDL_Delay(120);
 	}
 	return 0;
@@ -3361,6 +3366,9 @@ void PLAT_GL_Swap() {
 	capture_check();
 
 	if (prepare_thread == NULL) {
+		// the first frame waits for the overlay and effect instead of going up
+		// without them (they popped in a few frames later)
+		prepareFrame();
 		prepare_thread = SDL_CreateThread(prepareFrameThread, "PrepareFrameThread", NULL);
 
 		if (prepare_thread == NULL) {
