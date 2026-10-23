@@ -12,11 +12,17 @@
 // cheat source such as "(Code Breaker)" vs "(GameShark)"), best-first.
 //
 // Returns the number of selected indices written to out_indices (capacity
-// out_cap). Returns 0 when no candidate's stem exactly matches rom_display, in
-// which case the caller keeps its legacy first-existing-hit behaviour.
+// out_cap). Stems compare case-insensitively; only when none matches that way
+// do they compare by letters and digits alone (CheatMatch_looseStem). Returns 0
+// when no stem matches either way.
 int CheatMatch_select(const char* rom_display, const char* rom_fullname,
 					  const char* const* candidate_basenames, int n,
 					  int* out_indices, int out_cap);
+
+// The stem of a .cht basename or ROM name (text before the first " (" or " ["),
+// as lowercase letters and digits only: "Marvel Vs. Capcom 2 (USA).cht" ->
+// "marvelvscapcom2".
+void CheatMatch_looseStem(const char* name, char* out, size_t out_len);
 
 // Extract the cheat-source label from a basename, preserving original case,
 // e.g. "Contra (USA) (GameShark).cht" -> "GameShark". Writes "" when the file

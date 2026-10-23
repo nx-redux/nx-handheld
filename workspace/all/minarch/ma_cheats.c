@@ -4,6 +4,7 @@
 #include "ma_cheats.h"
 #include "ma_cheat_match.h"
 #include "ma_cheat_parse.h"
+#include <dirent.h>
 #include <glob.h>
 #include <libgen.h>
 #include <string.h>
@@ -35,7 +36,10 @@ void Cheat_getPaths(char paths[CHEAT_MAX_PATHS][MAX_PATH], int* count) {
 		if (strlen(core.extensions) < sizeof(exts)) {
 			strcpy(exts, core.extensions);
 			while ((ext = strtok(i ? NULL : exts, "|"))) {
-				if (*count >= CHEAT_MAX_PATHS - 1) {
+				// keep 3 slots for the sanitized, alias and wildcard paths below: a core
+				// with many extensions (PicoDrive has 16) used the wildcard's slot, so
+				// its games never reached the ranked match
+				if (*count >= CHEAT_MAX_PATHS - 3) {
 					break;
 				}
 
@@ -152,6 +156,78 @@ static int cheats_append(struct Cheats* src, const char* source) {
 	return 1;
 }
 
+// Ranks the candidate files (full paths + their basenames) for this game and
+// loads the winning group, merging same-region variants. With first_hit, no
+// confident match still loads the first candidate (the wildcard's legacy
+// behaviour). Returns 1 if anything was loaded.
+static int load_ranked(char (*fulls)[MAX_PATH], const char** bases, int n, int first_hit) {
+	int* sel = calloc((size_t)n, sizeof(int));
+	if (!sel)
+		return 0;
+	int nsel = CheatMatch_select(game_display_for_cheats(), game.alt_name, bases, n, sel, n);
+	if (nsel <= 0 && first_hit) {
+		sel[0] = 0;
+		nsel = 1;
+	}
+	int loaded = 0;
+	for (int s = 0; s < nsel; s++) {
+		struct Cheats one;
+		if (load_one_file(fulls[sel[s]], &one)) {
+			char src[64] = {0};
+			if (nsel > 1)
+				CheatMatch_sourceLabel(bases[sel[s]], src, sizeof(src));
+			if (cheats_append(&one, src)) {
+				LOG_info("Cheats: loaded %s\n", bases[sel[s]]);
+				loaded = 1;
+			} else {
+				CheatParse_free(&one);
+			}
+		}
+	}
+	free(sel);
+	return loaded;
+}
+
+// Last resort when no path found the game: every .cht in the cheats folder
+// whose stem has the same letters and digits as the ROM's ("Soulcalibur" ->
+// "Soul Calibur.cht"), ranked like a wildcard hit but never falling back to an
+// unrelated first file.
+static int load_loose_matches(void) {
+	char want[MAX_PATH];
+	CheatMatch_looseStem(game_display_for_cheats(), want, sizeof(want));
+	if (!want[0])
+		return 0;
+	DIR* dir = opendir(core.cheats_dir);
+	if (!dir)
+		return 0;
+	enum { MAX_LOOSE = 32 };
+	char (*fulls)[MAX_PATH] = calloc(MAX_LOOSE, sizeof(*fulls));
+	char (*bases)[MAX_PATH] = calloc(MAX_LOOSE, sizeof(*bases));
+	const char* baseptrs[MAX_LOOSE];
+	int n = 0;
+	struct dirent* ent;
+	while (fulls && bases && n < MAX_LOOSE && (ent = readdir(dir)) != NULL) {
+		if (ent->d_name[0] == '.' || !suffixMatch(".cht", ent->d_name))
+			continue;
+		char loose[MAX_PATH];
+		CheatMatch_looseStem(ent->d_name, loose, sizeof(loose));
+		if (strcmp(loose, want) != 0)
+			continue;
+		if (snprintf(fulls[n], MAX_PATH, "%s/%s", core.cheats_dir, ent->d_name) >= MAX_PATH)
+			continue;
+		snprintf(bases[n], MAX_PATH, "%s", ent->d_name);
+		baseptrs[n] = bases[n];
+		n++;
+	}
+	closedir(dir);
+	int loaded = n > 0 && load_ranked(fulls, baseptrs, n, 0);
+	if (loaded)
+		LOG_info("Cheats: no exact name match, loaded the files matching \"%s\" by letters and digits\n", want);
+	free(fulls);
+	free(bases);
+	return loaded;
+}
+
 bool Cheats_load() {
 	int success = 0;
 	size_t i;
@@ -200,30 +276,8 @@ bool Cheats_load() {
 			}
 			globfree(&g);
 
-			if (gc > 0) {
-				int sel[512];
-				int nsel = CheatMatch_select(game_display_for_cheats(),
-											 game.alt_name,
-											 baseptrs, gc, sel, gc);
-				if (nsel <= 0) {
-					// No confident match: legacy behaviour, load the first hit.
-					sel[0] = 0;
-					nsel = 1;
-				}
-				for (int s = 0; s < nsel; s++) {
-					struct Cheats one;
-					if (load_one_file(fulls[sel[s]], &one)) {
-						char src[64] = {0};
-						if (nsel > 1)
-							CheatMatch_sourceLabel(bases[sel[s]], src, sizeof(src));
-						if (cheats_append(&one, src)) {
-							success = 1;
-						} else {
-							CheatParse_free(&one);
-						}
-					}
-				}
-			}
+			if (gc > 0 && load_ranked(fulls, baseptrs, gc, 1))
+				success = 1;
 			free(fulls);
 			free(bases);
 			free(baseptrs);
@@ -246,6 +300,8 @@ bool Cheats_load() {
 		}
 	}
 
+	if (!success)
+		success = load_loose_matches();
 	if (!success)
 		Cheats_free();
 	return success;
