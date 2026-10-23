@@ -3875,6 +3875,7 @@ static struct VIB_Context {
 	pthread_mutex_t lock;
 	pthread_cond_t wake;
 	int queued_strength; // guarded by lock
+	uint32_t pulse_end;	 // guarded by lock; VIB_startPulse's stop time (SDL ticks), 0 = none
 	int quit;			 // guarded by lock
 	int strength;		 // applied value; written by the thread only
 } vib = {.lock = PTHREAD_MUTEX_INITIALIZER, .wake = PTHREAD_COND_INITIALIZER};
@@ -3911,6 +3912,10 @@ static void* VIB_thread(void* arg) {
 		while (!vib.quit && vib.queued_strength == 0 && vib.strength == 0) {
 			defer = 0;
 			pthread_cond_wait(&vib.wake, &vib.lock);
+		}
+		if (vib.pulse_end && (int32_t)(SDL_GetTicks() - vib.pulse_end) >= 0) {
+			vib.pulse_end = 0;
+			vib.queued_strength = 0;
 		}
 		int quit = vib.quit;
 		int queued = vib.queued_strength;
@@ -3963,6 +3968,7 @@ void VIB_quit(void) {
 }
 void VIB_setStrength(int strength) {
 	pthread_mutex_lock(&vib.lock);
+	vib.pulse_end = 0; // a new request replaces a running VIB_startPulse
 	if (vib.queued_strength != strength) {
 		vib.queued_strength = strength;
 		pthread_cond_signal(&vib.wake);
@@ -3988,6 +3994,18 @@ void VIB_singlePulse(int strength, int duration_ms) {
 	VIB_setStrength(0);
 }
 
+
+// VIB_singlePulse without the wait: the vibration thread stops the motor
+// after duration_ms, so the caller goes on at once.
+void VIB_startPulse(int strength, int duration_ms) {
+	pthread_mutex_lock(&vib.lock);
+	vib.queued_strength = VIB_scaleStrength(strength);
+	vib.pulse_end = SDL_GetTicks() + duration_ms;
+	if (!vib.pulse_end)
+		vib.pulse_end = 1; // 0 means no pulse
+	pthread_cond_signal(&vib.wake);
+	pthread_mutex_unlock(&vib.lock);
+}
 
 // Feedback for the "Vibration strength" setting: one pulse at the level's
 // floor, i.e. what the weakest game rumble will feel like on that level.
@@ -4104,8 +4122,8 @@ void PWR_init(void) {
 	SDL_AtomicSet(&pwr.poll_network_status, 1);
 	pwr.initialized = 1;
 
-	if (CFG_getHaptics())
-		VIB_singlePulse(VIB_bootStrength, VIB_bootDuration_ms);
+	if (CFG_getHaptics()) // the thread ends it: waiting here held up every app's launch by 100 ms
+		VIB_startPulse(VIB_bootStrength, VIB_bootDuration_ms);
 
 	PWR_updateBatteryStatus();
 
