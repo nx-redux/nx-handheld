@@ -1366,24 +1366,24 @@ static void Menu_startImageSave(unsigned char* pixels, SDL_Surface* surface, int
 	if (!screenshotsavethread)
 		save_screenshot_thread(args); // frees args
 }
-// GL-captures the current frame and returns it as a converted SDL_Surface
+// GL-captures the current frame, without notifications, and returns it as a converted SDL_Surface
 // (caller owns and must SDL_FreeSurface it), or NULL on capture failure.
 SDL_Surface* Menu_captureScreenSurface(Uint32 pixel_format) {
 	Present_stop();
 	int cw, ch;
-	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
+	unsigned char* pixels = GFX_GL_screenCaptureClean(&cw, &ch); // no toasts baked into the picture
 	if (!pixels)
 		return NULL;
 	SDL_Surface* converted = rawCaptureToSurface(pixels, cw, ch, pixel_format);
 	free(pixels);
 	return converted;
 }
-// GL-captures the current frame and hands it to the background PNG-save
+// GL-captures the current frame, without notifications, and hands it to the background PNG-save
 // worker at `png_path`; waits for any previous save to finish first.
 void Menu_queueScreenshotSave(const char* png_path) {
 	Present_stop();
 	int cw, ch;
-	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
+	unsigned char* pixels = GFX_GL_screenCaptureClean(&cw, &ch);
 	if (!pixels) {
 		SDL_Log("Failed to capture screenshot");
 		return;

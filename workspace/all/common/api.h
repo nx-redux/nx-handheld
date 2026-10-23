@@ -296,11 +296,12 @@ void GFX_setScreen(SDL_Surface* s);								   // refresh the cached screen after
 #define GFX_animateSurface PLAT_animateSurface					   //(SDL_Surface *inputSurface,int x, int y)
 #define GFX_animateSurfaceOpacity PLAT_animateSurfaceOpacity	   //(SDL_Surface *inputSurface,int x, int y)
 #define GFX_animateSlidePages PLAT_animateSlidePages
-#define GFX_textShouldScroll PLAT_textShouldScroll	 // (TTF_Font* font, const char* in_name,int max_width, SDL_mutex* fontMutex);
-#define GFX_resetScrollText PLAT_resetScrollText	 // (void);
-#define GFX_scrollTextTexture PLAT_scrollTextTexture // (TTF_Font* font, const char* in_name,int x, int y, int w, int h, SDL_Color color, float transparency, SDL_mutex* fontMutex);
-#define GFX_flipHidden PLAT_flipHidden				 //(void)
-#define GFX_GL_screenCapture PLAT_GL_screenCapture	 //(void)
+#define GFX_textShouldScroll PLAT_textShouldScroll			 // (TTF_Font* font, const char* in_name,int max_width, SDL_mutex* fontMutex);
+#define GFX_resetScrollText PLAT_resetScrollText			 // (void);
+#define GFX_scrollTextTexture PLAT_scrollTextTexture		 // (TTF_Font* font, const char* in_name,int x, int y, int w, int h, SDL_Color color, float transparency, SDL_mutex* fontMutex);
+#define GFX_flipHidden PLAT_flipHidden						 //(void)
+#define GFX_GL_screenCapture PLAT_GL_screenCapture			 //(void)
+#define GFX_GL_screenCaptureClean PLAT_GL_screenCaptureClean //(void)
 
 void GFX_setMode(int mode);
 SDL_Color uintToColour(uint32_t rgba); // packed 0xRRGGBBAA
@@ -775,6 +776,7 @@ void GFX_GL_Swap();
 void GFX_GL_noteFrame(void);	   // GFX_GL_Swap's frame-rate bookkeeping alone
 void PLAT_GL_releaseCurrent(void); // no GL context current on this thread
 unsigned char* PLAT_GL_screenCapture(int* outWidth, int* outHeight);
+unsigned char* PLAT_GL_screenCaptureClean(int* outWidth, int* outHeight);
 void PLAT_GPU_Flip();
 
 // GPU sprites over the screen layer (a frame's moving pictures drawn by the GPU instead of blended into the screen):

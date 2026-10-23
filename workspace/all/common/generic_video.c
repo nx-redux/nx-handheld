@@ -589,6 +589,12 @@ void PLAT_clearNotificationSurface(void) {
 	notif.clear_frames = 3; // Clear for 3 frames (triple buffering safety)
 }
 
+// PLAT_GL_screenCaptureClean: the next PLAT_GL_Swap skips the notification pass
+// and reads its frame back here, before the swap
+static bool clean_capture;
+static unsigned char* clean_pixels;
+static int clean_w, clean_h;
+
 
 #define MAX_SHADERLINE_LENGTH 512
 int extractPragmaParameters(const char* shaderSource, ShaderParam* params, int maxParams) {
@@ -3587,7 +3593,9 @@ void PLAT_GL_Swap() {
 		notif.dirty = 0;
 	}
 
-	if (notif.tex && notif.surface) {
+	if (clean_capture) {
+		clean_pixels = PLAT_GL_screenCapture(&clean_w, &clean_h);
+	} else if (notif.tex && notif.surface) {
 		runShaderPass(
 			notif.tex,
 			g_shader_overlay,
@@ -3603,6 +3611,26 @@ void PLAT_GL_Swap() {
 	frame_count++;
 	reloadShaderTextures = 0;
 	shaderResetRequested = 0;
+}
+
+// The last frame without toasts or indicators on it (the in-game menu's
+// background, save-state and Game Switcher pictures): redraws it once with
+// the notification pass skipped. Falls back to the plain capture when there
+// is no frame to redraw.
+unsigned char* PLAT_GL_screenCaptureClean(int* outWidth, int* outHeight) {
+	clean_capture = true;
+	clean_pixels = NULL;
+	PLAT_GL_Swap();
+	clean_capture = false;
+	if (!clean_pixels)
+		return PLAT_GL_screenCapture(outWidth, outHeight);
+	unsigned char* pixels = clean_pixels;
+	clean_pixels = NULL;
+	if (outWidth)
+		*outWidth = clean_w;
+	if (outHeight)
+		*outHeight = clean_h;
+	return pixels; // caller must free
 }
 
 // flipping image upside down
