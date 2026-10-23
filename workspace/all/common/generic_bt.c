@@ -811,6 +811,7 @@ void PLAT_bluetoothSetVolume(int vol) {
 // bt_device_watcher.c
 
 #include <sys/inotify.h>
+#include <poll.h>
 
 #define WATCHED_DIR_FMT "%s"
 #define WATCHED_FILE ".asoundrc"
@@ -823,6 +824,9 @@ static int inotify_fd = -1;
 static int dir_watch_fd = -1;
 static int file_watch_fd = -1;
 static volatile int running = 0;
+// PLAT_audioDeviceWatchUnregister writes here to wake the thread out of poll:
+// it slept 1 s between reads, and every app's exit waited for it (~0.5 s avg)
+static int wake_pipe[2] = {-1, -1};
 static void (*callback_fn)(int device, int watch_event) = NULL;
 static char watched_dir[MAX_PATH];
 static char watched_file_path[MAX_PATH];
@@ -889,12 +893,15 @@ static void* watcher_thread_func(void* arg) {
 	add_file_watch();
 
 	while (running) {
+		struct pollfd fds[2] = {{inotify_fd, POLLIN, 0}, {wake_pipe[0], POLLIN, 0}};
+		if (poll(fds, 2, -1) < 0 && errno != EINTR)
+			break;
+		if (!running || (fds[1].revents & POLLIN))
+			break;
 		int length = read(inotify_fd, buffer, EVENT_BUF_LEN);
 		if (length < 0) {
-			if (errno == EAGAIN || errno == EINTR) {
-				sleep(1);
+			if (errno == EAGAIN || errno == EINTR)
 				continue;
-			}
 			LOG_error("inotify read error: %s\n", strerror(errno));
 			break;
 		}
@@ -969,11 +976,23 @@ void PLAT_audioDeviceWatchRegister(void (*cb)(int device, int event)) {
 
 	file_watch_fd = -1;
 
+	if (pipe(wake_pipe) != 0) {
+		LOG_error("PLAT_audioDeviceWatchRegister: failed to create wake pipe\n");
+		inotify_rm_watch(inotify_fd, dir_watch_fd);
+		close(inotify_fd);
+		inotify_fd = -1;
+		dir_watch_fd = -1;
+		return;
+	}
+
 	running = 1;
 	if (pthread_create(&watcher_thread, NULL, watcher_thread_func, NULL) != 0) {
 		LOG_error("PLAT_audioDeviceWatchRegister: failed to create thread\n");
 		inotify_rm_watch(inotify_fd, dir_watch_fd);
 		close(inotify_fd);
+		close(wake_pipe[0]);
+		close(wake_pipe[1]);
+		wake_pipe[0] = wake_pipe[1] = -1;
 		inotify_fd = -1;
 		dir_watch_fd = -1;
 		running = 0;
@@ -985,7 +1004,12 @@ void PLAT_audioDeviceWatchUnregister(void) {
 		return;
 
 	running = 0;
+	if (write(wake_pipe[1], "x", 1) < 0)
+		LOG_warn("PLAT_audioDeviceWatchUnregister: wake failed: %s\n", strerror(errno));
 	pthread_join(watcher_thread, NULL);
+	close(wake_pipe[0]);
+	close(wake_pipe[1]);
+	wake_pipe[0] = wake_pipe[1] = -1;
 
 	if (file_watch_fd >= 0)
 		inotify_rm_watch(inotify_fd, file_watch_fd);
