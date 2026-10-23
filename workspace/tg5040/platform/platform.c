@@ -42,6 +42,10 @@ static SDL_Joystick** joysticks = NULL;
 static int num_joysticks = 0;
 void PLAT_initInput(void) {
 	PLAT_initPlatform();
+	// SDL's udev enumeration took ~100 ms of every app launch; its fallback
+	// scans /dev/input itself (~30 ms) and watches it with inotify for
+	// hotplugged controllers. Env only: SDL reads no hint for it.
+	setenv("SDL_JOYSTICK_DISABLE_UDEV", "1", 0);
 	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
 		LOG_error("Failed initializing joysticks: %s\n", SDL_GetError());
 	num_joysticks = SDL_NumJoysticks();
