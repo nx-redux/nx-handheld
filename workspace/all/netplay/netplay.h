@@ -29,6 +29,13 @@
 // Input latency frames (to hide network jitter)
 #define NETPLAY_INPUT_LATENCY_FRAMES 2
 
+// Whether a received input for `frame` can be kept while `run_frame` is the next
+// frame to run: it must not be run already, and it must fit in the ring without
+// landing on a slot an unrun frame still uses. Frame numbers wrap with uint32_t.
+static inline bool Netplay_frameInWindow(uint32_t frame, uint32_t run_frame) {
+	return (uint32_t)(frame - run_frame) < NETPLAY_FRAME_BUFFER_SIZE;
+}
+
 typedef enum {
 	NETPLAY_OFF = 0,
 	NETPLAY_HOST,

@@ -598,8 +598,14 @@ bool Netplay_preFrame(void) {
 		if (received) {
 			if (hdr.cmd == CMD_INPUT && hdr.size < sizeof(remote_pkt.input)) {
 				// no buttons in it: malformed, ignore
+			} else if (hdr.cmd == CMD_INPUT && !Netplay_frameInWindow(hdr.frame, np.run_frame)) {
+				// already run, or too far ahead for the ring: ignore
 			} else if (hdr.cmd == CMD_INPUT) {
 				FrameInput* remote_slot = get_frame_slot(hdr.frame);
+				// An input that arrives before our side reached its frame claims the
+				// slot now, so the local setup for that frame doesn't wipe it.
+				if (remote_slot->frame != hdr.frame)
+					init_frame_slot(hdr.frame);
 				uint16_t remote_input = ntohs(remote_pkt.input);
 				int16_t remote_analog[NETPLAY_ANALOG_AXES] = {0};
 				if (hdr.size >= sizeof(remote_pkt)) // a short (buttons-only) packet means centred sticks

@@ -16,3 +16,6 @@ cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/network_com
 OUT_DISC=${TMPDIR:-/tmp}/test_discovery
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/network_common.c" "$D/tests/test_discovery.c" -o "$OUT_DISC"
 "$OUT_DISC"
+OUT_FW=${TMPDIR:-/tmp}/test_frame_window
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/tests/test_frame_window.c" -o "$OUT_FW"
+"$OUT_FW"
