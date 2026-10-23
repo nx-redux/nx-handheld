@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <dirent.h>
 #include <tinyalsa/mixer.h>
 
 #include "msettings.h"
@@ -222,6 +223,8 @@ int scaleSaturation(int);
 int scaleExposure(int);
 int scaleVolume(int);
 int scaleFanSpeed(int);
+static int fanControlRunning(void);
+static int appliedFanMode(void);
 
 int getInt(char* path) {
 	int i = 0;
@@ -267,6 +270,9 @@ int peekVersion(const char* filename) {
 	return version;
 }
 
+// InitSettings re-applies what it just loaded from the file: no need to write
+// it back (each save is an fsync on the card, six of them per app launch)
+static int saving_suppressed = 0;
 void InitSettings(void) {
 	sprintf(SettingsPath, "%s/msettings.bin", getenv("USERDATA_PATH"));
 
@@ -388,9 +394,16 @@ void InitSettings(void) {
 	}
 
 	// This will implicitly update all other settings based on FN switch state
+	saving_suppressed = 1;
 	SetFnMode(settings->fn_mode);
+	saving_suppressed = 0;
 
-	SetFanSpeed(settings->fanSpeed);
+	// Restarting the fan controller took ~160 ms of every app launch (a 100 ms
+	// wait and two shells); only start it when it is not already running the
+	// mode the settings ask for
+	int fan_mode = scaleFanSpeed(settings->fanSpeed);
+	if (!fanControlRunning() || appliedFanMode() != fan_mode)
+		SetRawFanSpeed(fan_mode);
 }
 // InitSettings without touching the hardware: maps the shared settings as a
 // client and applies nothing (no mixer defaults, no FN-mode re-apply). For a
@@ -417,6 +430,8 @@ void QuitSettings(void) {
 		shm_unlink(SHM_KEY);
 }
 static inline void SaveSettings(void) {
+	if (saving_suppressed)
+		return;
 	int fd = open(SettingsPath, O_CREAT | O_WRONLY, 0644);
 	if (fd >= 0) {
 		write(fd, settings, shm_size);
@@ -1217,10 +1232,52 @@ void SetRawColortemp(int val) { // 0 - 255
 
 #define FAN_SPEED_CONTROL "/mnt/SDCARD/.system/bin/fancontrol"
 #define FAN_LOCK_FILE "/var/run/fan-control.lock"
+#define FAN_MODE_FILE "/tmp/nx_fan_mode" // the mode SetRawFanSpeed last started fancontrol with
+
+// A fancontrol process is alive (it is a shell script: its comm is its name)
+static int fanControlRunning(void) {
+	DIR* dir = opendir("/proc");
+	if (!dir)
+		return 0;
+	int found = 0;
+	struct dirent* entry;
+	while (!found && (entry = readdir(dir))) {
+		if (entry->d_name[0] < '0' || entry->d_name[0] > '9')
+			continue;
+		char path[64], comm[32] = {0};
+		snprintf(path, sizeof(path), "/proc/%s/comm", entry->d_name);
+		int fd = open(path, O_RDONLY);
+		if (fd < 0)
+			continue;
+		int n = read(fd, comm, sizeof(comm) - 1);
+		close(fd);
+		found = n > 0 && strncmp(comm, "fancontrol\n", 11) == 0;
+	}
+	closedir(dir);
+	return found;
+}
+// -100 (never matches a mode) when no mode was recorded this boot
+static int appliedFanMode(void) {
+	char buf[16] = {0};
+	int fd = open(FAN_MODE_FILE, O_RDONLY);
+	if (fd < 0)
+		return -100;
+	int n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+	return n > 0 ? atoi(buf) : -100;
+}
 
 void SetRawFanSpeed(int val) { // 0-100 %, -1/-2/-3 auto quiet/normal/performance
 	printf("SetRawFanSpeed(%i)\n", val);
 	fflush(stdout);
+
+	int mode_fd = open(FAN_MODE_FILE, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (mode_fd >= 0) {
+		char buf[16];
+		int n = snprintf(buf, sizeof(buf), "%d", val);
+		write(mode_fd, buf, n);
+		close(mode_fd);
+	}
 
 	// Kill any existing fancontrol process and wait for it to exit
 	system("killall fancontrol 2>/dev/null");
