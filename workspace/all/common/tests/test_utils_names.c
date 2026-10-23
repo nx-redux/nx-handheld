@@ -255,12 +255,31 @@ static void test_simple_mode_pin(void) {
 	unlink(SIMPLE_MODE_PATH);
 }
 
+static void test_media_art_path(void) {
+	char out[MAX_PATH];
+	ROM_mediaArtVariantPath("/Roms/GBA/Game.gba", "screenshot", out, sizeof(out));
+	assert(strcmp(out, "/Roms/GBA/.media/screenshot/Game.png") == 0);
+	ROM_mediaArtVariantPath("/Roms/GBA/Game.gba", NULL, out, sizeof(out));
+	assert(strcmp(out, "/Roms/GBA/.media/Game.png") == 0);
+	// a path too long for MAX_PATH once ".media/<variant>/" is added gives no path, never a cut one
+	char rom[MAX_PATH];
+	memset(rom, 'a', sizeof(rom) - 1);
+	rom[0] = '/';
+	rom[10] = '/';
+	rom[sizeof(rom) - 1] = '\0';
+	ROM_mediaArtVariantPath(rom, "screenshot", out, sizeof(out));
+	assert(out[0] == '\0');
+	ROM_mediaArtPath(rom, out, sizeof(out));
+	assert(out[0] == '\0');
+}
+
 int main(void) {
 	sh("rm -rf " SDCARD_PATH " && mkdir -p " SDCARD_PATH);
 	test_clean_name();
 	test_replace_string2();
 	test_display_name();
 	test_file_extension();
+	test_media_art_path();
 	test_emu_name();
 	test_url_encode();
 	test_json_extract();

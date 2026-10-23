@@ -822,7 +822,8 @@ void ROM_mediaArtPath(const char* rom_path, char* out, size_t out_size) {
 	char* dot = strrchr(base, '.');
 	if (dot)
 		*dot = '\0';
-	snprintf(out, out_size, "%s/.media/%s.png", dir, base);
+	if (snprintf(out, out_size, "%s/.media/%s.png", dir, base) >= (int)out_size)
+		out[0] = '\0'; // too long: no path rather than a cut one
 }
 
 // ROM_mediaArtPath with the variant subfolder spliced in:
@@ -841,7 +842,8 @@ void ROM_mediaArtVariantPath(const char* rom_path, const char* variant,
 	if (!slash)
 		return; // no .media component to splice into
 	*slash = '\0';
-	snprintf(out, out_size, "%s/%s/%s", base_path, variant, slash + 1);
+	if (snprintf(out, out_size, "%s/%s/%s", base_path, variant, slash + 1) >= (int)out_size)
+		out[0] = '\0'; // too long: no path rather than a cut one that names another file
 }
 
 // Game art the companion app (NX Redux Mobile) fetched may be stored as a JPEG under the same name:
@@ -895,10 +897,10 @@ static bool folderGameArtPath(const char* rom_path, const char* variant, char* o
 	if (!name)
 		return false;
 	char game[MAX_PATH];
-	snprintf(game, sizeof(game), "%s/%s.m3u", dir, name + 1);
+	if (snprintf(game, sizeof(game), "%s/%s.m3u", dir, name + 1) >= (int)sizeof(game))
+		return false;
 	if (!exists(game)) {
-		snprintf(game, sizeof(game), "%s/%s.cue", dir, name + 1);
-		if (!exists(game))
+		if (snprintf(game, sizeof(game), "%s/%s.cue", dir, name + 1) >= (int)sizeof(game) || !exists(game))
 			return false;
 	}
 	char path[MAX_PATH];
@@ -1039,8 +1041,8 @@ int M3U_forEachDisc(const char* m3u_path, M3U_DiscFn fn, void* ctx) {
 		if (strlen(line) == 0)
 			continue;
 		char disc_path[MAX_PATH];
-		snprintf(disc_path, sizeof(disc_path), "%s%s", base_path, line);
-		if (!exists(disc_path))
+		if (snprintf(disc_path, sizeof(disc_path), "%s%s", base_path, line) >= (int)sizeof(disc_path) ||
+			!exists(disc_path))
 			continue;
 		bool keep = fn(disc_path, count, ctx);
 		count++;
