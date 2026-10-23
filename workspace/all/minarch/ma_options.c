@@ -56,9 +56,6 @@ void OptionList_init(const struct retro_core_option_definition* defs) {
 
 				item->full = calloc(len, sizeof(char));
 				strncpy(item->full, item->desc, len);
-
-				GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2 * PADDING), 2);
-				GFX_wrapText(font.medium, item->full, DEVICE_WIDTH - SCALE1(2 * PADDING), 16);
 			}
 
 			for (count = 0; def->values[count].value; count++)
@@ -137,9 +134,6 @@ void OptionList_v2_init(const struct retro_core_options_v2* opt_defs) {
 			if (def->info) {
 				item->desc = strdup(def->info);
 				item->full = strdup(item->desc);
-
-				GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2 * PADDING), 2);
-				GFX_wrapText(font.medium, item->full, DEVICE_WIDTH - SCALE1(2 * PADDING), 16);
 			}
 
 			for (count = 0; def->values[count].value; count++)
@@ -165,6 +159,22 @@ void OptionList_v2_init(const struct retro_core_options_v2* opt_defs) {
 			item->value = Option_getValueIndex(item, def->default_value);
 			item->default_value = item->value;
 		}
+	}
+}
+
+// Wrapping every option's info text measures it glyph by glyph (~100-160 ms
+// for gambatte or mGBA at launch), so OptionList_init/OptionList_v2_init keep
+// it raw and the Core Options menu wraps it the first time it opens.
+void OptionList_wrapTexts(OptionList* list) {
+	for (int i = 0; i < list->count; i++) {
+		Option* item = &list->options[i];
+		if (item->wrapped)
+			continue;
+		item->wrapped = 1;
+		if (item->desc)
+			GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2 * PADDING), 2);
+		if (item->full)
+			GFX_wrapText(font.medium, item->full, DEVICE_WIDTH - SCALE1(2 * PADDING), 16);
 	}
 }
 

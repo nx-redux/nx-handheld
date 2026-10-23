@@ -4,9 +4,10 @@
 
 typedef struct Option {
 	char* key;
-	char* name; // desc
-	char* desc; // info, truncated
-	char* full; // info, longer but possibly still truncated
+	char* name;	 // desc
+	char* desc;	 // info, truncated
+	char* full;	 // info, longer but possibly still truncated
+	int wrapped; // desc/full wrapped to the screen (core options: on first menu open)
 	char* category;
 	char* var;
 	int default_value;

@@ -177,6 +177,7 @@ int OptionEmulator_openMenu(MenuList* list, int index) {
 		}
 	}
 
+	OptionList_wrapTexts(&config.core); // before the restart filter reads desc/full
 	int enabled_count = 0;
 	config.core.enabled_options = calloc(config.core.count + 1, sizeof(Option*));
 	if (!config.core.enabled_options) {
