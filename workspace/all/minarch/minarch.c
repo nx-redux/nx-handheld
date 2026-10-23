@@ -189,6 +189,7 @@ int main(int argc, char* argv[]) {
 
 	PWR_setCPUSpeed(CPU_SPEED_PERFORMANCE); // start up in performance mode, faster init
 	PWR_pinToCores(CPU_CORE_PERFORMANCE);	// thread affinity
+	Audio_startWarmup();					// the codec's setup overlaps video and core loading
 
 	char core_path[MAX_PATH];
 	char rom_path[MAX_PATH];
@@ -260,8 +261,10 @@ int main(int argc, char* argv[]) {
 
 	// Mute audio during startup to avoid pops (InitSettings would be logical, but too late)
 	SND_overrideMute(1);
+	Audio_joinWarmup();
 	SND_init(core.sample_rate, core.fps);
-	InitSettings(); // after we initialize audio
+	Audio_endWarmup(); // SDL's device holds the dmix open now
+	InitSettings();	   // after we initialize audio
 	AudioMgr_init();
 	AudioMgr_setCallback(Audio_onSinkChanged);
 	Menu_init();

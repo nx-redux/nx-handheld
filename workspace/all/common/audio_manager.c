@@ -325,6 +325,11 @@ bool AudioMgr_isMusicAudioOpen(void) {
 		   actual_start_time == expected_start_time;
 }
 
+bool AudioMgr_publishedSinkIsSpeaker(void) {
+	SinkState st;
+	return read_sink_state(&st) && strcmp(st.sink, "default") == 0;
+}
+
 int AudioMgr_pickRate(int desired) {
 	(void)desired;
 	SinkState st;

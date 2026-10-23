@@ -30,6 +30,9 @@ bool AudioMgr_isMusicAudioOpen(void);
 // (/tmp/nx_audio_sink). The desired rate is retained for API compatibility;
 // concurrent streams must consume the same active rate.
 int AudioMgr_pickRate(int desired);
+// True when audiomon's published sink is the built-in speaker (its dmix).
+// Reads the state file, so it works before AudioMgr_init.
+bool AudioMgr_publishedSinkIsSpeaker(void);
 
 // Human-readable "sink - rate" line for the settings Output row. Static buffer.
 const char* AudioMgr_getSinkDescription(void);

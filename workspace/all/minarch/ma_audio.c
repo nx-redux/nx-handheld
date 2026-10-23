@@ -3,6 +3,9 @@
 #include "ma_rewind.h"
 #include "ma_emutime.h"
 #include <msettings.h>
+#include "audio_manager.h"
+#include <alsa/asoundlib.h>
+#include <pthread.h>
 
 void audio_sample_callback(int16_t left, int16_t right) {
 	EmuTime_countAudio(1);
@@ -67,5 +70,46 @@ void Audio_checkAndResetIfNeeded(void) {
 		resetAudio = false;
 		SND_resetAudio(core.sample_rate, core.fps);
 		SetVolume(GetVolume());
+	}
+}
+
+static pthread_t warmup_thread;
+static int warmup_started = 0;
+static snd_pcm_t* warmup_pcm = NULL;
+
+static void* Audio_warmupThread(void* arg) {
+	(void)arg;
+	snd_pcm_t* pcm = NULL;
+	if (snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0) < 0)
+		return NULL;
+	if (snd_pcm_set_params(pcm, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 2, 48000, 1, 100000) < 0) {
+		snd_pcm_close(pcm);
+		return NULL;
+	}
+	warmup_pcm = pcm;
+	return NULL;
+}
+
+void Audio_startWarmup(void) {
+	// Only the speaker's dmix lets a second open share the device: a USB DAC
+	// or Bluetooth sink may be exclusive.
+	if (!AudioMgr_publishedSinkIsSpeaker())
+		return;
+	SND_overrideMute(1); // the codec powers up now: keep the startup pop protection
+	warmup_started = pthread_create(&warmup_thread, NULL, Audio_warmupThread, NULL) == 0;
+}
+
+void Audio_joinWarmup(void) {
+	if (!warmup_started)
+		return;
+	pthread_join(warmup_thread, NULL);
+	warmup_started = 0;
+}
+
+void Audio_endWarmup(void) {
+	Audio_joinWarmup();
+	if (warmup_pcm) {
+		snd_pcm_close(warmup_pcm);
+		warmup_pcm = NULL;
 	}
 }
