@@ -714,6 +714,7 @@ void PLAT_quitVideo(void);
 void PLAT_clearVideo(SDL_Surface* screen);
 void PLAT_clearAll(void);
 void PLAT_setClearImage(SDL_Surface* image); // NULL: back to black
+bool PLAT_holdDisplayOnExit(void);			 // DRM: a child keeps this frame up after exit (see generic_video.c)
 void PLAT_keepScreenOnQuit(void);			 // GFX_quit leaves the last frame up instead of clearing to black
 void PLAT_drawClearImage(SDL_Surface* screen);
 void PLAT_setVsync(int vsync);

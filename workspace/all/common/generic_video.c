@@ -1237,6 +1237,85 @@ void PLAT_setShaders(int nr) {
 	reloadShaderTextures = 1;
 }
 
+#ifdef SDL_VIDEO_DRIVER_KMSDRM
+#include <SDL2/SDL_syswm.h>
+#include <drm/drm.h>
+#include <drm/drm_mode.h>
+#include <sys/wait.h>
+#include <time.h>
+#endif
+
+// On DRM (tg5050) the kernel turns the screen off when the last handle to
+// the displayed framebuffer closes, so when nextui exits the screen stays
+// black until minarch's first frame (~0.6 s). Instead nextui gives up display
+// control and leaves a child holding its DRM file, which keeps this frame on
+// screen until another framebuffer replaces it (minarch's first present) or
+// HOLD_DISPLAY_MAX_MS passes. Only async-signal-safe calls after the fork.
+// False (nothing done) without KMSDRM; the caller then quits as usual.
+#define HOLD_DISPLAY_MAX_MS 8000
+bool PLAT_holdDisplayOnExit(void) {
+#ifdef SDL_VIDEO_DRIVER_KMSDRM
+	SDL_SysWMinfo info;
+	SDL_VERSION(&info.version);
+	if (!vid.window || !SDL_GetWindowWMInfo(vid.window, &info) || info.subsystem != SDL_SYSWM_KMSDRM)
+		return false;
+	int fd = info.info.kmsdrm.drm_fd;
+	if (fd < 0)
+		return false;
+
+	// the CRTC showing this frame, and the framebuffer it shows
+	uint32_t crtc_ids[8] = {0};
+	struct drm_mode_card_res res;
+	memset(&res, 0, sizeof(res));
+	if (ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) != 0)
+		return false;
+	res.count_fbs = res.count_connectors = res.count_encoders = 0;
+	if (res.count_crtcs > 8)
+		res.count_crtcs = 8;
+	res.crtc_id_ptr = (uintptr_t)crtc_ids;
+	if (ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) != 0)
+		return false;
+	uint32_t crtc = 0, fb = 0;
+	for (unsigned i = 0; i < res.count_crtcs && !fb; i++) {
+		struct drm_mode_crtc cr;
+		memset(&cr, 0, sizeof(cr));
+		cr.crtc_id = crtc_ids[i];
+		if (ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &cr) == 0 && cr.mode_valid && cr.fb_id)
+			crtc = cr.crtc_id, fb = cr.fb_id;
+	}
+	if (!fb)
+		return false;
+
+	// the next app becomes master when it opens the device
+	if (ioctl(fd, DRM_IOCTL_DROP_MASTER, 0) != 0)
+		return false;
+
+	pid_t pid = fork();
+	if (pid < 0)
+		return false;
+	if (pid > 0)
+		return true;
+
+	// child: keep only the DRM file, wait for another framebuffer on the CRTC
+	setsid();
+	for (int i = 0; i < 1024; i++)
+		if (i != fd)
+			close(i);
+	struct timespec tick = {0, 5 * 1000 * 1000};
+	for (int waited = 0; waited < HOLD_DISPLAY_MAX_MS; waited += 5) {
+		struct drm_mode_crtc cr;
+		memset(&cr, 0, sizeof(cr));
+		cr.crtc_id = crtc;
+		if (ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &cr) != 0 || cr.fb_id != fb)
+			break;
+		nanosleep(&tick, NULL);
+	}
+	_exit(0);
+#else
+	return false;
+#endif
+}
+
 // PLAT_keepScreenOnQuit: the app that comes next draws over this frame itself
 static bool keep_screen_on_quit = false;
 void PLAT_keepScreenOnQuit(void) {

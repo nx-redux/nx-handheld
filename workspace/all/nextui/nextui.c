@@ -797,8 +797,13 @@ int main(int argc, char* argv[]) {
 	if (startgame || exists("/tmp/next")) {
 		// a resume: minarch puts the state's screenshot up over this frame,
 		// so leaving it there skips a black flash between the two
-		if (Launcher_isResumeLaunch())
+		if (Launcher_isResumeLaunch()) {
+			// DRM (tg5050): the screen goes black when the display is released, so a
+			// child keeps this frame up instead; GFX_quit would take it down
+			if (PLAT_holdDisplayOnExit())
+				_exit(0);
 			PLAT_keepScreenOnQuit();
+		}
 		GFX_quit();
 		_exit(0);
 	}
