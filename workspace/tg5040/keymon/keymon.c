@@ -12,8 +12,11 @@
 #include <sys/stat.h>
 #include <sys/epoll.h>
 #include <sys/inotify.h>
+#include <sys/ioctl.h>
 
 #include <msettings.h>
+
+#include "emu_shortcuts.h"
 
 #define VOLUME_MIN 0
 #define VOLUME_MAX 20
@@ -47,6 +50,37 @@
 #define REPEAT 2
 
 #define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio243/value"
+
+// Brick ports: the global "Toggle D-pad Joystick" shortcut. minarch does it
+// itself; a port reads the pad directly, so while ports_launch.sh's marker
+// exists keymon toggles trimui_inputd's flag, which sends the D-pad as the
+// left stick (ports_launch.sh clears both at start and exit).
+#define PORTS_ACTIVE_PATH "/tmp/nx_ports_active"
+#define INPUTD_PATH "/tmp/trimui_inputd"
+#define INPUTD_JOYSTICK_PATH INPUTD_PATH "/input_dpad_to_joystick"
+// The BTN_ID_* (defines.h) shortcut labels count from; defines.h itself pulls
+// in SDL and platform.h's CODE_* names.
+enum { PAD_UP,
+	   PAD_DOWN,
+	   PAD_LEFT,
+	   PAD_RIGHT,
+	   PAD_L2 = 12,
+	   PAD_R2 = 13 };
+// TRIMUI Player1 keys by BTN_ID (the JOY_* indices in order), 0 = not a key:
+// the D-pad is a hat (ABS_X/ABS_Y while the flag is on), L2/R2 are axes and
+// L4/R4 are the Brick Pro's.
+static const int pad_codes[SHORTCUT_BUTTON_COUNT] = {
+	[4] = BTN_EAST,	   // A
+	[5] = BTN_SOUTH,   // B
+	[6] = BTN_WEST,	   // X (308, JOY 3)
+	[7] = BTN_NORTH,   // Y (307, JOY 2)
+	[8] = BTN_START,   // START
+	[9] = BTN_SELECT,  // SELECT
+	[10] = BTN_TL,	   // L1
+	[11] = BTN_TR,	   // R1
+	[14] = BTN_THUMBL, // L3 (F1)
+	[15] = BTN_THUMBR, // R3 (F2)
+};
 
 #define MAX_INPUT_DEVICES 16
 #define INPUT_DIR "/dev/input"
@@ -94,18 +128,31 @@ static int getInt(char* path) {
 	return i;
 }
 
+// Motor strength varies by model, so the confirmation buzz voltage is tuned
+// per device; each tap is 100 ms. Levels chosen by A/B on hardware 2026-08-02:
+//   Brick Pro : 2.0 V  (strong motor; 3.3 V felt too harsh, 0.9 V too soft).
+//   Brick     : 3.3 V  (weak motor; 1.5 V / 100 ms was imperceptible).
+//   others (Smart Pro on tg5040): left at the original 1.5 V, untested.
+static void buzz(int taps) {
+	const char* device = getenv("DEVICE");
+	if (device && strcmp(device, "brickpro") == 0)
+		system("echo 2000000 > /sys/class/motor/voltage");
+	else if (device && strcmp(device, "brick") == 0)
+		system("echo 3300000 > /sys/class/motor/voltage");
+	else
+		system("echo 1500000 > /sys/class/motor/voltage");
+	for (int i = 0; i < taps; i++) {
+		if (i)
+			usleep(100000);
+		system("echo 1 > /sys/class/gpio/gpio227/value");
+		usleep(100000);
+		system("echo 0 > /sys/class/gpio/gpio227/value");
+	}
+}
+
 static pthread_t fn_pt;
 static void* watchFnSwitch(void* arg) {
 	int fn_on, fn_was_on;
-	// Motor strength varies by model, so the FN-on confirmation buzz voltage is
-	// tuned per device; the timing is a common two 100 ms taps. Levels chosen
-	// by A/B on hardware 2026-08-02:
-	//   Brick Pro : 2.0 V  (strong motor; 3.3 V felt too harsh, 0.9 V too soft).
-	//   Brick     : 3.3 V  (weak motor; 1.5 V / 100 ms was imperceptible).
-	//   others (Smart Pro on tg5040): left at the original 1.5 V, untested.
-	const char* device = getenv("DEVICE");
-	int is_brickpro = device && strcmp(device, "brickpro") == 0;
-	int is_brick = device && strcmp(device, "brick") == 0;
 
 	fn_on = fn_was_on = getInt(FN_SWITCH_GPIO_PATH);
 	SetFnMode(fn_on);
@@ -117,21 +164,8 @@ static void* watchFnSwitch(void* arg) {
 		if (fn_on >= 0 && fn_was_on != fn_on) {
 			fn_was_on = fn_on;
 			SetFnMode(fn_on);
-			if (GetFnMode()) {
-				if (is_brickpro)
-					system("echo 2000000 > /sys/class/motor/voltage");
-				else if (is_brick)
-					system("echo 3300000 > /sys/class/motor/voltage");
-				else
-					system("echo 1500000 > /sys/class/motor/voltage");
-				system("echo 1 > /sys/class/gpio/gpio227/value");
-				usleep(100000);
-				system("echo 0 > /sys/class/gpio/gpio227/value");
-				usleep(100000);
-				system("echo 1 > /sys/class/gpio/gpio227/value");
-				usleep(100000);
-				system("echo 0 > /sys/class/gpio/gpio227/value");
-			}
+			if (GetFnMode())
+				buzz(2);
 		}
 	}
 
@@ -182,6 +216,81 @@ static void scan_input_devices(void) {
 	}
 }
 
+// The bound button (BTN_ID, -1 = none) and whether it needs MENU held, read
+// again whenever the marker changes (one port launch).
+static int dpad_shortcut_btn = -1;
+static int dpad_shortcut_mod = 0;
+static struct stat dpad_shortcut_marker;
+
+// 1 when a port runs and the shortcut is bound
+static int dpad_shortcut_armed(void) {
+	struct stat st;
+	if (stat(PORTS_ACTIVE_PATH, &st) != 0)
+		return 0;
+	if (st.st_ino != dpad_shortcut_marker.st_ino || st.st_mtime != dpad_shortcut_marker.st_mtime) {
+		dpad_shortcut_marker = st;
+		int labels[SHORTCUT_COUNT];
+		char path[256];
+		const char* dir = getenv("USERDATA_PATH");
+		dpad_shortcut_btn = -1;
+		if (dir && EmuShortcuts_getPath(path, sizeof(path), dir, getenv("DEVICE")) && EmuShortcuts_read(path, labels))
+			EmuShortcuts_fromLabel(labels[SHORTCUT_TOGGLE_DPAD_JOYSTICK], &dpad_shortcut_btn, &dpad_shortcut_mod);
+	}
+	return dpad_shortcut_btn >= 0;
+}
+
+// A BTN_ID went down: toggle the flag when it completes the shortcut. The
+// press still reaches the port (keymon only listens), as in minarch.
+static void dpad_shortcut_pressed(int btn_id, int menu_held) {
+	if (!dpad_shortcut_armed() || btn_id != dpad_shortcut_btn || menu_held != dpad_shortcut_mod)
+		return;
+	if (access(INPUTD_JOYSTICK_PATH, F_OK) == 0) {
+		unlink(INPUTD_JOYSTICK_PATH);
+		buzz(2); // D-pad
+	} else {
+		mkdir(INPUTD_PATH, 0755);
+		close(open(INPUTD_JOYSTICK_PATH, O_CREAT | O_WRONLY, 0644));
+		buzz(1); // Joystick
+	}
+}
+
+// D-pad directions (bit per BTN_ID) from the hat, or from ABS_X/ABS_Y
+// while the flag sends the D-pad there, and L2/R2 from their axes; press edges
+// go to dpad_shortcut_pressed.
+static uint32_t abs_held = 0;
+static void dpad_shortcut_abs(int fd, const struct input_event* ev, int menu_held) {
+	uint32_t lo, hi;
+	int v = ev->value;
+	switch (ev->code) {
+	case ABS_HAT0X:
+	case ABS_X:
+		lo = 1 << PAD_LEFT, hi = 1 << PAD_RIGHT;
+		break;
+	case ABS_HAT0Y:
+	case ABS_Y:
+		lo = 1 << PAD_UP, hi = 1 << PAD_DOWN;
+		break;
+	case ABS_Z:
+	case ABS_RZ:
+		lo = 0, hi = 1 << (ev->code == ABS_Z ? PAD_L2 : PAD_R2);
+		break;
+	default:
+		return;
+	}
+	// the hat is -1/0/1, the stick and triggers count past half range
+	int threshold = 0;
+	if (ev->code != ABS_HAT0X && ev->code != ABS_HAT0Y) {
+		struct input_absinfo info;
+		threshold = ioctl(fd, EVIOCGABS(ev->code), &info) == 0 ? info.maximum / 2 : 0;
+	}
+	uint32_t held = (v < -threshold ? lo : 0) | (v > threshold ? hi : 0);
+	uint32_t pressed = held & ~abs_held;
+	abs_held = (abs_held & ~(lo | hi)) | held;
+	for (int id = 0; pressed; id++, pressed >>= 1)
+		if (pressed & 1)
+			dpad_shortcut_pressed(id, menu_held);
+}
+
 static uint32_t now_ms(void) {
 	struct timeval tod;
 	gettimeofday(&tod, NULL);
@@ -195,6 +304,9 @@ int main(int argc, char* argv[]) {
 
 	InitSettings();
 	pthread_create(&fn_pt, NULL, &watchFnSwitch, NULL);
+
+	const char* device = getenv("DEVICE");
+	int is_brick = device && strcmp(device, "brick") == 0;
 
 	// Create epoll instance
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -284,6 +396,7 @@ int main(int argc, char* argv[]) {
 			down_pressed = down_just_pressed = 0;
 			up_repeat_at = 0;
 			down_repeat_at = 0;
+			abs_held = 0;
 			// Drain all input fds
 			for (int i = 0; i < input_count; i++) {
 				if (input_fds[i] < 0)
@@ -319,8 +432,14 @@ int main(int argc, char* argv[]) {
 						SetJack(input_ev.value);
 				}
 				val = input_ev.value;
+				if (input_ev.type == EV_ABS && is_brick)
+					dpad_shortcut_abs(input_fds[idx], &input_ev, menu_pressed);
 				if (input_ev.type != EV_KEY || val > REPEAT)
 					continue;
+				if (val == PRESSED && is_brick)
+					for (int id = 0; id < SHORTCUT_BUTTON_COUNT; id++)
+						if (pad_codes[id] == input_ev.code)
+							dpad_shortcut_pressed(id, menu_pressed);
 				// Any other key pressed while MENU is held is a combo
 				// (MENU+button game shortcut or binding, MENU+SELECT quit,
 				// volume/brightness chords) — never pop the OSD on those.

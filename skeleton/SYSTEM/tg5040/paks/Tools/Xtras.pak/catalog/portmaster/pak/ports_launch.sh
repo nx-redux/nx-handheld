@@ -81,6 +81,7 @@ cleanup() {
     killall sleepmon.elf 2>/dev/null || true
     killall show2.elf 2>/dev/null || true
     kill $SYNC_PID 2>/dev/null || true
+    rm -f "$NX_PORTS_ACTIVE" "$NX_DPAD_JOYSTICK"
 
     # Mounts the port left under HOME or the ports dir (bind_directories,
     # control.txt's ln fallback, runtime squashfs), deepest first. Left mounted, the next run's
@@ -220,9 +221,17 @@ run_port_fixes() { # $1 = pre | retry; returns 0 when a retry hook asks for a re
     return "$rerun"
 }
 
+# Brick: while the marker exists keymon turns the global "Toggle D-pad
+# Joystick" shortcut (Settings > Emulator Shortcuts) into trimui_inputd's
+# D-pad-as-left-stick flag. Off at every launch, as in minarch.
+NX_PORTS_ACTIVE="/tmp/nx_ports_active"
+NX_DPAD_JOYSTICK="/tmp/trimui_inputd/input_dpad_to_joystick"
+
 main() {
     echo "1" >/tmp/stay_awake
     trap "cleanup" EXIT INT TERM HUP QUIT
+    rm -f "$NX_DPAD_JOYSTICK"
+    touch "$NX_PORTS_ACTIVE"
     bind_audio_routing
 
     # Set performance mode for ports (set max before min to avoid min > max rejection)
