@@ -101,14 +101,18 @@ static void computeLayout(SDL_Surface* screen, int n, GridLayout* g) {
 	float pd = pxPerDp();
 	float sw = screen->w / pd, sh = screen->h / pd;
 	// wider tiles than the spec shape: the Consoles and Collections tabs twice as wide (wide logos 4-8:1, long names),
-	// game lists 1.5x (their screenshots), the Tools tab per device (ui_text_sizes.h GRID_TOOLS_W_K)
+	// game lists and the Tools tab per device (ui_text_sizes.h GRID_GAMES_W_K, GRID_TOOLS_W_K)
 	int tab = GameList_lookTab(); // the root tab, or a hidden tab's list pushed over it (-1: a game list)
 	bool root = tab >= 0;
-	float tools_k = TextPx_for(GRID_TOOLS_W_K, UIScale_deviceIndex(UI_DEVICE_NAME));
-	float mul = !root ? 1.5f : (tab == MENU_TAB_TOOLS ? tools_k : 2.0f);
-	// the main menu's tiles (and their logos, icons and names) at GRID_ROOT_SHRINK, else they take most of the body
-	float size = root ? GRID_ROOT_SHRINK : 1.0f;
-	GridLayout_computeSized(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, 1.0f, size, g);
+	UIDevice dev = UIScale_deviceIndex(UI_DEVICE_NAME);
+	float mul = !root ? TextPx_for(GRID_GAMES_W_K, dev) : (tab == MENU_TAB_TOOLS ? TextPx_for(GRID_TOOLS_W_K, dev) : 2.0f);
+	// GRID_GAME_COLS (the 4:3 panels): game lists, Consoles and Collections two across at one tile size, the Tools tab
+	// its own width at that same height. The other panels' main menu keeps its shape at GRID_ROOT_SHRINK (its logos,
+	// icons and names with it), else the tiles take most of the body
+	int panel_cols = (int)TextPx_for(GRID_GAME_COLS, dev);
+	int fit_cols = root && tab == MENU_TAB_TOOLS ? 0 : panel_cols;
+	float size = root && !panel_cols ? GRID_ROOT_SHRINK : 1.0f;
+	GridLayout_computeFit(sw, BAR_DP, sh - 2 * BAR_DP, n, mul, 1.0f, size, fit_cols, g);
 }
 
 ///////////////////////////////////////

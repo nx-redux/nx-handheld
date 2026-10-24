@@ -377,7 +377,35 @@ static void logo_block_centred(void) {
 	assert(ly >= 43 - 0.01f && cy + 30 <= 230 - 43 + 0.01f);
 }
 
+// Game lists on the 4:3 panels (GRID_GAME_COLS 2): two columns across, the tiles widened at their height, the selected
+// column centred while sliding, the first and last pairs flush with the gutters; without fit_cols, as before (dp).
+static void fit_two_columns(void) {
+	GridLayout a, f;
+	float body = 358 - 2 * BAR; // Brick 3x
+	GridLayout_computeSized(478, BAR, body, 40, 1.5f, 1.0f, 1.0f, &a);
+	GridLayout_computeFit(478, BAR, body, 40, 1.5f, 1.0f, 1.0f, 2, &f);
+	assert(!a.centred && a.cols == 2 && a.tile_w < (478 - 48 - 14) / 2.0f); // 2 1/2 across today
+	assert(f.centred && f.cols == 2 && near(f.tile_h, a.tile_h) && near(f.tile_w, (478 - 48 - 14) / 2.0f));
+	assert(f.sliding && f.rows == 2);
+	assert(near(GridLayout_columnX(&f, 0, GridLayout_offsetFor(&f, 0)), 24)); // the first pair flush left
+	float off = GridLayout_offsetFor(&f, 5);
+	assert(near(GridLayout_columnX(&f, 5, off) + f.tile_w / 2, 478 / 2.0f));					   // centred
+	assert(GridLayout_columnX(&f, 4, off) + f.tile_w > 0 && GridLayout_columnX(&f, 6, off) < 478); // neighbours peek in
+	int last = GridLayout_columnCount(&f) - 1;
+	off = GridLayout_offsetFor(&f, last);
+	assert(near(GridLayout_columnX(&f, last, off) + f.tile_w, 478 - 24)); // the last pair flush right
+	// Consoles' shape (2x wide) narrowed to the same two across, at the same height as a game list's
+	GridLayout c;
+	GridLayout_computeFit(478, BAR, body, 40, 2.0f, 1.0f, 1.0f, 2, &c);
+	assert(c.centred && c.cols == 2 && near(c.tile_w, f.tile_w) && near(c.tile_h, f.tile_h));
+	// none asked: untouched
+	GridLayout_computeFit(896, BAR, 504 - 2 * BAR, 40, 1.5f, 1.0f, 1.0f, 0, &f);
+	GridLayout_computeSized(896, BAR, 504 - 2 * BAR, 40, 1.5f, 1.0f, 1.0f, &a);
+	assert(!f.centred && f.cols == a.cols && near(f.tile_w, a.tile_w));
+}
+
 int main(void) {
+	fit_two_columns();
 	logo_block_centred();
 	device_vectors();
 	still_centring();

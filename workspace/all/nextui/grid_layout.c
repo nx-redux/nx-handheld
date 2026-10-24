@@ -33,7 +33,13 @@ void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, f
 
 void GridLayout_computeSized(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
 							 float size_mul, GridLayout* out) {
+	GridLayout_computeFit(screen_w, body_top, body_h, n, width_mul, gap_mul, size_mul, 0, out);
+}
+
+void GridLayout_computeFit(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
+						   float size_mul, int fit_cols, GridLayout* out) {
 	GridLayout* g = out;
+	g->centred = false;
 	g->width_mul = width_mul > 0 ? width_mul : 1.0f;
 	g->screen_w = screen_w;
 	g->body_top = body_top;
@@ -43,7 +49,11 @@ void GridLayout_computeSized(float screen_w, float body_top, float body_h, int n
 	g->n = n < 0 ? 0 : n;
 	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - g->gap) / 2) * (size_mul > 0 ? size_mul : 1.0f));
 	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP * g->width_mul;
-	int cols = (int)floorf((screen_w - 2 * GUTTER + g->gap) / (g->tile_w + g->gap));
+	if (fit_cols >= 2) { // exactly fit_cols across, the two rows keeping the body's height
+		g->tile_w = (screen_w - 2 * GUTTER - (fit_cols - 1) * g->gap) / fit_cols;
+		g->centred = true;
+	}
+	int cols = g->centred ? fit_cols : (int)floorf((screen_w - 2 * GUTTER + g->gap) / (g->tile_w + g->gap));
 	// never one column for two or more items: a wide tile (Consoles, Collections) on a tall body would stack them,
 	// on one panel and not on another (their bars' height differs in dp). The tile shrinks, its shape kept, to two across.
 	if (cols < 2 && g->n >= 2) {
@@ -112,7 +122,9 @@ float GridLayout_offsetFor(const GridLayout* g, int col) {
 	if (!g->sliding)
 		return 0;
 	float step = g->tile_w + g->gap;
-	float raw = col * step - (ANCHOR_FRAC * g->tile_w + g->gap);
+	// the selected column centred (GridLayout_computeFit), else ANCHOR_FRAC of the one before it showing
+	float raw = g->centred ? GUTTER + col * step - (g->screen_w - g->tile_w) / 2
+						   : col * step - (ANCHOR_FRAC * g->tile_w + g->gap);
 	int c = GridLayout_columnCount(g);
 	float hi = maxf(0, (c - 1) * step + g->tile_w - (g->screen_w - 2 * GUTTER));
 	return minf(hi, maxf(0, raw));

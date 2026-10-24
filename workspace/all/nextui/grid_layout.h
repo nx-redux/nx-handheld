@@ -13,6 +13,7 @@ typedef struct {
 	int rows;		// the rows in use: a sliding grid 2; a still one 1 (n <= cols) or 2
 	float rows_top; // y of the top row: the rows in use centred in the body as a block
 	float frame_x0; // still: x of column 0 (frame centred); sliding: unused
+	bool centred;	// GridLayout_computeFit's columns: a sliding grid keeps the selected column centred
 } GridLayout;
 void GridLayout_compute(float screen_w, float body_top, float body_h, int n, GridLayout* out);
 // The same with tiles width_mul times the spec shape's width (height unchanged).
@@ -23,6 +24,11 @@ void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, f
 // The same with tiles size_mul times the size they would take (both sides, and so their content: GridLayout_tileK).
 void GridLayout_computeSized(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
 							 float size_mul, GridLayout* out);
+// The same with the tiles' width set (their height kept) so exactly fit_cols columns span the screen between the
+// gutters (0: as many as the shape fits). A sliding grid then centres the selected column, a slice of each neighbour
+// showing, the ends flush with the gutters.
+void GridLayout_computeFit(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
+						   float size_mul, int fit_cols, GridLayout* out);
 void GridLayout_cell(const GridLayout* g, int index, int* col, int* row); // still: row-major; sliding: column-major
 int GridLayout_index(const GridLayout* g, int col, int row);			  // -1 when empty
 int GridLayout_columnCount(const GridLayout* g);						  // sliding: ceil(n/2); still: cols

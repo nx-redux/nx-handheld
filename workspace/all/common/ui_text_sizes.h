@@ -57,7 +57,14 @@ static inline float TextPx_for(TextPx t, UIDevice d) {
 // Pro and Smart Pro keep theirs (0: 14 sp at the tile scale). The name still shrinks (to 11 sp) until its longest word
 // fits the tile.
 #define TEXT_GRID_TOOL ((TextPx){33, 28, 26})
-#define GRID_TOOLS_W_K ((TextPx){1.5f, 1.5f, 1.5f})
+#define GRID_TOOLS_W_K ((TextPx){1.7f, 1.7f, 1.7f}) // 1.5 until 2026-10-24 (a little wider)
+// A game list's Grid tiles as wide as the spec shape times this (their screenshots; the 4:3 panels' two across set
+// their own width, GRID_GAME_COLS). 2026-10-24: the Smart Pro S 1.5x wider (was 1.5 there too).
+#define GRID_GAMES_W_K ((TextPx){1.5f, 1.5f, 2.25f})
+// Game lists', Consoles' and Collections' Grid: columns across (0: as many as the tile shape fits). On the 4:3 panels
+// all three take two across at one size (games were 2 1/2, the main menu's 0.85x tiles smaller), the selected column
+// centred while it slides (GridLayout_computeFit)
+#define GRID_GAME_COLS ((TextPx){2, 2, 0})
 // The main menu's Carousel, Horizontal: the Consoles' and Collections' "N games" and a collection's name, in px at the
 // selected (full-size) slot, the neighbours scaled from it as before (2026-10-07: the stats' 33 on the Brick; the name
 // still shrinks until its longest word fits). 0 keeps the UI scale's (Row_countSp, ROW_COLL_NAME_SP at the slot scale).
