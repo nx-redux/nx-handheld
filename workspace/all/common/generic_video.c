@@ -3467,14 +3467,13 @@ void PLAT_GL_Swap() {
 		}
 	}
 
-	static int lastframecount = 0;
-	if (reloadShaderTextures)
-		lastframecount = frame_count;
-	if (frame_count < lastframecount + 3 || notif.clear_frames > 0) {
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		if (notif.clear_frames > 0)
-			notif.clear_frames--;
-	}
+	// Every frame: the game rect leaves the letterbox bars to whatever the buffer
+	// held (a toast, a resume screenshot), which then showed and was captured in
+	// save-state screenshots. On these tile GPUs the clear costs nothing
+	// measurable (Brick FireRed: same frame time and CPU).
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	if (notif.clear_frames > 0)
+		notif.clear_frames--;
 
 	if (!hwr.frame_ready && (!vid.blit || !vid.blit->src)) {
 		return;
