@@ -15,14 +15,13 @@
 #define HOME_WIDE_COL_GAMES 2 // the wide layout puts up to this many games in the top section, beside Continue
 #define HOME_TOOL_COLS 3	  // the tool squares' columns at most (more tools than fit are left off, see shortcuts.h)
 
-#define HOME_EDGE 51.0f		// the content's left and right margin
-#define HOME_GAP 30.0f		// between tiles
-#define HOME_PIN_H 155.0f	// a pin row's height
-#define HOME_BOTTOM 34.0f	// the last pin row's bottom to the hint bar
-#define HOME_RADIUS 24.0f	// a tile's corners
-#define HOME_RING 6.0f		// a lit game's ring, outside the tile
-#define HOME_EDGE_W 2.0f	// a tile's edge, white 8%
-#define HOME_TOP_MAX 372.0f // the wide layout's top section at most (1.2 x the Brick's 310)
+#define HOME_EDGE 51.0f	  // the content's left and right margin
+#define HOME_GAP 30.0f	  // between tiles
+#define HOME_PIN_H 155.0f // a pin row's height
+#define HOME_BOTTOM 34.0f // the page's margin at either bar (the last row to the hint bar, a scrolled-to row to the tabs)
+#define HOME_RADIUS 24.0f // a tile's corners
+#define HOME_RING 6.0f	  // a lit game's ring, outside the tile
+#define HOME_EDGE_W 2.0f  // a tile's edge, white 8%
 
 typedef struct {
 	float x, y, w, h;
@@ -46,7 +45,7 @@ typedef struct {
 	int ntop;
 	HomeTile top[HOME_MAX_TOP]; // Continue first, then the column's games, then the squares in reading order
 	int k;						// pins per row
-	float pin_h;				// a pin row's height: HOME_PIN_H, more at the Small UI scale (the room the squares free)
+	float pin_h;				// a pin row's height: two rows to the page scrolled to them (no rows: HOME_PIN_H)
 	int npins;
 	HomeTile pins[HOME_MAX_PINS]; // the rows' games, row by row
 	float page_h;
@@ -56,26 +55,21 @@ typedef struct {
 // excluded), ntools: the pinned tools.
 void HomeLayout_compute(float W, float H, float bar, int strip_lines, int ngames, int ntools, HomeLayout* out);
 // The same with the stats strip's offsets (its baselines and the top section's start under it) strip_k times their
-// size: Home passes the UI scale over its own (1.5), so the strip is drawn at the UI scale. strip_k > 1 (the
-// Small scale) with tools on a wide screen with pin rows also keeps the tool squares' glyph at the Large size (46 ×
-// strip_k) and sizes the squares from it (the glyph 58% of the side), so the top section is just their three rows
-// (filled a column at a time, a column per 3 tools) tall and one pin row takes the rest.
-// A screen under 1.6:1 (the Brick, the Brick Pro) always has the top section down to the hint bar, its pinned games in
-// rows of two below it, past the screen's end (the page scrolls to them; at the Small scale they keep the height a row
-// had when it shared the screen with three Large squares). On a wide screen, with no games (or up to
-// HOME_WIDE_COL_GAMES) there are no pin rows: the top section runs down to the hint bar. Down to the hint bar, the
-// tools are four rows of squares filling it (a column per 4 tools), a wide screen's games a column three squares wide
-// left of them (stacked, top tiles: npins 0), and Continue the rest.
+// size: Home passes the UI scale over its own (1.5), so the strip is drawn at the UI scale.
+// The top section always runs down to the hint bar: the tools four rows of squares filling it (a column per 4 tools;
+// HomeLayoutOpts.tool_rows), on a wide screen (1.6:1, the Smart Pro S) the first HOME_WIDE_COL_GAMES games a column
+// left of them (stacked, top tiles; six squares wide, at most 40% of what the tools leave), and Continue the rest. The
+// other pinned games are rows below it, past the screen's end (the page scrolls to them, two rows to a page): two a
+// row under 1.6:1 (the Brick, the Brick Pro), four on a wide screen (HomeLayoutOpts.wide_pin_cols).
 void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float strip_k, int ngames, int ntools,
 							 HomeLayout* out);
 // The same with the stats text text_k times its default size: the strip's baselines and the top section's start move
 // with it (strip_k still sizes the rest).
-// What HomeLayout_computeOpts takes beyond the screen: strip_k and text_k as HomeLayout_computeStripText's, and pin_k
-// the Brick's pins (below the top section, past the screen's end) that times as tall. 0 (or a NULL opts) is 1.
-// tool_rows: the 4:3 top section's tool squares per column (0: 4). wide_pin_cols: the wide layout's pins a row (0: 4);
-// there pin_k shortens (or lengthens) the pins, the top section taking the difference.
+// What HomeLayout_computeOpts takes beyond the screen: strip_k and text_k as HomeLayout_computeStripText's (0, or a
+// NULL opts, is 1). tool_rows: the top section's tool squares per column (0: 4). wide_pin_cols: the wide layout's pins
+// a row (0: 4).
 typedef struct {
-	float strip_k, text_k, pin_k;
+	float strip_k, text_k;
 	int tool_rows, wide_pin_cols;
 } HomeLayoutOpts;
 void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const HomeLayoutOpts* opts, int ngames,

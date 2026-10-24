@@ -20,12 +20,13 @@ static void addTop(HomeLayout* l, HomeTileKind kind, int ref, HomeRect r) {
 		l->top[l->ntop++] = (HomeTile){kind, ref, r};
 }
 
-// The pins' rows from y: k a row, pw wide, games first..ngames−1.
+// The pins' rows from y: k a row, pw wide, games first..ngames−1; HOME_BOTTOM apart down, so a row resting HOME_BOTTOM
+// over the hint bar keeps the next one under it (HOME_GAP across).
 static void addRows(HomeLayout* l, float y, float pw, int first, int ngames) {
 	for (int g = first; g < ngames && l->npins < HOME_MAX_PINS; g++) {
 		int i = l->npins, r = i / l->k, c = i % l->k;
 		l->pins[l->npins++] =
-			(HomeTile){HOME_TILE_GAME, g, rect(HOME_EDGE + c * (pw + HOME_GAP), y + r * (l->pin_h + HOME_GAP), pw, l->pin_h)};
+			(HomeTile){HOME_TILE_GAME, g, rect(HOME_EDGE + c * (pw + HOME_GAP), y + r * (l->pin_h + HOME_BOTTOM), pw, l->pin_h)};
 	}
 }
 
@@ -59,7 +60,7 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 
 void HomeLayout_computeStripText(float W, float H, float bar, int strip_lines, float strip_k, float text_k, int ngames,
 								 int ntools, HomeLayout* out) {
-	HomeLayoutOpts o = {strip_k, text_k, 1.0f, 0, 0};
+	HomeLayoutOpts o = {strip_k, text_k, 0, 0};
 	HomeLayout_computeOpts(W, H, bar, strip_lines, &o, ngames, ntools, out);
 }
 
@@ -67,12 +68,14 @@ void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const 
 							int ntools, HomeLayout* out) {
 	float strip_k = opts && opts->strip_k > 0 ? opts->strip_k : 1.0f;
 	float text_k = opts && opts->text_k > 0 ? opts->text_k : 1.0f;
-	float pin_k = opts && opts->pin_k > 0 ? opts->pin_k : 1.0f;
 	int tool_rows = opts && opts->tool_rows > 0 ? opts->tool_rows : 4;
 	int wide_cols = opts && opts->wide_pin_cols > 0 ? opts->wide_pin_cols : 4;
 	memset(out, 0, sizeof(*out));
 	HomeLayout* l = out;
 	float L = HOME_EDGE, R = W - HOME_EDGE, bottom = H - bar - HOME_BOTTOM;
+	// the tallest pins two rows of which fit the page scrolled to them: from where scrollFor rests a row's top
+	// (HOME_BOTTOM under the tab row) down to the bottom, the two centred between the bars
+	float pin_fit = (bottom - (bar + HOME_BOTTOM) - HOME_BOTTOM) / 2;
 	if (ngames < 0)
 		ngames = 0;
 	if (ntools < 0)
@@ -81,99 +84,54 @@ void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const 
 	l->strip_lines = strip_lines < 0 ? 0 : strip_lines > 2 ? 2
 														   : strip_lines;
 	// the strip: 27 px text from x 54, baselines 121 / 157 (two lines) or 124 (one) on the Brick (bar 84); the top
-	// section from 187 / 155, or 111 without a strip. The strip's own offsets × strip_k (its text keeps one size)
+	// section from 187 / 155, or without a strip HOME_BOTTOM under the tab row (118), as far as the bottom is over the
+	// hint bar: the page's two bars get the same space (27 until 2026-10-24, the bottom's 7 px more). The strip's own
+	// offsets × strip_k (its text keeps one size)
 	l->strip_x = L + 3;
 	l->strip_right = R - 1;
 	float sk = strip_k * text_k; // the strip's offsets grow with its text
 	l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40) * sk;
 	l->strip_base[1] = bar + 73 * sk;
 	float y0 = bar + (l->strip_lines == 2 ? 103 * sk : l->strip_lines == 1 ? 71 * sk
-																		   : 27);
+																		   : HOME_BOTTOM);
 	l->top_y = y0;
 	l->pin_h = HOME_PIN_H;
 	l->k = l->wide ? wide_cols : 2;
 	float page_bottom = bottom;
-	// the Small UI scale with tools: the glyph at the Large size, the squares sized from it (the glyph 58% of a side)
-	bool small = strip_k > 1.0f && ntools > 0;
-	float small_glyph = 46 * strip_k, small_sq = roundf(small_glyph / 0.58f);
 	HomeTile tiles[HOME_MAX_TOP]; // the squares, added after Continue (and the game column)
 	int nt = 0;
 
-	if (!l->wide || ngames == 0 || ngames <= HOME_WIDE_COL_GAMES) {
-		// the top section down to the bottom: no pin rows (no games; on a wide screen up to 2), or the Brick, whose pin
-		// rows sit below it, past the screen's end (the page scrolls to them). The tools four rows of squares (tool_rows) filling
-		// it, a column per 4, flush right; on a wide screen the games a column three squares wide left of them,
-		// stacked; Continue the rest, from the left edge
-		const int srows = tool_rows;
-		int colgames = l->wide ? ngames : 0;
-		float h = bottom - y0;
-		l->top_h = h;
-		float sq = roundf((h - (srows - 1) * HOME_GAP) / srows), vgap = (h - srows * sq) / (srows - 1);
-		float x = R; // the next column's right edge, right to left
-		if (ntools > 0) {
-			int cols = toolCols(ntools, srows);
-			float bx = R - cols * sq - (cols - 1) * HOME_GAP;
-			l->square = sq;
-			l->glyph = roundf(sq * 0.58f);
-			placeTools(l, tiles, &nt, bx, y0, sq, vgap, srows, cols, true, ntools);
-			x = bx - HOME_GAP;
-		}
-		float gw = 3 * sq + 2 * HOME_GAP;
-		if (colgames > 0)
-			x -= gw;
-		addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, (colgames > 0 ? x - HOME_GAP : x) - L, h));
-		float gh = (h - (colgames - 1) * HOME_GAP) / (colgames > 0 ? colgames : 1);
-		for (int g = 0; g < colgames; g++)
-			addTop(l, HOME_TILE_GAME, g, rect(x, y0 + g * (gh + HOME_GAP), gw, gh));
-		if (!l->wide && ngames > 0) {
-			// the Brick's pins: rows of two from the hint bar's top (HOME_BOTTOM under the top section), where Home's page
-			// clip ends, so none of them peeks in under it. Their height as when one row shared the
-			// screen with the top: at the Small scale, what three squares (20 Large px apart) leave of it
-			if (strip_k > 1.0f)
-				l->pin_h = bottom - (y0 + 3 * small_sq + 2 * 20 * strip_k + HOME_GAP);
-			l->pin_h *= pin_k; // below the screen's end, so they may grow freely
-			addRows(l, bottom + HOME_BOTTOM, (R - L - HOME_GAP) / 2, 0, ngames);
-		}
-	} else {
-		// the Smart Pro S: two rows of pins (wide_cols a row, 4: 2 of 8 columns) over the hint bar, the top section what they leave
-		// (at most 372; a short screen keeps one row)
-		int rows = 2;
-		float h = minf(HOME_TOP_MAX, bottom - rows * HOME_PIN_H - rows * HOME_GAP - y0);
-		if (h < 2 * HOME_PIN_H) {
-			rows = 1;
-			h = minf(HOME_TOP_MAX, bottom - HOME_PIN_H - HOME_GAP - y0);
-		}
-		float rows_y = y0 + h + HOME_GAP;
-		if (small) { // the squares three rows tall set the top's height; one pin row takes the rest
-			h = 3 * small_sq + 2 * HOME_GAP;
-			rows_y = y0 + h + HOME_GAP;
-			l->pin_h = bottom - rows_y;
-		}
-		if (pin_k != 1.0f) { // the pins pin_k as tall, the top section taking (or giving) the difference
-			float ph = l->pin_h * pin_k;
-			h += l->pin_h - ph;
-			rows_y = y0 + h + HOME_GAP;
-			l->pin_h = ph;
-		}
-		// the Small scale's squares fill the top section, 3 a column (its height moves with pin_k)
-		float tool_sq = small ? (h - 2 * HOME_GAP) / 3 : 0;
-		float tool_glyph = small && tool_sq != small_sq ? roundf(tool_sq * 0.58f) : small_glyph;
-		l->top_h = h;
-		// Continue from the left edge to 30 before the squares (no tools: the full width); the squares flush right: at
-		// the Large scale in reading order, up to 4 tools a 2 x 2 block, 5 or 6 a 3 x 2 block (its third column taken
-		// from Continue); at the Small scale three rows, filled a column at a time, a column per 3 tools.
-		float cont_w = R - L;
-		if (ntools > 0) {
-			int srows = small ? 3 : 2;
-			int cols = small ? toolCols(ntools, 3) : (ntools <= 4 ? 2 : 3);
-			float sq = small ? tool_sq : (h - HOME_GAP) / 2, bx = R - cols * sq - (cols - 1) * HOME_GAP;
-			l->square = sq;
-			l->glyph = small ? tool_glyph : minf(46, roundf(sq * 0.58f));
-			cont_w = bx - HOME_GAP - L;
-			placeTools(l, tiles, &nt, bx, y0, sq, HOME_GAP, srows, cols, small, ntools);
-		}
-		addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, cont_w, h));
-		addRows(l, rows_y, (R - L - (l->k - 1) * HOME_GAP) / l->k, 0, ngames); // 2 of 8 columns at 4 a row
+	// the top section down to the bottom. The tools tool_rows rows of squares filling it, a column per tool_rows, flush
+	// right; on a wide screen the first HOME_WIDE_COL_GAMES games a column left of them, stacked;
+	// Continue the rest, from the left edge. The other games rows below it, past the screen's end (the page scrolls to
+	// them): from the hint bar's top (HOME_BOTTOM under the top section), where Home's page clip ends, so none of them
+	// peeks in under it; two rows fill the page scrolled to them (until 2026-10-24 the wide screen's rows shared the
+	// first page with a shorter top section)
+	const int srows = tool_rows;
+	int colgames = l->wide ? (ngames < HOME_WIDE_COL_GAMES ? ngames : HOME_WIDE_COL_GAMES) : 0;
+	float h = bottom - y0;
+	l->top_h = h;
+	float sq = roundf((h - (srows - 1) * HOME_GAP) / srows), vgap = (h - srows * sq) / (srows - 1);
+	float x = R; // the next column's right edge, right to left
+	if (ntools > 0) {
+		int cols = toolCols(ntools, srows);
+		float bx = R - cols * sq - (cols - 1) * HOME_GAP;
+		l->square = sq;
+		l->glyph = roundf(sq * 0.58f);
+		placeTools(l, tiles, &nt, bx, y0, sq, vgap, srows, cols, true, ntools);
+		x = bx - HOME_GAP;
+	}
+	// the column six squares wide, at most 40% of what the tools leave (three squares until 2026-10-24)
+	float gw = minf(2 * (3 * sq + 2 * HOME_GAP), 0.4f * (x - L));
+	if (colgames > 0)
+		x -= gw;
+	addTop(l, HOME_TILE_CONTINUE, 0, rect(L, y0, (colgames > 0 ? x - HOME_GAP : x) - L, h));
+	float gh = (h - (colgames - 1) * HOME_GAP) / (colgames > 0 ? colgames : 1);
+	for (int g = 0; g < colgames; g++)
+		addTop(l, HOME_TILE_GAME, g, rect(x, y0 + g * (gh + HOME_GAP), gw, gh));
+	if (ngames > colgames) {
+		l->pin_h = pin_fit;
+		addRows(l, bottom + HOME_BOTTOM, (R - L - (l->k - 1) * HOME_GAP) / l->k, colgames, ngames);
 	}
 	for (int i = 0; i < nt; i++)
 		addTop(l, tiles[i].kind, tiles[i].ref, tiles[i].r);
@@ -342,9 +300,9 @@ float HomeLayout_scrollFor(const HomeLayout* l, HomeFocus f, float H, float bar,
 		s = 0;
 	} else {
 		HomeRect r = HomeLayout_focusRect(l, f);
-		// scrolled further, the pin's ring would pass under the tab row; scrolled less, its bottom would sit closer to
-		// the hint bar than the first row does (a scrolled-to row lands where the rows rest)
-		float lo = r.y - (HOME_RING + 8) - bar;
+		// HOME_BOTTOM from either bar: scrolled further, the pin would sit closer to the tab row; scrolled less, its
+		// bottom closer to the hint bar (a scrolled-to row lands where the rows rest)
+		float lo = r.y - HOME_BOTTOM - bar;
 		float hi = r.y + r.h + HOME_BOTTOM - (H - bar);
 		if (s > lo)
 			s = lo;

@@ -534,9 +534,9 @@ int main(int argc, char* argv[]) {
 				int fade_h = drawScreen == SCREEN_GAMESWITCHER
 								 ? GameSwitcher_headerBottom() + NX_DP(64) // 64 dp below the subtitle
 								 : bar_h + NX_DP(48);
-				// Home shows it only while its page is scrolled (its List: always, as every List)
+				// Home shows it only while its page is scrolled, under a page title (its List: always, as every List)
 				bool home = drawScreen == SCREEN_GAMELIST && Home_active() && !Home_isList();
-				SDL_Surface* fade = !over_art && (!home || Home_scrolled())
+				SDL_Surface* fade = !over_art && (!home || (Home_scrolled() && CFG_getPageTitle()))
 										? UI_easedFadeSurface(screen->w, fade_h, 0.9f, 3.5f, true)
 										: NULL;
 				// cached: blit right away. Home draws the part below the strip itself, over its page; a Grid screen

@@ -32,10 +32,9 @@ static inline float TextPx_for(TextPx t, UIDevice d) {
 // scale's (PIN_NAME_PX 33.8 / PIN_INFO_PX 28.6 at Home's scale).
 #define TEXT_HOME_PIN_NAME ((TextPx){33, 28, 26})
 #define TEXT_HOME_PIN_INFO ((TextPx){33, 28, 26})
-// Not a text size: the pinned games' height, times what the layout gives them (2026-10-07: double on the Brick).
-#define HOME_PIN_K ((TextPx){2, 1, 0.8f}) // the Smart Pro S: 0.8 (its top section taller)
-// Not a text size: Home's tool squares per column on a 4:3 screen (2026-10-07: 5 on the Brick Pro; the rest 4).
-#define HOME_TOOL_ROWS ((TextPx){4, 5, 4})
+// Not a text size: Home's tool squares per column (2026-10-07: 5 on the Brick Pro; 2026-10-24: 5 on the Smart Pro S,
+// was 4).
+#define HOME_TOOL_ROWS ((TextPx){4, 5, 5})
 // Not a text size: the wide (16:9) Home's pins a row (2026-10-07: 3 on the Smart Pro S; was 4). 0: 4.
 #define HOME_WIDE_PIN_COLS ((TextPx){0, 0, 3})
 // The main menu's List layout (the Consoles, Collections and Tools tabs as a list): the rows' text, and their pitch (the

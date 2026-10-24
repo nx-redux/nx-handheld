@@ -696,7 +696,7 @@ static void relayout(int lines) {
 		return;
 	}
 	UIDevice dev = UIScale_deviceIndex(UI_DEVICE_NAME);
-	HomeLayoutOpts opts = {stripK(), statsTextK(), TextPx_for(HOME_PIN_K, dev), (int)TextPx_for(HOME_TOOL_ROWS, dev),
+	HomeLayoutOpts opts = {stripK(), statsTextK(), (int)TextPx_for(HOME_TOOL_ROWS, dev),
 						   (int)TextPx_for(HOME_WIDE_PIN_COLS, dev)};
 	HomeLayout_computeOpts(screen->w / u, screen->h / u, barPx() / u, lines, &opts, ngames, ntools, &layout);
 	focus = HomeLayout_clampFocus(&layout, focus);
@@ -2398,6 +2398,7 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		// the screen under the band is still clear here (nextui.c drew only the bars), so tiles go straight on
 		SDL_SetClipRect(dst, &(SDL_Rect){0, bar_h, dst->w, body_h});
 		int scroll_px = px(currentScroll());
+		bool top_fade = scroll_px > 0 && CFG_getPageTitle(); // the page title hidden: the page cut clean at the bar
 		HomeStats st;
 		currentStats(&st);
 
@@ -2405,7 +2406,7 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		// the body is clear under the page (nextui.c cleared it): the GPU dims it, unless the scrolled page's fade goes
 		// over it after (it stays lit)
 		SDL_Rect body = {0, bar_h, dst->w, body_h};
-		if (scroll_px > 0)
+		if (top_fade)
 			ContentDim_begin(dst, body);
 		else
 			ContentDim_beginClear(dst, body);
@@ -2423,7 +2424,7 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		}
 		ContentDim_end(dst);
 		// scrolled: the top band's part below the tab strip goes over the page (nextui.c drew the strip's part)
-		if (scroll_px > 0) {
+		if (top_fade) {
 			int fade_h = bar_h + homeDp(48);
 			SDL_Surface* fade = UI_easedFadeSurface(dst->w, fade_h, 0.9f, 3.5f, true);
 			if (fade)
