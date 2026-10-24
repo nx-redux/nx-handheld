@@ -2348,9 +2348,13 @@ static TTF_Font* listFont(bool root) {
 
 static InfoBandLayout listLayoutFrom(int list_top, bool root) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
-	int bar_h = BAR_HEIGHT; // the hint bar (UI_buttonHintBarTop)
+	// the hint bar (UI_buttonHintBarTop). Layouts > Button hints and Extra info both hidden: nothing ever sits in its
+	// row, so the List runs to the bottom edge. With Extra info shown the row stays, a game's info line moving into it,
+	// so the rows don't jump between games with and without one
+	bool no_bar = !CFG_getButtonHints() && !CFG_getExtraInfo();
+	int bar_h = no_bar ? 0 : BAR_HEIGHT;
 	// the bar's ink top: the padding over its centred BUTTON_SIZE icons, plus the glyphs' margin (host-tested)
-	int overlap = InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
+	int overlap = no_bar ? 0 : InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
 	InfoBandLayout l =
 		InfoBand_fixedLayout(screen_h, bar_h, list_top, listPitch(root), NX_DP(18), NX_DP(4), overlap);
 	// The band paints no fade of its own, only its arrows (and text): with the hints shown the bar's scrim is under it
@@ -2468,6 +2472,23 @@ static struct {
 	bool arrow;
 	int arrow_x, arrow_y;
 } overlay;
+
+// The selected game's play time and achievements show in the hint bar's row: Layouts > Button hints hidden, Extra
+// info shown, a game with either to show (renderInfoBand draws the line). The bar's scrim goes under it only then;
+// without a line the List runs to the bottom edge.
+static bool infoLineInBar(void) {
+	if (CFG_getButtonHints() || !CFG_getExtraInfo())
+		return false;
+	Directory* list = shownList();
+	if (!list || list->entries->count <= 0 || list->selected < 0 || list->selected >= list->entries->count)
+		return false;
+	Entry* entry = list->entries->items[list->selected];
+	bool at_root = stack->count == 1 && !GameSwitcher_isList();
+	if ((at_root && MenuTabs_current() != MENU_TAB_HOME) || !selectedIsGame(entry))
+		return false;
+	GameInfo info;
+	return GameInfo_get(entry->path, &info) && (info.has_time || info.has_ra);
+}
 
 static void renderInfoBand(void) {
 	// Home, Grid, Carousel and Backdrop have no info band (Grid's game info sits in the lit tile, the rows'
@@ -2907,14 +2928,14 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// undimmed there, a hard edge under the band's fade (which ends at the bar's 80%)
 	if (sw_list && CFG_getButtonHints())
 		GameSwitcher_renderListHints(screen); // the switcher's own (B BACK, Y REMOVE, A RESUME), as on Full screen
-	else if (sw_list)
+	else if (sw_list && infoLineInBar())
 		renderHintScrim(screen); // a game's info line sits in the bar's row, as a game list's
 	else if (CFG_getButtonHints() && home_list)
 		Home_renderListHints(screen); // Home's own (A RESUME / PLAY / the tool's name), as its Grid's and Carousel's
 	else if (CFG_getButtonHints())
 		renderHints(screen, show_setting);
-	else if (stack->count > 1 || home_list) // a game list and Home's List: a game's info line sits in the bar's row
-		renderHintScrim(screen);			// (over its art); the main menu's other tabs: no shade
+	else if ((stack->count > 1 || home_list) && infoLineInBar()) // a game list and Home's List: a game's info line
+		renderHintScrim(screen);								 // sits in the bar's row (over its art); without one, and the other tabs: no shade
 
 	// the List's content: the rows and the band, down to the band's bottom (inside the hint bar)
 	content.h = rows_layout.band_bottom - content.y;

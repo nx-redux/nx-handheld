@@ -33,7 +33,7 @@
 // Full screen's header (2026-10-12, as nx-mobile draws it: the title well over its console line): the game's name
 // in white, the console and "i / n" under it in grey, smaller
 #define GS_TITLE_SP 18
-#define GS_SUBTITLE_SP 10
+#define GS_SUBTITLE_SP 14 // two steps below the title (the rows' 18 / 16 / 14 scale)
 
 // A resumable game's box art (no resume preview): fitted in this share of the screen width and 60% of its height
 // (the retired "Game art width" setting's default).
@@ -359,6 +359,15 @@ static void drawHeader(const char* rom_path, int status_w) {
 		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, BAR_HEIGHT});
 }
 
+// Layouts > Button hints: Hide: the bar's row gets its 90% scrim only under the info line (drawInfo); with
+// nothing in it the preview runs to the bottom edge
+static void drawHintScrim(void) {
+	static SDL_Surface* scrim = NULL;
+	SDL_Surface* s = UI_getScrimAlpha(&scrim, screen->w, BAR_HEIGHT, GS_SCRIM_ALPHA);
+	if (s)
+		SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT});
+}
+
 // The selected game's one-line info (time, achievements, Next), bottom-left over an eased fade that rises from the
 // hint bar, across the screen. Layouts > Extra info: Hide drops it; Layouts > Button hints: Hide leaves the bar's row
 // to it (the bar's 90% scrim without hints, the line centred in it, as a List game list's). The recent's own path, so
@@ -374,6 +383,8 @@ static void drawInfo(const char* rom_path) {
 	if (n <= 0)
 		return;
 	bool in_bar = !CFG_getButtonHints();
+	if (in_bar)
+		drawHintScrim();
 	int bar_top = screen->h - BAR_HEIGHT;
 	int text_h = TTF_FontHeight(font.small);
 	int fade_h = NX_DP(64) + (in_bar ? 0 : text_h);
@@ -383,14 +394,6 @@ static void drawInfo(const char* rom_path) {
 	int x = SCALE1(PADDING + BUTTON_MARGIN);
 	int y = in_bar ? bar_top + (BAR_HEIGHT - text_h) / 2 : bar_top - SCALE1(BUTTON_MARGIN) - text_h;
 	InfoBand_drawSegments(screen, segs, n, x, false, y, screen->w - 2 * x, font.small);
-}
-
-// Layouts > Button hints: Hide: the bar's row keeps its 90% scrim (the info line may sit in it), no hints
-static void drawHintScrim(void) {
-	static SDL_Surface* scrim = NULL;
-	SDL_Surface* s = UI_getScrimAlpha(&scrim, screen->w, BAR_HEIGHT, GS_SCRIM_ALPHA);
-	if (s)
-		SDL_BlitSurface(s, NULL, screen, &(SDL_Rect){0, screen->h - BAR_HEIGHT});
 }
 
 static void drawBackground(SDL_Surface* surface, int x, int y, int w, int h,
@@ -458,8 +461,6 @@ static void GameSwitcher_render_(int lastScreen, SDL_Surface* blackBG, int gsani
 		UI_renderButtonHintBarEx(screen,
 								 (char*[]){"B", "BACK", "Y", "REMOVE", "A", resume.can_resume ? "RESUME" : "START", NULL},
 								 GS_SCRIM_ALPHA);
-	else
-		drawHintScrim();
 	Recent* recent = Recents_at(gs_indices[switcher_selected]);
 	if (recent) {
 		char rom_path[MAX_PATH];
