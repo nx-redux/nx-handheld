@@ -22,6 +22,9 @@ GameSwitcherResult GameSwitcher_handleInput(unsigned long now);
 // Full screen: the selected game's resume frame with its title, console and info line over it. status_w is the
 // menu bar's status group width (the title keeps clear of it).
 void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG, int gsanimdir, int status_w);
+// nextui started on the frame minarch left up (HELD_FRAME_PATH): the first
+// render shows the switcher over that same picture, without a fade from black
+void GameSwitcher_setHeldFrame(bool held);
 // The bottom of the Full screen header (the console line under the title): where its top fade is measured from.
 int GameSwitcher_headerBottom(void);
 

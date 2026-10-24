@@ -24,6 +24,7 @@ void Menu_dropAutoResumeForSession(void);
 int Menu_options(MenuList* list);
 void Menu_screenshot(void);
 void Menu_saveState(void);
+const char* Menu_slotPreviewPath(void); // the current slot's screenshot, as Menu_saveState writes it
 void Menu_loadState(void);
 void Menu_undoLoadState(void);
 void Menu_initState(void);

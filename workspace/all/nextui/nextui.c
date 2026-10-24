@@ -1,4 +1,5 @@
 #include "api.h"
+#include <SDL2/SDL_image.h>
 #include "config.h"
 #include "defines.h"
 #include "shortcuts.h"
@@ -220,6 +221,27 @@ int main(int argc, char* argv[]) {
 	bootStamp("start");
 	InitSettings();
 
+	// back from a game that left its last frame up (MENU+SELECT into the
+	// switcher, Quit from the in-game menu): start on that picture instead of a
+	// black screen; the switcher opens on the same one
+	SDL_Surface* held_frame = NULL;
+	if (exists(HELD_FRAME_PATH)) {
+		char frame_path[MAX_PATH];
+		getFile(HELD_FRAME_PATH, frame_path, sizeof(frame_path));
+		unlink(HELD_FRAME_PATH);
+		SDL_Surface* image = IMG_Load(frame_path); // the menu's BMP, or a state's PNG named .bmp
+		if (exactMatch(frame_path, HELD_FRAME_BMP))
+			unlink(HELD_FRAME_BMP);
+		if (image) {
+			held_frame = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
+			SDL_FreeSurface(image);
+			if (held_frame)
+				SDL_SetSurfaceBlendMode(held_frame, SDL_BLENDMODE_NONE);
+		}
+	}
+	PLAT_setClearImage(held_frame);
+	GameSwitcher_setHeldFrame(held_frame != NULL);
+
 	screen = GFX_init(MODE_MAIN);
 	bootStamp("after gfx init");
 
@@ -253,8 +275,9 @@ int main(int argc, char* argv[]) {
 	if (GameSwitcher_shouldStartInSwitcher())
 		currentScreen = SCREEN_GAMESWITCHER;
 
-	// add a nice fade into the game switcher
-	if (currentScreen == SCREEN_GAMESWITCHER)
+	// add a nice fade into the game switcher; back on a held frame, no fade in
+	// from black either (the views fade in from SCREEN_OFF only)
+	if (currentScreen == SCREEN_GAMESWITCHER || held_frame)
 		lastScreen = SCREEN_GAME;
 
 	// make sure we have no running games logged as active anymore (we might be
@@ -711,6 +734,11 @@ int main(int argc, char* argv[]) {
 				if (!first_frame_stamped) {
 					first_frame_stamped = true;
 					bootStamp("first frame");
+					if (held_frame) { // the screen nextui drew is up: the held picture is done
+						PLAT_setClearImage(NULL);
+						SDL_FreeSurface(held_frame);
+						held_frame = NULL;
+					}
 					if (!cpu_policy_started)
 						startCPUPolicy(cpuBootDone());
 				}

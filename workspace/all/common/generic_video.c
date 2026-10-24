@@ -974,30 +974,36 @@ void PLAT_drawClearImage(SDL_Surface* screen) {
 		SDL_BlitScaled(clear_image, NULL, screen, NULL);
 }
 
-// Creating the window blanks the framebuffer, and the renderer takes another
-// ~130 ms before anything can be presented: write the clear image straight
-// into the scanned-out fbdev buffer meanwhile. Where /dev/fb0 is not what
-// the panel shows (DRM), this changes nothing on screen.
-static void fbShowClearImage(void) {
+#ifndef SDL_VIDEO_DRIVER_KMSDRM
+// fbdev (tg5040), where the framebuffer is what the panel shows: creating the
+// window clears both pages EGL flips between (a band sweeping over the picture
+// for a frame), and the renderer takes another ~130 ms before anything can be
+// presented. Writes the clear image into the framebuffer's last page, which
+// EGL never uses, and pans the display there; the first present pans back to
+// EGL's own pages. False when nothing was done. On DRM (tg5050) fb0 is not
+// scanned out: not built there.
+static bool fbShowClearImage(void) {
 	int fd = open("/dev/fb0", O_RDWR);
 	if (fd < 0)
-		return;
+		return false;
 	struct fb_var_screeninfo vi;
 	struct fb_fix_screeninfo fi;
-	if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) || ioctl(fd, FBIOGET_FSCREENINFO, &fi) || vi.bits_per_pixel != 32) {
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) || ioctl(fd, FBIOGET_FSCREENINFO, &fi) || vi.bits_per_pixel != 32 || !vi.yres) {
 		close(fd);
-		return;
+		return false;
 	}
-	size_t off = (size_t)vi.yoffset * fi.line_length;
 	size_t len = (size_t)vi.yres * fi.line_length;
-	if (off + len > fi.smem_len || off % sysconf(_SC_PAGESIZE)) {
+	int page = (int)(fi.smem_len / len) - 1; // past the two EGL flips between
+	size_t off = (size_t)page * len;
+	if (page < 2 || (unsigned)((page + 1) * vi.yres) > vi.yres_virtual || off % sysconf(_SC_PAGESIZE)) {
 		close(fd);
-		return;
+		return false;
 	}
 	void* fb = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, off);
-	close(fd);
-	if (fb == MAP_FAILED)
-		return;
+	if (fb == MAP_FAILED) {
+		close(fd);
+		return false;
+	}
 	Uint32 rmask = ((1u << vi.red.length) - 1) << vi.red.offset;
 	Uint32 gmask = ((1u << vi.green.length) - 1) << vi.green.offset;
 	Uint32 bmask = ((1u << vi.blue.length) - 1) << vi.blue.offset;
@@ -1008,7 +1014,12 @@ static void fbShowClearImage(void) {
 		SDL_FreeSurface(dst);
 	}
 	munmap(fb, len);
+	vi.yoffset = page * vi.yres;
+	bool panned = ioctl(fd, FBIOPAN_DISPLAY, &vi) == 0;
+	close(fd);
+	return panned;
 }
+#endif
 
 SDL_Surface* PLAT_initVideo(void) {
 #if NEXTUI_TSAN
@@ -1032,9 +1043,11 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
 	SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "1");
 
+#ifndef SDL_VIDEO_DRIVER_KMSDRM
+	if (clear_image)
+		fbShowClearImage(); // on a page the window does not clear, see there
+#endif
 	vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
-	if (vid.window && clear_image)
-		fbShowClearImage();
 	if (vid.window) {
 		vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 	}

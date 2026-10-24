@@ -34,6 +34,11 @@
 #define SIMPLE_MODE_PATH SHARED_USERDATA_PATH "/enable-simple-mode"
 #define AUTO_RESUME_PATH SHARED_USERDATA_PATH "/.minui/auto_resume.txt"
 #define GAME_SWITCHER_PERSIST_PATH SHARED_USERDATA_PATH "/.minui/game_switcher.txt"
+// A quit that leaves its last frame up (MENU+SELECT into the switcher, Quit
+// from the in-game menu): the path of that picture, which nextui starts on,
+// for no black between the two
+#define HELD_FRAME_PATH "/tmp/nx_held_frame"
+#define HELD_FRAME_BMP "/tmp/nx_held_frame.bmp" // the in-game menu's screen, uncompressed (fast to write)
 #define FAUX_RECENT_PATH SDCARD_PATH "/Recently Played"
 // Search's results, a game list over the root (Search_open); Directory_new runs the query again (a refresh)
 #define FAUX_SEARCH_PATH SDCARD_PATH "/.search"

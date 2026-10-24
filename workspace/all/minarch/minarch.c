@@ -200,6 +200,7 @@ int main(int argc, char* argv[]) {
 	if (argc < 3)
 		return EXIT_FAILURE;
 
+	unlink(HELD_FRAME_PATH); // a marker left by a quit nextui never picked up
 	snprintf(core_path, sizeof(core_path), "%s", argv[1]);
 	snprintf(rom_path, sizeof(rom_path), "%s", argv[2]);
 	getEmuName(rom_path, tag_name);
@@ -511,7 +512,10 @@ int main(int argc, char* argv[]) {
 		CoreNetplay_byeSend(CORE_NETPLAY_BYE_PORT);
 	if (CoreNetplay_hasEnded())
 		Menu_notice("Netplay ended", "The other player left or the connection was lost.", 3000);
-	SDL_Surface* converted = Menu_captureScreenSurface(screen->format->format);
+	// a held frame (MENU+SELECT, Quit from the menu): no fade, the frame stays up
+	// until nextui starts on the same picture (HELD_FRAME_PATH)
+	int hold_frame = exists(HELD_FRAME_PATH);
+	SDL_Surface* converted = hold_frame ? NULL : Menu_captureScreenSurface(screen->format->format);
 	if (converted) {
 		GFX_animateSurfaceOpacity(converted, 0, 0, converted->w, converted->h, 255, 0, CFG_getMenuTransitions() ? 200 : 20, 1);
 		SDL_FreeSurface(converted);
@@ -548,8 +552,15 @@ finish:
 	// Reenable as soon as we have a more recent SDL available, if ever.
 	//SND_quit();
 	PAD_quit();
-	PLAT_keepScreenOnQuit(); // the fade-out already ended on black
-	GFX_quit();
+	if (hold_frame) {
+		// the frame stays up for nextui: tearing the GL window down blanks
+		// the screen (Brick), so the process exit frees it; DRM (tg5050) blanks it
+		// once released, so a child holds it until nextui's first frame
+		PLAT_holdDisplayOnExit();
+	} else {
+		PLAT_keepScreenOnQuit(); // the fade-out already ended on black
+		GFX_quit();
+	}
 	Menu_waitScreenshotSave();
 	// Last: QuitSettings() munmaps the libmsettings shared memory. It used to run
 	// right after Notification_quit(), while the VIB_thread (stopped only by

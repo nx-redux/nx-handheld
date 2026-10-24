@@ -1442,6 +1442,21 @@ static bool Menu_canAutosaveQuit(void) {
 // screenshot and repoints the .minui slot file at it, so RESUME always returns
 // to the exact quit moment (parity with DC.pak's quit behavior). Without this,
 // a bare quit leaves the switcher pointing at a stale (or no) state.
+// Quitting from the menu: the screen as shown stays up while minarch exits
+// and nextui starts on it (HELD_FRAME_PATH), instead of a fade to black. A BMP:
+// encoding the PNG took ~0.3 s.
+static void Menu_holdScreenForQuit(void) {
+	// the display flips between two buffers, the one read back holding the frame
+	// before (the previous item highlighted): show this one in both first
+	GFX_flip(screen);
+	GFX_flip(screen);
+	SDL_Surface* shown = GFX_captureRendererToSurface();
+	if (!shown)
+		return;
+	if (SDL_SaveBMP(shown, HELD_FRAME_BMP) == 0)
+		putFile(HELD_FRAME_PATH, HELD_FRAME_BMP);
+	SDL_FreeSurface(shown);
+}
 static void Menu_autosaveQuit(void) {
 	if (!Menu_canAutosaveQuit())
 		return;
@@ -1470,6 +1485,10 @@ static void Menu_autosaveQuit(void) {
 	state_slot = AUTO_RESUME_SLOT;
 	if (State_write())
 		putInt(menu.slot_path, AUTO_RESUME_SLOT);
+}
+
+const char* Menu_slotPreviewPath(void) {
+	return menu.bmp_path;
 }
 
 void Menu_saveState(void) {
@@ -1799,6 +1818,7 @@ void Menu_loop(void) {
 				show_menu = 0;
 			} else if (selected == ITEM_QUIT && Menu_canAutosaveQuit()) {
 				// quit without the auto-resume save: RESUME keeps its old point
+				Menu_holdScreenForQuit();
 				Netplay_quitAll();
 				show_menu = 0;
 				quit = 1;
@@ -1844,6 +1864,7 @@ void Menu_loop(void) {
 				}
 			} break;
 			case ITEM_QUIT:
+				Menu_holdScreenForQuit();
 				// before Netplay_quitAll so the netplay guard inside can skip
 				// the autosave while a session is live
 				Menu_autosaveQuit();
@@ -1984,7 +2005,10 @@ void Menu_loop(void) {
 	}
 	PAD_reset();
 
-	GFX_clearAll();
+	// quitting with the menu held on screen (Menu_holdScreenForQuit): clearing
+	// would flip it once more without its dimmed game behind
+	if (!(quit && exists(HELD_FRAME_PATH)))
+		GFX_clearAll();
 
 	int count = 0;
 	char** overlayList = config.frontend.options[FE_OPT_OVERLAY].values;

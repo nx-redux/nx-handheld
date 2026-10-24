@@ -418,7 +418,18 @@ static void drawCarouselAnimation(SDL_Surface* surface, int x, int y, int w,
 	GFX_drawOnLayer(surface, x, y, w, h, 1.0f, 0, LAYER_BACKGROUND);
 }
 
+static bool held_frame = false;
+void GameSwitcher_setHeldFrame(bool held) {
+	held_frame = held;
+}
+
+static void GameSwitcher_render_(int lastScreen, SDL_Surface* blackBG, int gsanimdir, int status_w);
 void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG, int gsanimdir, int status_w) {
+	GameSwitcher_render_(lastScreen, blackBG, gsanimdir, status_w);
+	held_frame = false;
+}
+
+static void GameSwitcher_render_(int lastScreen, SDL_Surface* blackBG, int gsanimdir, int status_w) {
 	GFX_clearLayers(LAYER_ALL);
 
 	if (gs_count <= 0) {
@@ -478,9 +489,10 @@ void GameSwitcher_render(int lastScreen, SDL_Surface* blackBG, int gsanimdir, in
 
 			if (lastScreen == SCREEN_GAME) {
 				GFX_flipHidden();
+				// from the frame minarch left up: this same picture, no fade from black
 				GFX_animateSurfaceOpacity(
-					bmp, 0, 0, screen->w, screen->h, 0, 255,
-					CFG_getMenuTransitions() ? 150 : 20, LAYER_ALL);
+					bmp, 0, 0, screen->w, screen->h, held_frame ? 255 : 0, 255,
+					CFG_getMenuTransitions() && !held_frame ? 150 : 20, LAYER_ALL);
 			} else if (lastScreen == SCREEN_GAMESWITCHER) {
 				drawCarouselAnimation(bmp, ax, ay, aw, ah, gsanimdir, blackBG);
 			} else {

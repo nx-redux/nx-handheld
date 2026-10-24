@@ -126,8 +126,10 @@ void Input_runDeferredShortcut(void) {
 		if (i == DEFERRED_MENU_SELECT)
 			Present_stop(); // the save state reads the frame back
 		Menu_saveState();
-		if (prefixMatch(SDCARD_PATH, game.path))
+		if (prefixMatch(SDCARD_PATH, game.path)) {
 			putFile(GAME_SWITCHER_PERSIST_PATH, game.path + strlen(SDCARD_PATH));
+			putFile(HELD_FRAME_PATH, (char*)Menu_slotPreviewPath());
+		}
 		if (i == DEFERRED_MENU_SELECT)
 			GFX_clear(screen);
 		break;
