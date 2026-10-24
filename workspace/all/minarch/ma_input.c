@@ -292,6 +292,8 @@ void input_poll_callback(void) {
 					Config_syncFrontend(config.frontend.options[FE_OPT_EFFECT].key, screen_effect);
 					break;
 				case SHORTCUT_TOGGLE_DPAD_JOYSTICK:
+					if (!PLAT_canDpadJoystick())
+						break;
 					dpad_joystick = !dpad_joystick;
 					Notification_push(NOTIFICATION_SETTING, dpad_joystick ? "D-pad: Joystick" : "D-pad: D-pad", NULL);
 					break;

@@ -757,6 +757,10 @@ bool PLAT_canTurbo(void) {
 	return true;
 }
 
+bool PLAT_canDpadJoystick(void) {
+	return is_brick;
+}
+
 #define INPUTD_PATH "/tmp/trimui_inputd"
 
 typedef struct TurboBtnPath {

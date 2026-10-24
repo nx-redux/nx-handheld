@@ -4762,6 +4762,9 @@ int LEDS_getProfileOverride() {
 FALLBACK_IMPLEMENTATION bool PLAT_canTurbo(void) {
 	return false;
 }
+FALLBACK_IMPLEMENTATION bool PLAT_canDpadJoystick(void) {
+	return false;
+}
 FALLBACK_IMPLEMENTATION int PLAT_toggleTurbo(int btn_id) {
 	return 0;
 }

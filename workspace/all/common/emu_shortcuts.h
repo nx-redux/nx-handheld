@@ -42,7 +42,7 @@
 	X(TOGGLE_TURBO_L2, "Toggle Turbo L2")           \
 	X(TOGGLE_TURBO_R, "Toggle Turbo R")             \
 	X(TOGGLE_TURBO_R2, "Toggle Turbo R2")           \
-	/* every platform; off at every game launch */  \
+	/* Brick only (PLAT_canDpadJoystick) */         \
 	X(TOGGLE_DPAD_JOYSTICK, "Toggle D-pad Joystick")
 
 #define SHORTCUT_ENUM_(id, name) SHORTCUT_##id,

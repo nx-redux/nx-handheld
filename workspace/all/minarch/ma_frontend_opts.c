@@ -451,6 +451,8 @@ int OptionShortcuts_openMenu(MenuList* list, int i) {
 		for (int j = 0; j < SHORTCUT_COUNT; j++) {
 			if (j >= SHORTCUT_TOGGLE_TURBO_A && j <= SHORTCUT_TOGGLE_TURBO_R2 && !PLAT_canTurbo())
 				continue;
+			if (j == SHORTCUT_TOGGLE_DPAD_JOYSTICK && !PLAT_canDpadJoystick())
+				continue;
 			MenuItem* item = &OptionShortcuts_menu.items[k++];
 			item->id = j;
 			item->name = (char*)shortcut_names[j];

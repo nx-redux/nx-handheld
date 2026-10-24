@@ -938,6 +938,9 @@ void PLAT_setLedEffectSpeed(LightSettings* led);
 void PLAT_setLedEffectCycles(LightSettings* led);
 
 bool PLAT_canTurbo(void);
+// "Toggle D-pad Joystick" shortcut: only the Brick (the Brick Pro and Smart
+// Pros have real sticks). keymon toggles it in ports via trimui_inputd.
+bool PLAT_canDpadJoystick(void);
 int PLAT_toggleTurbo(int btn_id);
 void PLAT_clearTurbo();
 // BTN_* mask of buttons whose turbo flag is currently on (0 where unsupported).
