@@ -80,29 +80,30 @@ static inline int UI_optionsArrowStrip(int arrow_h, int air) {
 	return arrow_h + 2 * air;
 }
 
-// An options page's block for `count` rows. Titled (untitled_top < 0): a list that fits has no strips and takes only
-// its rows' height, centred in [avail_top, avail_bottom); one that scrolls has `strip` strips (UI_listBlockStrip).
-// Untitled: the first row stays on untitled_top (the pill list's first row, its top gutter), the rows run down to
-// avail_bottom (less the bottom strip when it scrolls), and the up strip sits in the gutter above.
+// An options page's block for `count` rows, aligned to the top (centred in [avail_top, avail_bottom) until
+// 2026-10-24). Titled (untitled_top < 0): the first row a strip under avail_top, where it sits when the page scrolls
+// (the up strip above it), so it stays put either way; a list that fits has no strips. Untitled: the first row stays
+// on untitled_top (the pill list's first row, its top gutter) and the up strip sits in the gutter above. The rows run
+// down to avail_bottom (less the bottom strip when it scrolls).
 static inline UIListBlock UI_optionsBlock(int avail_top, int avail_bottom, int row_h, int count, int strip,
 										  int untitled_top) {
 	UIListBlock b = {avail_top, 0, 0, avail_top, avail_top};
 	if (row_h <= 0 || count < 0)
 		return b;
-	int top = untitled_top >= 0 ? untitled_top : avail_top;
+	if (strip < 0)
+		strip = 0;
+	int top = untitled_top >= 0 ? untitled_top : avail_top + strip;
 	int space = avail_bottom - top;
 	if (space < 0)
 		space = 0;
 	if (count * row_h <= space) {
 		b.rows = count;
-		b.top = untitled_top >= 0 ? top : top + (space - count * row_h) / 2;
+		b.top = top;
 		b.up_y = b.top;
 		b.down_y = b.top + count * row_h;
 		return b;
 	}
-	if (untitled_top < 0)
-		return UI_listBlockStrip(avail_top, avail_bottom, row_h, 0, strip);
-	b.strip = strip > 0 ? strip : 0;
+	b.strip = strip;
 	b.rows = (space - b.strip) / row_h;
 	if (b.rows < 0)
 		b.rows = 0;

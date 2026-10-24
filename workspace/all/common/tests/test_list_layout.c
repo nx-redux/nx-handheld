@@ -30,18 +30,6 @@ static void check_invariants(UIListBlock b, int avail_top, int avail_bottom, int
 	assert(b.up_y - block_top == b.strip - b.strip / 2);
 }
 
-// Like check_invariants, for any strip height.
-static void check_invariants_strip(UIListBlock b, int avail_top, int avail_bottom, int row_h) {
-	int block_top = b.top - b.strip;
-	int block_bottom = b.top + b.rows * row_h + b.strip;
-	assert(block_top >= avail_top);
-	assert(block_bottom <= avail_bottom);
-	int gap_top = block_top - avail_top;
-	int gap_bottom = avail_bottom - block_bottom;
-	assert(gap_top - gap_bottom <= 1 && gap_bottom - gap_top <= 1);
-	assert(b.top - b.up_y == b.down_y - (b.top + b.rows * row_h));
-}
-
 static void test_equal_strips_and_centring(void) {
 	UIListBlock b = UI_listBlock(100, 500, 40, 0);
 	// 400 px: 9 rows (360) + 2 x 20 strips = 400 exactly
@@ -123,14 +111,21 @@ static void test_options_row_and_strip(void) {
 	assert(UI_optionsArrowStrip(12, 3) == 18); // 2x
 }
 
+// A scrolling titled options block: the up strip from the band's top, the rows and the down strip inside it, the
+// arrows as far from their rows.
+static void check_options_top(UIListBlock b, int avail_top, int avail_bottom, int row_h) {
+	assert(b.top - b.strip == avail_top);
+	assert(b.top + b.rows * row_h + b.strip <= avail_bottom);
+	assert(b.top - b.up_y == b.down_y - (b.top + b.rows * row_h));
+}
+
 static void test_options_titled_fits(void) {
-	// Brick 3x, no description: 645 px holds 9 rows of 67 without strips; a 5-row page sits centred
+	// Brick 3x, no description: 645 - 26 = 619 px holds 9 rows of 67 without strips; a 5-row page sits at the top,
+	// its first row a strip (26) under the band's top, where a scrolling page's first row is
 	UIListBlock b = UI_optionsBlock(BRICK_TOP, BRICK_BOTTOM, 67, 5, 26, -1);
 	assert(b.rows == 5);
 	assert(b.strip == 0);
-	int gap_top = b.top - BRICK_TOP;
-	int gap_bottom = BRICK_BOTTOM - (b.top + 5 * 67);
-	assert(gap_top - gap_bottom <= 1 && gap_bottom - gap_top <= 1);
+	assert(b.top == BRICK_TOP + 26);
 	// exactly as many as fit without strips: still no strips
 	b = UI_optionsBlock(BRICK_TOP, BRICK_BOTTOM, 67, 9, 26, -1);
 	assert(b.rows == 9 && b.strip == 0);
@@ -141,14 +136,14 @@ static void test_options_titled_scrolls(void) {
 	UIListBlock b = UI_optionsBlock(BRICK_TOP, BRICK_BOTTOM, 67, 20, 26, -1);
 	assert(b.rows == 8);
 	assert(b.strip == 26);
-	check_invariants_strip(b, BRICK_TOP, BRICK_BOTTOM, 67);
+	check_options_top(b, BRICK_TOP, BRICK_BOTTOM, 67);
 	// Brick with descriptions (1.5 rows = 100 px): 545 - 52 = 493 -> 7
 	b = UI_optionsBlock(BRICK_TOP, BRICK_BOTTOM - 100, 67, 20, 26, -1);
 	assert(b.rows == 7);
 	// SPS 2x, no description: 637 - 36 = 601 -> 13 rows of 45
 	b = UI_optionsBlock(SPS_TOP, SPS_BOTTOM, 45, 30, 18, -1);
 	assert(b.rows == 13);
-	check_invariants_strip(b, SPS_TOP, SPS_BOTTOM, 45);
+	check_options_top(b, SPS_TOP, SPS_BOTTOM, 45);
 	// SPS with descriptions (67 px): 570 - 36 = 534 -> 11
 	b = UI_optionsBlock(SPS_TOP, SPS_BOTTOM - 67, 45, 30, 18, -1);
 	assert(b.rows == 11);

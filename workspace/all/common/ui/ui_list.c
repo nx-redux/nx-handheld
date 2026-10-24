@@ -695,8 +695,11 @@ void UI_renderSettingsPageEx(SDL_Surface* screen, ListLayout* layout,
 	// Description text below the list — up to two centered lines
 	if (selected >= 0 && selected < count &&
 		items[selected].desc && items[selected].desc[0]) {
-		// under the block (and its down strip), down to the hint bar's top
+		// under the block (and its down strip), down to the hint bar's top; a short block's in the area the page keeps
+		// for it over the hint bar (the rows are at the top)
 		int area_y = layout->list_y + layout->list_h + layout->strip;
+		if (area_y < layout->avail_bottom - desc_h)
+			area_y = layout->avail_bottom - desc_h;
 		int area_b = UI_buttonHintBarTop(screen->h);
 		int desc_max_w = hw - SCALE1(PADDING * 2);
 		int line_h = TTF_FontHeight(font.tiny);
