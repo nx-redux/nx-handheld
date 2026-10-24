@@ -11,6 +11,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_menubar.h"
 #include "ma_menu.h"
+#include "ma_png.h"
 #include "ma_present.h"
 #include "ma_frontend_opts.h"
 #include "ma_saves.h"
@@ -1323,17 +1324,16 @@ int save_screenshot_thread(void* data) {
 	SDL_Surface* converted = args->surface ? args->surface
 										   : rawCaptureToSurface(args->pixels, args->w, args->h, SDL_PIXELFORMAT_ARGB8888);
 
+	if (converted && converted->format->format != SDL_PIXELFORMAT_ARGB8888) {
+		SDL_Surface* argb = SDL_ConvertSurfaceFormat(converted, SDL_PIXELFORMAT_ARGB8888, 0);
+		SDL_FreeSurface(converted);
+		converted = argb;
+	}
 	if (!converted) {
 		SDL_Log("Failed to convert screenshot surface: %s", SDL_GetError());
-	} else {
-		SDL_RWops* rw = SDL_RWFromFile(args->path, "wb");
-		if (!rw) {
-			SDL_Log("Failed to open file for writing: %s", SDL_GetError());
-		} else {
-			if (IMG_SavePNG_RW(converted, rw, 1) != 0) {
-				SDL_Log("Failed to save PNG: %s", SDL_GetError());
-			}
-		}
+	} else if (PNG_saveRGB(args->path, converted->pixels, converted->w, converted->h, converted->pitch) != 0) {
+		// zlib's fastest level: ~0.15 s for a 1280x720 frame where SDL_image took ~0.8 s (Smart Pro S)
+		SDL_Log("Failed to save PNG: %s", args->path);
 	}
 	SDL_FreeSurface(converted);
 	free(args->path);

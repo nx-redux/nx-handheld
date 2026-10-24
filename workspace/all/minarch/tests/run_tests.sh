@@ -24,6 +24,8 @@ $CC -I../../common -o /tmp/nx_test_flip_schedule test_flip_schedule.c
 /tmp/nx_test_flip_schedule
 $CC -I.. $PLAT -o /tmp/nx_test_save_paths ../ma_save_paths.c test_save_paths.c
 /tmp/nx_test_save_paths
+$CC -I.. -o /tmp/nx_test_png ../ma_png.c test_png.c -lz
+/tmp/nx_test_png
 $CC -I.. -o /tmp/nx_test_rewind_budget ../ma_rewind_budget.c test_rewind_budget.c
 /tmp/nx_test_rewind_budget
 $CC -I.. -o /tmp/nx_test_rewind_ring ../ma_rewind_ring.c test_rewind_ring.c
