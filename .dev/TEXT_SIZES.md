@@ -113,6 +113,15 @@ Sizes are the text's height in screen px (the TTF point size the font opens at).
 | 2026-10-07 | all | Home | Pinned games: caption padding | `composeGame` (home.c) | 20 in, 16 up (its own) | the Continue card's: `CONT_INSET` from the sides, the time's and name's baselines as far up (`HomeLayout_captionBaselines`) | not text: "the Continue card's padding is bigger than the pinned games'; give the pins the same" |
 | 2026-10-07 | all | Settings (options pages), Wi-Fi, Bluetooth | Selected row's pills | `GFX_blitPillColor` (was `GFX_blitRectColor(ASSET_BUTTON…)`) | rounded corners of the button art (radius 22 on a 51 px row at 2.25: flat ends) | true capsules: half-circle ends at the row's height | not text: "the options pills for the selected item was not perfectly rounded" |
 | 2026-10-07 | Smart Pro S | Tools, Grid layout | Tile width | `GRID_TOOLS_W_K` | 1× | 1.5× (as the Brick and Brick Pro) | "increase the tools grid layout item to 1.5x" |
+| 2026-10-24 | all | Game Switcher, Full screen | Console and "i / n" line | `GS_SUBTITLE_SP` (gameswitcher.c) | 10 sp | 14 sp (two steps below the 18 sp title) | "too small, one step below the title"; 16 sp "too large" |
+| 2026-10-24 | Brick, Brick Pro | Game lists, Consoles, Collections: Grid | Tiles across | `GRID_GAME_COLS` | 2½ (games), Consoles smaller | 2, one size for all three (`GridLayout_computeFit`), the selected column centred | not text: "only 2 items, the selected in the middle" |
+| 2026-10-24 | all | Tools, Grid layout | Tile width | `GRID_TOOLS_W_K` | 1.5× | 1.7× | "increase the width a little" (the Brick's and Brick Pro's tools at the Consoles' height) |
+| 2026-10-24 | Smart Pro S | Game lists, Grid layout | Tile width | `GRID_GAMES_W_K` | 1.5× | 2.25× | "add 50% more than its current width" |
+| 2026-10-24 | all | Home | Pinned games: height | `HOME_PIN_K` removed | 2× / 1× / 0.8× | two rows fill the page scrolled to them, centred between the bars (rows `HOME_BOTTOM` apart) | not text: "fit 2 rows of pinned games on the screen"; the Smart Pro S's second row no longer peeks under the first |
+| 2026-10-24 | Smart Pro S | Home, 3+ pinned games | Layout | `home_layout.c` | two pin rows on the first page under a shorter top section | as with 2 games: the first two in a column beside Continue, the rest rows of 3 on the next page | not text: "put the first 2 between Continue and the tools … the remaining below (next page like the Brick)" |
+| 2026-10-24 | Smart Pro S | Home | Tool squares per column | `HOME_TOOL_ROWS` | 4 | 5 | not text: "keep the pinned tools to 5 items per column regardless the number of pinned games" |
+| 2026-10-24 | Smart Pro S | Home | Games column width | `home_layout.c` | 3 squares | 6 squares, at most 40% of the width the tools leave | not text: "double the current width, or max 40% of the available width" |
+| 2026-10-24 | all | Settings and every options page | Rows' position | `UI_optionsBlock` | centred between the title and the hints | top-aligned (the first row where a scrolling page's is), the description over the hint bar | not text: "aligned top like normal" |
 
 Untuned devices keep their current sizes in each entry (what the UI scale gives
 them at Home's scale):
@@ -124,14 +133,15 @@ them at Home's scale):
 | `TEXT_HOME_CONT_INFO` | 28 (tuned) | 26 (tuned) |
 | `TEXT_HOME_PIN_NAME` | 28 (tuned) | 26 (tuned) |
 | `TEXT_HOME_PIN_INFO` | 28 (tuned) | 26 (tuned) |
-| `HOME_PIN_K` | 1× (2× tried) | 0.8× (tuned) |
-| `HOME_TOOL_ROWS` | 5 (tuned) | 4 |
+| `HOME_TOOL_ROWS` | 5 (tuned) | 5 (tuned) |
 | `TEXT_MENU_LIST` | 40 | 36 |
 | `MENU_LIST_PITCH` | 75 | 68 |
 | `MENU_LIST_ROWS` | 0 | 0 |
 | `TEXT_LIST_INFO` | 28 (tuned) | 26 (tuned) |
 | `TEXT_GRID_TOOL` | 28 (tuned) | 26 (tuned) |
-| `GRID_TOOLS_W_K` | 1.5× (as the Brick) | 1.5× (tuned) |
+| `GRID_TOOLS_W_K` | 1.7× (as the Brick) | 1.7× (as the Brick) |
+| `GRID_GAMES_W_K` | 1.5× (as the Brick; two across set the width) | 2.25× (tuned) |
+| `GRID_GAME_COLS` | 2 (as the Brick) | 0 (as many as fit) |
 | `TEXT_CAROUSEL_COUNT` | 28 (tuned) | 26 (tuned) |
 | `TEXT_CAROUSEL_COLL_NAME` | 41 (tuned) | 0 |
 | `CAROUSEL_COLL_W_K` | 1.5× (as the Brick) | 1× |
