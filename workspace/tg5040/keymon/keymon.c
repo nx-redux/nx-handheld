@@ -53,11 +53,14 @@
 
 // Brick ports: the global "Toggle D-pad Joystick" shortcut. minarch does it
 // itself; a port reads the pad directly, so while ports_launch.sh's marker
-// exists keymon toggles trimui_inputd's flag, which sends the D-pad as the
-// left stick (ports_launch.sh clears both at start and exit).
+// exists keymon toggles trimui_inputd's flags, which send the D-pad as the
+// left stick (ports_launch.sh clears them and the marker at start and exit).
+// The stock inputd needs both: input_dpad_to_joystick alone still sends the
+// hat (verified on the Brick 2026-10-25), with input_no_dpad only the stick.
 #define PORTS_ACTIVE_PATH "/tmp/nx_ports_active"
 #define INPUTD_PATH "/tmp/trimui_inputd"
 #define INPUTD_JOYSTICK_PATH INPUTD_PATH "/input_dpad_to_joystick"
+#define INPUTD_NO_DPAD_PATH INPUTD_PATH "/input_no_dpad"
 // The BTN_ID_* (defines.h) shortcut labels count from; defines.h itself pulls
 // in SDL and platform.h's CODE_* names.
 enum { PAD_UP,
@@ -239,23 +242,25 @@ static int dpad_shortcut_armed(void) {
 	return dpad_shortcut_btn >= 0;
 }
 
-// A BTN_ID went down: toggle the flag when it completes the shortcut. The
+// A BTN_ID went down: toggle the flags when it completes the shortcut. The
 // press still reaches the port (keymon only listens), as in minarch.
 static void dpad_shortcut_pressed(int btn_id, int menu_held) {
 	if (!dpad_shortcut_armed() || btn_id != dpad_shortcut_btn || menu_held != dpad_shortcut_mod)
 		return;
 	if (access(INPUTD_JOYSTICK_PATH, F_OK) == 0) {
 		unlink(INPUTD_JOYSTICK_PATH);
+		unlink(INPUTD_NO_DPAD_PATH);
 		buzz(2); // D-pad
 	} else {
 		mkdir(INPUTD_PATH, 0755);
+		close(open(INPUTD_NO_DPAD_PATH, O_CREAT | O_WRONLY, 0644));
 		close(open(INPUTD_JOYSTICK_PATH, O_CREAT | O_WRONLY, 0644));
 		buzz(1); // Joystick
 	}
 }
 
 // D-pad directions (bit per BTN_ID) from the hat, or from ABS_X/ABS_Y
-// while the flag sends the D-pad there, and L2/R2 from their axes; press edges
+// while the flags send the D-pad there, and L2/R2 from their axes; press edges
 // go to dpad_shortcut_pressed.
 static uint32_t abs_held = 0;
 static void dpad_shortcut_abs(int fd, const struct input_event* ev, int menu_held) {
