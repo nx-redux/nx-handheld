@@ -143,6 +143,15 @@ int main(void) {
 	EmuShortcuts_merge(global, over, out);
 	assert(out[SHORTCUT_SAVE_STATE] == menu_y && out[SHORTCUT_LOAD_STATE] == menu_x);
 
+	// labelOwner: another shortcut on the label, never the asking one or NONE
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		labels[i] = 0;
+	labels[SHORTCUT_TOGGLE_FF] = EmuShortcuts_labelIndex("R3");
+	assert(EmuShortcuts_labelOwner(labels, EmuShortcuts_labelIndex("R3"), SHORTCUT_TOGGLE_DPAD_JOYSTICK) == SHORTCUT_TOGGLE_FF);
+	assert(EmuShortcuts_labelOwner(labels, EmuShortcuts_labelIndex("R3"), SHORTCUT_TOGGLE_FF) == -1);
+	assert(EmuShortcuts_labelOwner(labels, EmuShortcuts_labelIndex("MENU+R3"), -1) == -1);
+	assert(EmuShortcuts_labelOwner(labels, 0, -1) == -1); // NONE is never taken
+
 	system("rm -rf " DIR_);
 	printf("test_emu_shortcuts: all passed\n");
 	return 0;

@@ -423,11 +423,24 @@ int OptionShortcuts_bind(MenuList* list, int i) {
 	ButtonMapping button = {0};
 	int result = OptionBind_pollLoop(item, &button);
 	int label = EmuShortcuts_toLabel(button.local, button.mod);
+	// a button another shortcut here has is refused, as in Settings, so one
+	// press never fires two (a Settings one on it is dropped by the merge)
+	int shown[SHORTCUT_COUNT] = {0};
+	for (MenuItem* row = list->items; row->name; row++)
+		shown[row->id] = shortcut_override[row->id];
+	int owner = EmuShortcuts_labelOwner(shown, label, item->id);
 	// MENU+SELECT stays the Game Switcher combo (ma_input.c)
-	if (!EmuShortcuts_isReserved(label))
+	if (!EmuShortcuts_isReserved(label) && owner < 0)
 		shortcut_override[item->id] = label;
 	Config_applyShortcuts();
 	OptionShortcuts_refresh();
+	if (owner >= 0) {
+		static char refused[128];
+		snprintf(refused, sizeof(refused), "%s is used by %s here. Clear it first.",
+				 button_labels[label], shortcut_names[owner]);
+		item->desc = refused;
+		return MENU_CALLBACK_NOP; // stay on the row so the reason shows
+	}
 	return result;
 }
 int OptionShortcuts_unbind(MenuList* list, int i) {

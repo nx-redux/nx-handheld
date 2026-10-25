@@ -1518,13 +1518,33 @@ static void shortcuts_page_hide(SettingsPage* page) {
 static int shortcut_get(int id) {
 	return shortcut_labels[id];
 }
+// rows this device shows (the page build below skips the same ones)
+static int shortcut_shown(int id) {
+	if (id >= SHORTCUT_TOGGLE_TURBO_A && id <= SHORTCUT_TOGGLE_TURBO_R2)
+		return PLAT_canTurbo();
+	if (id == SHORTCUT_TOGGLE_DPAD_JOYSTICK)
+		return PLAT_canDpadJoystick();
+	return 1;
+}
+// the shown shortcut other than id on label, or -1: one button, one shortcut
+static int shortcut_owner(int label, int id) {
+	int shown[SHORTCUT_COUNT];
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		shown[i] = shortcut_shown(i) ? shortcut_labels[i] : 0;
+	return EmuShortcuts_labelOwner(shown, label, id);
+}
+static int shortcut_taken(int label, int id) {
+	return EmuShortcuts_isReserved(label) || shortcut_owner(label, id) >= 0;
+}
 static void shortcut_set(int id, int label) {
 	if (label < 0 || label >= SHORTCUT_LABEL_COUNT)
 		label = 0;
-	if (EmuShortcuts_isReserved(label)) {
-		// step past it the way LEFT/RIGHT (or L1/R1's bigger, wrapping step) came
+	if (shortcut_taken(label, id)) {
+		// step past taken ones the way LEFT/RIGHT (or L1/R1's bigger, wrapping
+		// step) came; NONE is never taken, so this stops
 		int fwd = (label - shortcut_labels[id] + SHORTCUT_LABEL_COUNT) % SHORTCUT_LABEL_COUNT <= SHORTCUT_LABEL_COUNT / 2;
-		label = (label + (fwd ? 1 : SHORTCUT_LABEL_COUNT - 1)) % SHORTCUT_LABEL_COUNT;
+		while (shortcut_taken(label, id))
+			label = (label + (fwd ? 1 : SHORTCUT_LABEL_COUNT - 1)) % SHORTCUT_LABEL_COUNT;
 	}
 	if (shortcut_labels[id] == label)
 		return;
@@ -1534,7 +1554,8 @@ static void shortcut_set(int id, int label) {
 
 // Blocking "press a button" capture, like minarch's in-game binder: the first
 // button pressed (UP..R4) is bound, as MENU+button when MENU is held. B on its
-// own, or SHORTCUT_CAPTURE_MS without a press, cancels.
+// own, or SHORTCUT_CAPTURE_MS without a press, cancels. A button another
+// shortcut has is refused with its name, and the capture keeps waiting.
 static void shortcut_capture(int id) {
 	if (!g_screen)
 		return;
@@ -1545,6 +1566,7 @@ static void shortcut_capture(int id) {
 	uint32_t start = SDL_GetTicks();
 	int label = -1;
 	int reserved = 0; // MENU+SELECT was pressed: say why it didn't bind and keep waiting
+	int refused = 0;  // label of a button another shortcut has, same idea
 	while (!app_quit) {
 		GFX_startFrame();
 		PAD_poll();
@@ -1561,7 +1583,13 @@ static void shortcut_capture(int id) {
 		if (EmuShortcuts_isReserved(label)) {
 			label = -1;
 			reserved = 1;
+			refused = 0;
 			start = SDL_GetTicks(); // a fresh countdown for the next try
+		} else if (label > 0 && shortcut_owner(label, id) >= 0) {
+			refused = label;
+			reserved = 0;
+			label = -1;
+			start = SDL_GetTicks();
 		}
 		if (label >= 0)
 			break;
@@ -1570,12 +1598,18 @@ static void shortcut_capture(int id) {
 		if (elapsed >= SHORTCUT_CAPTURE_MS)
 			break;
 
+		char hint[128];
+		if (refused)
+			snprintf(hint, sizeof(hint), "%s is used by %s.\nPress another button.",
+					 button_labels[refused], shortcut_names[shortcut_owner(refused, id)]);
+		else
+			snprintf(hint, sizeof(hint), "%s",
+					 reserved ? "MENU+SELECT opens the Game Switcher.\nPress another button."
+							  : "Press a button, or hold MENU\nand press a button.");
 		char text[256];
 		snprintf(text, sizeof(text),
 				 "%s\n\n%s\n\n%u",
-				 shortcut_names[id],
-				 reserved ? "MENU+SELECT opens the Game Switcher.\nPress another button."
-						  : "Press a button, or hold MENU\nand press a button.",
+				 shortcut_names[id], hint,
 				 (unsigned)((SHORTCUT_CAPTURE_MS - elapsed + 999) / 1000));
 		GFX_clear(g_screen);
 		UI_renderMenuBar(g_screen, "Settings | Emulator Shortcuts");
@@ -1622,10 +1656,6 @@ typedef struct ShortcutRow {
 #define SHORTCUT_ROW_(id, name) [SHORTCUT_##id] = {get_shortcut_##id, set_shortcut_##id, clear_shortcut_##id, capture_shortcut_##id},
 static const ShortcutRow shortcut_rows[SHORTCUT_COUNT] = {SHORTCUT_LIST(SHORTCUT_ROW_)};
 #undef SHORTCUT_ROW_
-
-static int is_turbo_shortcut(int id) {
-	return id >= SHORTCUT_TOGGLE_TURBO_A && id <= SHORTCUT_TOGGLE_TURBO_R2;
-}
 
 // ============================================
 // Simple Mode callbacks
@@ -2258,9 +2288,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	idx = 0;
 	shortcuts_load();
 	for (int i = 0; i < SHORTCUT_COUNT; i++) {
-		if (is_turbo_shortcut(i) && !PLAT_canTurbo())
-			continue;
-		if (i == SHORTCUT_TOGGLE_DPAD_JOYSTICK && !PLAT_canDpadJoystick())
+		if (!shortcut_shown(i))
 			continue;
 		const ShortcutRow* row = &shortcut_rows[i];
 		const char* desc = i == SHORTCUT_TOGGLE_DPAD_JOYSTICK

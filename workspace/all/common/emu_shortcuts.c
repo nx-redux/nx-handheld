@@ -149,6 +149,15 @@ int EmuShortcuts_write(const char* path, const int labels[SHORTCUT_COUNT]) {
 	return 1;
 }
 
+int EmuShortcuts_labelOwner(const int labels[SHORTCUT_COUNT], int label, int except) {
+	if (label <= 0)
+		return -1;
+	for (int i = 0; i < SHORTCUT_COUNT; i++)
+		if (i != except && labels[i] == label)
+			return i;
+	return -1;
+}
+
 void EmuShortcuts_merge(const int global[SHORTCUT_COUNT], const int over[SHORTCUT_COUNT], int out[SHORTCUT_COUNT]) {
 	for (int i = 0; i < SHORTCUT_COUNT; i++) {
 		if (over[i] > 0) {

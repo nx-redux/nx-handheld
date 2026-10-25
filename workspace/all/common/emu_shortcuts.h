@@ -109,4 +109,9 @@ int EmuShortcuts_write(const char* path, const int labels[SHORTCUT_COUNT]);
 // dropped, so one press never fires two shortcuts.
 void EmuShortcuts_merge(const int global[SHORTCUT_COUNT], const int over[SHORTCUT_COUNT], int out[SHORTCUT_COUNT]);
 
+// The shortcut other than `except` that labels[] binds to `label`, or -1 (and
+// always -1 for NONE). The bind pages refuse a button another shortcut has, so
+// one press never fires two shortcuts; they pass only the rows they show.
+int EmuShortcuts_labelOwner(const int labels[SHORTCUT_COUNT], int label, int except);
+
 #endif
