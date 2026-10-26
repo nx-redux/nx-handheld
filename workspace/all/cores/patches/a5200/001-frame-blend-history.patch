@@ -1,0 +1,57 @@
+# license: modifies a5200 (https://github.com/libretro/a5200), GPL-2.0 (License.txt); this patch is distributed under the same license.
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 1956f79..c92ed10 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -343,9 +343,24 @@ static void blend_frames_ghost95(void)
+ }
+ 
+ static void (*blend_frames)(void) = NULL;
++/* False when video_buffer_prev does not hold the previous frame (just
++ * allocated, options changed, a reset or a loaded state): the next frame
++ * seeds it from itself instead of blending with black or an unrelated frame */
++static bool blend_frames_prev_valid = false;
++
++static void seed_frame_blending(void)
++{
++   if (blend_frames_prev_valid)
++      return;
++   blend_frames_prev_valid = true;
++   memcpy(video_buffer_prev, video_buffer, A5200_VIDEO_WIDTH *
++         A5200_VIDEO_HEIGHT * sizeof(uint16_t));
++}
+ 
+ static void init_frame_blending(enum frame_blend_method blend_method)
+ {
++   blend_frames_prev_valid = false;
++
+    /* Allocate/zero out buffer, if required */
+    if (blend_method != FRAME_BLEND_NONE)
+    {
+@@ -1233,7 +1248,10 @@ static void update_video(void)
+    }
+ 
+    if (blend_frames)
++   {
++      seed_frame_blending();
+       blend_frames();
++   }
+ 
+    if (input_show_osk)
+       a5200_osk_draw(video_buffer, A5200_VIDEO_WIDTH,
+@@ -1410,6 +1428,7 @@ bool retro_serialize(void *data, size_t size)
+ 
+ bool retro_unserialize(const void *data, size_t size)
+ {
++   blend_frames_prev_valid = false;
+    return ReadAtariState(data, size);
+ }
+ 
+@@ -1636,6 +1655,7 @@ void retro_reset(void)
+ {
+    /* really should be coldstart, not warmstart */
+    Coldstart();
++   blend_frames_prev_valid = false;
+ }
+ 
+ void retro_run(void)
