@@ -3625,6 +3625,9 @@ void PLAT_GL_Swap() {
 		} else {
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vid.blit->src_w, vid.blit->src_h, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
 		}
+		// a shader reset deleted the texture above: frame_tex still held the
+		// old id (0), so the first frame after every reset drew black
+		frame_tex = src_texture;
 	}
 	// Mid-frame GL work above may have changed the unit-0 binding.
 	hwr.state_dirty = hwr.state_dirty || hwr.frame_ready;
