@@ -1,0 +1,75 @@
+# license: modifies Handy (https://github.com/libretro/libretro-handy), zlib-style Handy license (lynx/license.txt); this patch is distributed under the same license.
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index ad4efd7..73a2343 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -222,6 +222,10 @@ typedef enum
+ } lynx_lcd_ghosting_t;
+ 
+ static lynx_lcd_ghosting_t lynx_lcd_ghosting = LCD_GHOSTING_NONE;
++/* False when the history buffers do not hold the previous frames (just
++ * allocated, a reset or a loaded state): the next frame seeds them from
++ * itself instead of blending with black or an unrelated frame */
++static bool lcd_ghosting_history_valid = false;
+ 
+ #define LCD_GHOSTING_APPLY_2FRAMES(typename_t, color_mix_lsb) \
+ { \
+@@ -343,6 +347,23 @@ static void lcd_ghosting_apply_4frames_888(void)
+ 
+ static void (*lcd_ghosting_apply)(void) = NULL;
+ 
++static void lcd_ghosting_seed_history(void)
++{
++   size_t size = RETRO_LYNX_WIDTH * RETRO_LYNX_WIDTH *
++         ((RETRO_PIX_DEPTH == 24) ? 4 : 2);
++
++   if (lcd_ghosting_history_valid)
++      return;
++   lcd_ghosting_history_valid = true;
++
++   if (lynx_lcd_ghosting >= LCD_GHOSTING_2FRAMES)
++      memcpy(framebuffer_history_1, framebuffer, size);
++   if (lynx_lcd_ghosting >= LCD_GHOSTING_3FRAMES)
++      memcpy(framebuffer_history_2, framebuffer, size);
++   if (lynx_lcd_ghosting >= LCD_GHOSTING_4FRAMES)
++      memcpy(framebuffer_history_3, framebuffer, size);
++}
++
+ static void lcd_ghosting_init(void)
+ {
+    size_t history_buffer_size =
+@@ -350,6 +371,7 @@ static void lcd_ghosting_init(void)
+ 
+    /* Disable ghosting by default */
+    lcd_ghosting_apply = NULL;
++   lcd_ghosting_history_valid = false;
+ 
+    if (lynx_lcd_ghosting == LCD_GHOSTING_NONE)
+       return;
+@@ -615,7 +637,10 @@ static UBYTE* lynx_display_callback(ULONG objref)
+          }
+ 
+          if (lcd_ghosting_apply)
++         {
++            lcd_ghosting_seed_history();
+             lcd_ghosting_apply();
++         }
+ 
+          video_cb(framebuffer, lynx_width, lynx_height,
+                RETRO_LYNX_WIDTH * RETRO_PIX_BYTES);
+@@ -883,6 +908,7 @@ void retro_reset(void)
+       lynx->SaveEEPROM();
+       lynx->Reset();
+    }
++   lcd_ghosting_history_valid = false;
+ }
+ 
+ void retro_deinit(void)
+@@ -1135,6 +1161,7 @@ bool retro_unserialize(const void *data, size_t size)
+    fp.index_limit = size;
+    fp.nul_stream  = 0;
+ 
++   lcd_ghosting_history_valid = false;
+    return lynx->ContextLoad(&fp);
+ }
+ 
