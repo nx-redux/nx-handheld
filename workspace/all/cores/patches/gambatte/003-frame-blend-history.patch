@@ -1,0 +1,91 @@
+# license: modifies Gambatte (https://github.com/libretro/gambatte-libretro), GPL-2.0 (COPYING); this patch is distributed under the same license.
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -741,6 +741,10 @@
+ static float frame_blend_response[4]             = {0.0f};
+ static bool frame_blend_response_set             = false;
+ static void (*blend_frames)(void)                = NULL;
++/* False when the history buffers do not hold the previous frames (just
++ * allocated, a reset, a loaded state or a new game): the next blend seeds
++ * them from the current frame instead of blending with black */
++static bool frame_blend_history_valid            = false;
+ 
+ /* > Note: The individual frame blending functions
+  *   are somewhat WET (Write Everything Twice), in that
+@@ -1051,6 +1055,7 @@
+ static void init_frame_blending(void)
+ {
+    blend_frames = NULL;
++   frame_blend_history_valid = false;
+ 
+    /* Allocate interframe blending buffers, as required
+     * NOTE: In all cases, any used buffers are 'reset'
+@@ -1198,6 +1203,7 @@
+     * anything down the line ever cares about which physical
+     * buffer holds which logical position. */
+    lcd_ghost_oldest = 0;
++   frame_blend_history_valid = false;
+ 
+    /* memset is unspecified for floats on exotic platforms (since
+     * IEEE-754 zero is all-bits-zero on every architecture we
+@@ -1212,6 +1218,49 @@
+          if (video_buf_acc_g) video_buf_acc_g[i] = 0.0f;
+          if (video_buf_acc_b) video_buf_acc_b[i] = 0.0f;
+       }
++   }
++}
++
++static void seed_frame_blending_buffers(void)
++{
++   size_t i;
++
++   if (frame_blend_history_valid)
++      return;
++   frame_blend_history_valid = true;
++
++   switch (frame_blend_type)
++   {
++      case FRAME_BLEND_LCD_GHOSTING:
++         memcpy(video_buf_prev_4, video_buf, VIDEO_BUFF_SIZE);
++         memcpy(video_buf_prev_3, video_buf, VIDEO_BUFF_SIZE);
++         memcpy(video_buf_prev_2, video_buf, VIDEO_BUFF_SIZE);
++         /* fall through */
++      case FRAME_BLEND_MIX:
++         memcpy(video_buf_prev_1, video_buf, VIDEO_BUFF_SIZE);
++         break;
++      case FRAME_BLEND_LCD_GHOSTING_FAST:
++         for (i = 0; i < (256 * NUM_GAMEBOYS * VIDEO_HEIGHT); i++)
++         {
++            gambatte::video_pixel_t rgb = video_buf[i];
++#ifdef VIDEO_RGB565
++            video_buf_acc_r[i] = static_cast<float>(rgb >> 11 & 0x1F);
++            video_buf_acc_g[i] = static_cast<float>(rgb >>  6 & 0x1F);
++            video_buf_acc_b[i] = static_cast<float>(rgb       & 0x1F);
++#elif defined(VIDEO_ABGR1555)
++            video_buf_acc_r[i] = static_cast<float>(rgb       & 0x1F);
++            video_buf_acc_g[i] = static_cast<float>(rgb >>  5 & 0x1F);
++            video_buf_acc_b[i] = static_cast<float>(rgb >> 10 & 0x1F);
++#else
++            video_buf_acc_r[i] = static_cast<float>(rgb >> 16 & 0x1F);
++            video_buf_acc_g[i] = static_cast<float>(rgb >>  8 & 0x1F);
++            video_buf_acc_b[i] = static_cast<float>(rgb       & 0x1F);
++#endif
++         }
++         break;
++      case FRAME_BLEND_NONE:
++      default:
++         break;
+    }
+ }
+ 
+@@ -2967,7 +3016,10 @@
+ 
+    /* Perform interframe blending, if required */
+    if (blend_frames)
++   {
++      seed_frame_blending_buffers();
+       blend_frames();
++   }
+ 
+    video_cb(video_buf, VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_PITCH * sizeof(gambatte::video_pixel_t));
+ 
