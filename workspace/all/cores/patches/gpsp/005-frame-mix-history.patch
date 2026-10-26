@@ -1,0 +1,65 @@
+# license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
+--- forkSrcPrefix/libretro/libretro.c
++++ forkDstPrefix/libretro/libretro.c
+@@ -119,6 +119,19 @@
+ static void (*video_post_process)(void) = NULL;
+ static bool post_process_cc  = false;
+ static bool post_process_mix = false;
++/* False when gba_screen_pixels_prev does not hold the previous frame (just
++ * allocated, mixing just turned on, a reset or a loaded state): the next mix
++ * blends the frame with itself instead of white or an unrelated frame */
++static bool post_process_prev_valid = false;
++
++static void video_post_process_seed_prev(void)
++{
++   if (!post_process_prev_valid)
++   {
++      memcpy(gba_screen_pixels_prev, gba_screen_pixels, GBA_SCREEN_BUFFER_SIZE);
++      post_process_prev_valid = true;
++   }
++}
+ 
+ static void error_msg(const char* text)
+ {
+@@ -256,6 +269,8 @@
+    const size_t    npx      = GBA_SCREEN_HEIGHT * GBA_SCREEN_PITCH;
+    size_t i;
+ 
++   video_post_process_seed_prev();
++
+    for (i = 0; i < npx; i++)
+    {
+       uint16_t rgb_curr = src_curr[i];
+@@ -292,6 +307,8 @@
+    const size_t    npx      = GBA_SCREEN_HEIGHT * GBA_SCREEN_PITCH;
+    size_t i;
+ 
++   video_post_process_seed_prev();
++
+    for (i = 0; i < npx; i++)
+    {
+       uint16_t rgb_curr = src_curr[i];
+@@ -313,6 +330,7 @@
+ static void init_post_processing(void)
+ {
+    video_post_process = NULL;
++   post_process_prev_valid = false;
+ 
+    /* If post processing is disabled, return
+     * immediately */
+@@ -864,6 +882,7 @@
+ void retro_reset(void)
+ {
+    reset_gba();
++   post_process_prev_valid = false;
+ }
+ 
+ size_t retro_serialize_size(void)
+@@ -887,6 +906,7 @@
+    if (size != GBA_STATE_MEM_SIZE)
+       return false;
+ 
++   post_process_prev_valid = false;
+    return gba_load_state(data);
+ }
+ 

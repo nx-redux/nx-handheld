@@ -1,0 +1,91 @@
+# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); this patch is distributed under the same license.
+--- forkSrcPrefix/src/platform/libretro/libretro.c
++++ forkDstPrefix/src/platform/libretro/libretro.c
+@@ -567,6 +567,11 @@
+ static float* outputBufferAccB                = NULL;
+ static float frameBlendResponse[4]            = {0.0f};
+ static bool frameBlendResponseSet             = false;
++/* False when the history buffers do not hold the previous frames (just
++ * allocated, options changed, a reset or a loaded state): the next blend
++ * seeds them from the current frame instead of blending with white or an
++ * unrelated frame */
++static bool frameBlendHistoryValid            = false;
+ 
+ static bool _allocateOutputBufferPrev(mColor** buf) {
+ 	if (!*buf) {
+@@ -722,6 +727,39 @@
+ 		frameBlendEnabled = false;
+ 	} else if (frameBlendType != oldFrameBlendType) {
+ 		_initFrameBlend();
++	}
++}
++
++static void _seedFrameBlendHistory(void) {
++	size_t i;
++
++	if (frameBlendHistoryValid) {
++		return;
++	}
++	frameBlendHistoryValid = true;
++
++	switch (frameBlendType) {
++		case FRAME_BLEND_LCD_GHOSTING:
++			memcpy(outputBufferPrev4, outputBuffer, VIDEO_BUFF_SIZE);
++			/* fall through */
++		case FRAME_BLEND_MIX_SMART:
++			memcpy(outputBufferPrev3, outputBuffer, VIDEO_BUFF_SIZE);
++			memcpy(outputBufferPrev2, outputBuffer, VIDEO_BUFF_SIZE);
++			/* fall through */
++		case FRAME_BLEND_MIX:
++			memcpy(outputBufferPrev1, outputBuffer, VIDEO_BUFF_SIZE);
++			break;
++		case FRAME_BLEND_LCD_GHOSTING_FAST:
++			for (i = 0; i < (VIDEO_WIDTH_MAX * VIDEO_HEIGHT_MAX); i++) {
++				mColor rgb = outputBuffer[i];
++				outputBufferAccR[i] = (float)(rgb >> 11 & 0x1F);
++				outputBufferAccG[i] = (float)(rgb >>  6 & 0x1F);
++				outputBufferAccB[i] = (float)(rgb       & 0x1F);
++			}
++			break;
++		case FRAME_BLEND_NONE:
++		default:
++			break;
+ 	}
+ }
+ 
+@@ -976,6 +1014,7 @@
+ 	/* Early return if all post processing elements
+ 	 * are disabled */
+ 	videoPostProcess = NULL;
++	frameBlendHistoryValid = false;
+ 	if (!colorCorrectionEnabled && !frameBlendEnabled) {
+ 		return;
+ 	}
+@@ -1709,6 +1748,9 @@
+ 	if (!skipFrame) {
+ #if defined(COLOR_16_BIT) && defined(COLOR_5_6_5)
+ 		if (videoPostProcess) {
++			if (frameBlendEnabled) {
++				_seedFrameBlendHistory();
++			}
+ 			videoPostProcess(width, height);
+ 			videoCallback(ppOutputBuffer, width, height, VIDEO_WIDTH_MAX * sizeof(mColor));
+ 		} else
+@@ -1948,6 +1990,7 @@
+ 	core->reset(core);
+ 	mRumbleIntegratorReset(&rumble);
+ 	_setupMaps(core);
++	frameBlendHistoryValid = false;
+ }
+ 
+ #ifdef GEKKO
+@@ -2274,6 +2317,9 @@
+ 	struct VFile* vfm = VFileFromConstMemory(data, size);
+ 	bool success = mCoreLoadStateNamed(core, vfm, SAVESTATE_RTC);
+ 	vfm->close(vfm);
++	if (success) {
++		frameBlendHistoryValid = false;
++	}
+ #ifdef M_CORE_GBA
+ 	if (success && np_send) {
+ 		nx_lockstep_state_loaded();
