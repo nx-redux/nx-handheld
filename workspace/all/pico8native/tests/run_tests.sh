@@ -1,18 +1,19 @@
 #!/bin/sh
 # Host-side unit tests for pico8native/. p8ipc needs process-shared sem_init and
 # sem_timedwait, which macOS lacks, so these build with the host cc inside the
-# Linux toolchain container. From the repo root:
+# Linux toolchain container. The device scripts' tests need skeleton/ next to workspace/.
+# From the repo root:
 #
-#   docker run --rm -v "$PWD/workspace:/root/workspace" ghcr.io/loveretro/tg5040-toolchain:latest \
-#       /bin/sh /root/workspace/all/pico8native/tests/run_tests.sh
+#   docker run --rm -v "$PWD/workspace:/root/workspace" -v "$PWD/skeleton:/root/skeleton" \
+#       ghcr.io/loveretro/tg5040-toolchain:latest /bin/sh /root/workspace/all/pico8native/tests/run_tests.sh
 #
 # Run on a non-Linux host, this script does that docker run itself.
 set -eu
 cd "$(dirname "$0")"
 if [ "$(uname -s)" != Linux ]; then
 	WS=$(cd ../../.. && pwd)
-	exec docker run --rm -v "$WS:/root/workspace" ghcr.io/loveretro/tg5040-toolchain:latest \
-		/bin/sh /root/workspace/all/pico8native/tests/run_tests.sh
+	exec docker run --rm -v "$WS:/root/workspace" -v "$WS/../skeleton:/root/skeleton" \
+		ghcr.io/loveretro/tg5040-toolchain:latest /bin/sh /root/workspace/all/pico8native/tests/run_tests.sh
 fi
 # Compile and run on separate lines: set -e ignores a failure on the left of &&.
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_p8ipc ../p8ipc.c test_p8ipc.c -pthread
@@ -51,3 +52,9 @@ $T/test_shim $T/pico8shim.so $T/fake_pico8 30
 # Save states end to end: save, load, damaged states, and a load into a fresh run
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o $T/test_state ../p8ipc.c ../p8state.c test_state.c -pthread
 $T/test_state $T/pico8shim.so $T/fake_pico8
+# The core as minarch drives it, starting fake_pico8 as pico8_64: slow frames, PICO-8's own
+# quit, states going off in the shim. Built as the .so minarch loads, next to the shim.
+cc -std=gnu99 -shared -fPIC -fvisibility=hidden -Wall -Wextra -Werror -g -I.. -I../../minarch/libretro-common/include \
+	-o $T/pico8native_libretro.so ../core.c ../core_args.c ../p8ipc.c ../p8state.c -ldl -lpthread
+cc -std=gnu99 -Wall -Wextra -Werror -g -I../../minarch/libretro-common/include -o $T/test_core test_core.c -ldl
+$T/test_core $T
