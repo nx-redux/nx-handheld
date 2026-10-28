@@ -20,3 +20,23 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_p8ipc ../p8ipc
 # p8ipc_wait against wall-clock steps: includes p8ipc.c to put it on fake clocks
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_p8ipc_clock test_p8ipc_clock.c -pthread
 /tmp/nx_test_p8ipc_clock
+# Shim pieces that need no SDL: frame conversion, cdata redirect, the frame clock, audio pulls
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_frame ../shim/frame.c test_frame.c
+/tmp/nx_test_frame
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_paths ../shim/paths.c test_paths.c
+/tmp/nx_test_paths
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_clock ../shim/clock.c test_clock.c
+/tmp/nx_test_clock
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_audio ../shim/audio.c test_audio.c
+/tmp/nx_test_audio
+# The shim as a whole: fake_pico8 runs under it against a fake libSDL2, test_shim is the core.
+# No ASan here: it must come first in LD_PRELOAD, ahead of the shim.
+T=/tmp/nx_test_shim_bin
+rm -rf $T && mkdir -p $T
+cc -std=gnu99 -shared -fPIC -fvisibility=hidden -Wall -Wextra -Werror -U_FORTIFY_SOURCE -g -o $T/pico8shim.so \
+	../shim/shim.c ../shim/frame.c ../shim/paths.c ../shim/clock.c ../shim/audio.c ../p8ipc.c -ldl -lpthread
+cc -std=gnu99 -shared -fPIC -Wall -Wextra -Werror -g -Wl,-soname,libSDL2-2.0.so.0 -o $T/libSDL2-2.0.so.0 fake_sdl.c
+cc -std=gnu99 -Wall -Wextra -Werror -g -o $T/fake_pico8 fake_pico8.c $T/libSDL2-2.0.so.0 -Wl,-rpath,$T -lpthread
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o $T/test_shim ../p8ipc.c test_shim.c -pthread
+$T/test_shim $T/pico8shim.so $T/fake_pico8 60
+$T/test_shim $T/pico8shim.so $T/fake_pico8 30
