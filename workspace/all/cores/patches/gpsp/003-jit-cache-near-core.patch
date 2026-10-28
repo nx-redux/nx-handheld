@@ -1,6 +1,6 @@
 # license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
 diff --git forkSrcPrefix/libretro/libretro.c forkDstPrefix/libretro/libretro.c
-index 80969b3..16629b1 100644
+index b822b61..254eb2a 100644
 --- forkSrcPrefix/libretro/libretro.c
 +++ forkDstPrefix/libretro/libretro.c
 @@ -32,6 +32,18 @@ int getVMBlock();
@@ -22,11 +22,10 @@ index 80969b3..16629b1 100644
  #if defined(_3DS)
  void* linearMemAlign(size_t size, size_t alignment);
  void linearFree(void* mem);
-@@ -600,7 +612,21 @@ void retro_init(void)
+@@ -627,6 +639,17 @@ void retro_init(void)
  #if defined(HAVE_DYNAREC)
    #if defined(MMAP_JIT_CACHE)
     rom_translation_cache = map_jit_block(ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
--   ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
 +  #ifdef JIT_STATIC_FALLBACK
 +   if (!rom_translation_cache)
 +   {
@@ -38,52 +37,30 @@ index 80969b3..16629b1 100644
 +      }
 +   }
 +  #endif
-+   if (rom_translation_cache)
-+      ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
-+   else
-+      error_msg("Could not map the dynarec cache near the core.");
-   #elif defined(_3DS)
-    if (__ctr_svchax && !translation_caches_inited)
-    {
-@@ -701,7 +727,15 @@ void retro_deinit(void)
+    if (rom_translation_cache)
+       ram_translation_cache = &rom_translation_cache[ROM_TRANSLATION_CACHE_SIZE];
+    else if (log_cb)
+@@ -737,8 +760,15 @@ void retro_deinit(void)
     memory_term();
  
  #if defined(MMAP_JIT_CACHE) && defined(HAVE_DYNAREC)
--   unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
 +  #ifdef JIT_STATIC_FALLBACK
 +   if (rom_translation_cache == jit_static_cache)
 +      mprotect(jit_static_cache, sizeof(jit_static_cache), PROT_READ | PROT_WRITE);
 +   else
 +  #endif
-+   if (rom_translation_cache)
-+      unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
+    if (rom_translation_cache)
+       unmap_jit_block(rom_translation_cache, ROM_TRANSLATION_CACHE_SIZE + RAM_TRANSLATION_CACHE_SIZE);
 +   rom_translation_cache = NULL;
 +   ram_translation_cache = NULL;
  #endif
  #if defined(_3DS) && defined(HAVE_DYNAREC)
  
-@@ -1155,6 +1189,16 @@ bool retro_load_game(const struct retro_game_info* info)
-    if (!gba_screen_pixels)
-       return false;
- 
-+#if defined(MMAP_JIT_CACHE) && defined(HAVE_DYNAREC)
-+   /* reset_gba() always initialises the emitter, which writes into the
-+    * translation cache; without it the core would crash on load. */
-+   if (!rom_translation_cache)
-+   {
-+      error_msg("Dynarec cache unavailable, cannot load the game.");
-+      return false;
-+   }
-+#endif
-+
-    check_variables(true);
-    set_input_descriptors();
- 
 diff --git forkSrcPrefix/memmap.c forkDstPrefix/memmap.c
-index 46bb951..f8631da 100644
+index b7b287d..7651746 100644
 --- forkSrcPrefix/memmap.c
 +++ forkDstPrefix/memmap.c
-@@ -100,10 +100,81 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
+@@ -100,11 +100,82 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
  
  	#include <sys/mman.h>
  
@@ -157,20 +134,12 @@ index 46bb951..f8631da 100644
  	void *map_jit_block(unsigned size) {
  		unsigned i;
  		uintptr_t base = (uintptr_t)(map_jit_block) & (~(_MAP_STEP - 1ULL));
+ 		int flags = MAP_ANON | MAP_PRIVATE;
 +	#if defined(ARM64_ARCH) && defined(__linux__)
 +		void *gp = map_jit_block_in_gap(size);
 +		if (gp)
 +			return gp;
 +	#endif
- 		for (i = 0; i < _MAP_ITERATIONS; i++) {
- 			int offset = ((i & 1) ? 1 : -1) * (i >> 1) * _MAP_STEP;
- 			uintptr_t baddr = base + (intptr_t)offset;
-@@ -112,7 +183,7 @@ bool validate_addr_section_mips(void *ptr, unsigned size, unsigned max_offset_mb
- 
- 			void *p = mmap((void*)baddr, size, PROT_READ|PROT_WRITE|PROT_EXEC,
- 			                                   MAP_ANON|MAP_PRIVATE, -1, 0);
--			if (p) {
-+			if (p != MAP_FAILED) {
- 				if (_VALIDATE_BLOCK_FN(p, size))
- 					return p;
- 
+ 		#ifdef __APPLE__
+ 		/* RWX mappings require MAP_JIT under the hardened runtime and
+ 		 * unconditionally on Apple silicon, where writes are then gated
