@@ -338,8 +338,18 @@ static const char* dev_get_ssh_desc(void) {
 	snprintf(ip, sizeof(ip), "%s", ssh_ip);
 	pthread_mutex_unlock(&ssh_ip_lock);
 
-	dev_format_ssh_desc(ssh_desc_buf, sizeof(ssh_desc_buf), ssh_running,
-						current_platform == PLAT_TG5050, ip);
+	// The firmware can't change while Settings runs: read /etc/version once.
+	static int password_known = 0;
+	static const char* password = NULL;
+	if (!password_known) {
+		char fw[32] = "";
+		if (current_platform == PLAT_TG5050)
+			PLAT_getOsVersionInfo(fw, sizeof(fw));
+		password = dev_ssh_password(current_platform == PLAT_TG5050, fw);
+		password_known = 1;
+	}
+
+	dev_format_ssh_desc(ssh_desc_buf, sizeof(ssh_desc_buf), ssh_running, password, ip);
 	return ssh_desc_buf;
 }
 
