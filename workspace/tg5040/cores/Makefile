@@ -93,10 +93,11 @@ fceumm_HASH = 236ccdfc911e84c60fea6b9d0699c2d440a8de14
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
 gambatte_HASH = d9d6cd06382d1ced30de34d56d3609452323dab1
 
-# Pinned: upstream gpsp rfu.c drifts (rfu_reset/new_devid reworked) and breaks
-# the all/cores/patches/gpsp/* netplay patches. When bumping this hash, regen
-# 001-rfu_disconnect_fix.patch against the new source in the same change.
-gpsp_HASH = 2db57b11a437c4432ab69823bdcd951181de6213
+# Pinned: upstream gpsp drifts under the all/cores/patches/gpsp/* patches
+# (rfu.c for 001/002, the JIT cache mapping for 003, load_gamepak for 004).
+# When bumping this hash, regen them against the new source in the same change.
+# Keep nx-mobile's gpsp_HASH on the same commit (it shares 001/002/004).
+gpsp_HASH = 5819380c2ffb0900219d700a382ee68c464ebb99
 # The lockstep link state machine (shared with mGBA) is compiled in from
 # all/cores/sio_lockstep (004 patch); NX_SIOLS_DIR points the patched Makefile at it.
 gpsp_FLAGS = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep

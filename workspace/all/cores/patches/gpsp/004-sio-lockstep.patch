@@ -1,9 +1,9 @@
 # license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
 diff --git forkSrcPrefix/Makefile forkDstPrefix/Makefile
-index 3c85049..e08880b 100644
+index f5e3bf2..ebccbbb 100644
 --- forkSrcPrefix/Makefile
 +++ forkDstPrefix/Makefile
-@@ -656,6 +656,9 @@ cpu_threaded.o: cpu_threaded.c
+@@ -641,6 +641,9 @@ cpu_threaded.o: cpu_threaded.c
  %.o: %.c
  	$(CC) $(INCFLAGS) $(CFLAGS) $(OPTIMIZE) -c  -o $@ $<
  
@@ -14,7 +14,7 @@ index 3c85049..e08880b 100644
  	$(CXX) $(INCFLAGS) $(CXXFLAGS) $(OPTIMIZE) -c  -o $@ $<
  
 diff --git forkSrcPrefix/Makefile.common forkDstPrefix/Makefile.common
-index 9742c05..29754c9 100644
+index 9742c05..08c2499 100644
 --- forkSrcPrefix/Makefile.common
 +++ forkDstPrefix/Makefile.common
 @@ -31,6 +31,12 @@ SOURCES_C := $(CORE_DIR)/main.c \
@@ -31,13 +31,13 @@ index 9742c05..29754c9 100644
    SOURCES_C += $(CORE_DIR)/cpu_threaded.c
    ifeq ($(CPU_ARCH), x86_32)
 diff --git forkSrcPrefix/gba_memory.c forkDstPrefix/gba_memory.c
-index 5dff1b5..ec12593 100644
+index 1e304ee..4d9b88a 100644
 --- forkSrcPrefix/gba_memory.c
 +++ forkDstPrefix/gba_memory.c
-@@ -2908,6 +2908,13 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
-    rtc_enabled = false;
-    rumble_enabled = false;
+@@ -3180,6 +3180,13 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
     backup_type_reset = BACKUP_UNKN;
+    backup_type_eeprom_guessed = 0;
+    eeprom_really_used = 0;
 +   /* NXRedux: "auto_cable" is what the frontend passes for Automatic in a USB
 +    * Cable session: resolve exactly like "auto", then use the real link cable
 +    * in place of no device or the cable fakes (mul_poke/mul_aw1/mul_aw2). The
@@ -48,7 +48,7 @@ index 5dff1b5..ec12593 100644
     serial_mode = force_serial;
  
     load_game_config_over(game_code);
-@@ -2972,6 +2979,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
+@@ -3244,6 +3251,9 @@ u32 load_gamepak(const struct retro_game_info* info, const char *name,
           }
        }
     }
@@ -59,10 +59,10 @@ index 5dff1b5..ec12593 100644
     normalize_blank_backup_for_detected_type();
  
 diff --git forkSrcPrefix/libretro/libretro.c forkDstPrefix/libretro/libretro.c
-index 16629b1..64f5fcf 100644
+index 254eb2a..51c2fd1 100644
 --- forkSrcPrefix/libretro/libretro.c
 +++ forkDstPrefix/libretro/libretro.c
-@@ -481,10 +481,15 @@ static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn,
+@@ -508,10 +508,15 @@ static void netpacket_start(uint16_t client_id, retro_netpacket_send_t send_fn,
    netpacket_pollrcv_fn_ptr = poll_receive_fn;
    netplay_num_clients = 0;
    netplay_client_id = client_id;
@@ -78,7 +78,7 @@ index 16629b1..64f5fcf 100644
    netpacket_send_fn_ptr = NULL;
    netpacket_pollrcv_fn_ptr = NULL;
  }
-@@ -501,6 +506,9 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
+@@ -528,6 +533,9 @@ static void netpacket_receive(const void* buf, size_t len, uint16_t client_id) {
    case SERIAL_MODE_SERIAL_AW2:
      serialaw_net_receive(buf, len, client_id);
      break;
@@ -88,7 +88,7 @@ index 16629b1..64f5fcf 100644
    };
  }
  
-@@ -514,6 +522,8 @@ static bool netpacket_connected(uint16_t client_id) {
+@@ -541,6 +549,8 @@ static bool netpacket_connected(uint16_t client_id) {
       MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW1
       MAX_SERMULT_NETPLAYERS,   // SERIAL_MODE_SERIAL_AW2
       0,                        // SERIAL_MODE_AUTO
@@ -97,7 +97,7 @@ index 16629b1..64f5fcf 100644
    };
    const u32 max_clients = maxpl[serial_mode] - 1U;
  
-@@ -521,6 +531,11 @@ static bool netpacket_connected(uint16_t client_id) {
+@@ -548,6 +558,11 @@ static bool netpacket_connected(uint16_t client_id) {
      return false;
  
    netplay_num_clients++;
@@ -109,7 +109,7 @@ index 16629b1..64f5fcf 100644
    return true;
  }
  
-@@ -531,6 +546,7 @@ static void netpacket_disconnected(uint16_t client_id) {
+@@ -558,6 +573,7 @@ static void netpacket_disconnected(uint16_t client_id) {
    // Force RFU state to IDLE so the game receives disconnect notification
    // This fixes CLIENT getting stuck when HOST disconnects during gameplay
    rfu_net_disconnect();
@@ -117,7 +117,7 @@ index 16629b1..64f5fcf 100644
    netplay_num_clients--;
  }
  
-@@ -1008,6 +1024,10 @@ static void check_variables(bool started_from_load)
+@@ -1060,6 +1076,10 @@ static void check_variables(bool started_from_load)
             serial_setting = SERIAL_MODE_SERIAL_AW2;
          else if (!strcmp(var.value, "gbp"))
             serial_setting = SERIAL_MODE_GBP;
@@ -128,7 +128,7 @@ index 16629b1..64f5fcf 100644
          else
             serial_setting = SERIAL_MODE_AUTO;
       }
-@@ -1448,6 +1468,9 @@ void retro_run(void)
+@@ -1509,6 +1529,9 @@ void retro_run(void)
     case SERIAL_MODE_SERIAL_POKE:
       serialpoke_frame_update();
       break;
@@ -139,10 +139,10 @@ index 16629b1..64f5fcf 100644
  
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
 diff --git forkSrcPrefix/libretro/libretro_core_options.h forkDstPrefix/libretro/libretro_core_options.h
-index ab406b1..8ac26b4 100644
+index f854fc2..7fc468a 100644
 --- forkSrcPrefix/libretro/libretro_core_options.h
 +++ forkDstPrefix/libretro/libretro_core_options.h
-@@ -123,6 +123,7 @@ struct retro_core_option_definition option_defs_us[] = {
+@@ -134,6 +134,7 @@ struct retro_core_option_definition option_defs_us[] = {
           { "mul_poke", "Link Cable - Pokemon Gen3 mode" },
           { "mul_aw1",  "Link Cable - Advance Wars 1 mode" },
           { "mul_aw2",  "Link Cable - Advance Wars 2 mode" },
@@ -152,7 +152,7 @@ index ab406b1..8ac26b4 100644
        "auto"
 diff --git forkSrcPrefix/nx_sio_lockstep.c forkDstPrefix/nx_sio_lockstep.c
 new file mode 100644
-index 0000000..502d489
+index 0000000..8dc7b7c
 --- /dev/null
 +++ forkDstPrefix/nx_sio_lockstep.c
 @@ -0,0 +1,4 @@
