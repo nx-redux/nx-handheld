@@ -595,9 +595,8 @@ void minarch_setCoreOptionValue(const char* key, const char* value) {
 	OptionList_setOptionValue(&config.core, key, value);
 }
 
-// Save current config to file (netplay_boot persists an adopted link mode before minarch_reloadGame)
-void minarch_saveConfig(void) {
-	Config_write(CONFIG_WRITE_ALL);
+void minarch_setCoreOptionValueForSession(const char* key, const char* value) {
+	Config_setSessionOption(key, value);
 }
 
 void minarch_beginOptionsBatch(void) {

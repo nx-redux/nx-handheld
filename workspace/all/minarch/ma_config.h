@@ -20,4 +20,6 @@ extern int shortcut_global[SHORTCUT_COUNT];
 extern int shortcut_override[SHORTCUT_COUNT];
 void Config_applyShortcuts(void);
 void Config_write(int override);
+// Force a core option for this netplay session only: Config_write keeps saving the user's value
+void Config_setSessionOption(const char* key, const char* value);
 void Config_restore(void);
