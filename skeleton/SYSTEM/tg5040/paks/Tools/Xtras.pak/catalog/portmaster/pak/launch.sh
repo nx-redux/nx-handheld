@@ -15,6 +15,8 @@
 #     capability on the 2026.09.19+ probe), platform/trimui.py or platform.py
 #     (paths + portmaster_install and gamelist_add disabled), mod_TrimUI.txt (HOME),
 #     pugwash (800x600 UI on the Brick / Brick Pro)
+#   - a pending pylibs.zip (self-update, first run) extracted here before
+#     the patches, not by pugwash after them
 #   - pugwash loop: honours .pugwash-reboot, retries once when a fresh
 #     pylibs extraction crashed it before the patches landed
 #   - pad map while pugwash runs is the opposite of the Button layout
@@ -425,7 +427,31 @@ retire_patched_scripts() {
     rm -rf "$PM_DIR/patchedScripts"
 }
 
+# A self-update (or a fresh install) leaves pylibs.zip for pugwash to extract
+# at its own startup, after apply_patches ran: that whole session used stock
+# platform code and port installs failed on /Roms/PORTS, then rolled back.
+# Extract it here the way pugwash does, so the patches land on the new files
+# and pugwash finds nothing left to extract. A failed extract keeps the zip
+# for pugwash to retry.
+extract_pylibs() {
+    [ -f "$PM_DIR/pylibs.zip" ] && [ -x "$PY" ] || return 0
+    "$PY" - "$PM_DIR" <<'EOF'
+import hashlib, shutil, sys, zipfile
+from pathlib import Path
+d = Path(sys.argv[1])
+z = d / 'pylibs.zip'
+for p in (d / 'pylibs', d / 'exlibs'):
+    if p.is_dir():
+        shutil.rmtree(p)
+with zipfile.ZipFile(z) as zf:
+    zf.extractall(d)
+(d / 'pylibs.zip.md5').write_text(hashlib.md5(z.read_bytes()).hexdigest())
+z.unlink()
+EOF
+}
+
 apply_patches() {
+    extract_pylibs
     patch_device_info_trimui "$DI"
     patch_device_info_trimui_cap "$DI"
     patch_device_info_brickpro_sticks "$DI"
