@@ -22,13 +22,14 @@ BUILD = build/$(PLATFORM)
 # headers or libraries; only its wrappers are exported (-fvisibility=hidden). No LTO or
 # -Ofast from Makefile.env: the shim is tiny and must not pull in newer libm symbols.
 # _FORTIFY_SOURCE would turn open() into an inline wrapper the hook cannot replace.
-SHIM_SRC = shim/shim.c shim/frame.c shim/paths.c shim/clock.c shim/audio.c p8ipc.c
+# shim/state.c builds in the vendored dlmalloc and LZ4 (shim/vendor/) for save states.
+SHIM_SRC = shim/shim.c shim/frame.c shim/paths.c shim/clock.c shim/audio.c shim/state.c p8ipc.c p8state.c
 SHIM_CFLAGS = -std=gnu99 -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror -U_FORTIFY_SOURCE
 SHIM = $(BUILD)/pico8shim.so
 
 # pico8native_libretro.so: the libretro core minarch loads; spawns pico8_64 with the shim.
 # libretro.h comes from minarch's libretro-common checkout (built before this in workspace/Makefile).
-CORE_SRC = core.c core_args.c p8ipc.c
+CORE_SRC = core.c core_args.c p8ipc.c p8state.c
 CORE_CFLAGS = -std=gnu99 -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror -I. -I../minarch/libretro-common/include
 CORE = $(BUILD)/pico8native_libretro.so
 
@@ -43,7 +44,7 @@ shim: $(SHIM)
 
 core: $(CORE)
 
-$(CORE): $(CORE_SRC) core_args.h p8ipc.h
+$(CORE): $(CORE_SRC) core_args.h p8ipc.h p8state.h
 	mkdir -p $(BUILD)
 	$(CC) $(CORE_CFLAGS) -o $@ $(CORE_SRC) -ldl -lpthread
 
@@ -55,7 +56,7 @@ $(SDL):
 	cp -L $(SDL_SRC) $@
 	chmod 755 $@
 
-$(SHIM): $(SHIM_SRC) $(wildcard shim/*.h) p8ipc.h
+$(SHIM): $(SHIM_SRC) $(wildcard shim/*.h shim/vendor/*) p8ipc.h p8state.h
 	mkdir -p $(BUILD)
 	$(CC) $(SHIM_CFLAGS) -o $@ $(SHIM_SRC) -ldl -lpthread
 

@@ -14,11 +14,15 @@
 #include <semaphore.h>
 
 #define P8IPC_MAGIC 0x50384e31u /* "P8N1" */
-#define P8IPC_VERSION 1
+#define P8IPC_VERSION 2
 #define P8_W 128
 #define P8_H 128
 #define P8IPC_AUDIO_MAX 4096		/* stereo frames per video frame, upper bound */
-#define P8IPC_STATE_MAX (24u << 20) /* compressed state bytes */
+#define P8IPC_STATE_MAX (24u << 20) /* state[]: p8state_hdr + snapshot */
+
+// cmd_result for SAVE/LOAD while the shim is parked between presents (a 30 fps cart
+// waiting out a slice): states are taken and put back only at a present
+#define P8CMD_RETRY (-1)
 
 enum p8cmd { P8CMD_NONE,
 			 P8CMD_SAVE,
@@ -37,10 +41,11 @@ struct p8ipc {
 	uint32_t audio_frames; /* stereo frames in audio[] this frame */
 	uint32_t audio_rate;   /* Hz PICO-8 opened with */
 	uint32_t cmd;		   /* enum p8cmd, set by core while the shim is parked */
-	int32_t cmd_result;	   /* >0 ok (SAVE: bytes in state[]), 0 failed */
+	int32_t cmd_result;	   /* >0 ok (SAVE: bytes in state[]), 0 failed, P8CMD_RETRY: run a frame, ask again */
 	uint32_t state_len;	   /* LOAD: bytes in state[] */
+	uint32_t state_ready;  /* shim: a SAVE/LOAD can run now (cart started, states on), set at each present */
 	char reason[256];	   /* last failure, for the core's log */
-	uint8_t state[P8IPC_STATE_MAX];
+	_Alignas(8) uint8_t state[P8IPC_STATE_MAX];
 };
 
 // state[] gets memcpy'd as a block; keep it 8-byte aligned

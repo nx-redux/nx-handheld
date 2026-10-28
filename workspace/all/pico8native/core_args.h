@@ -22,8 +22,9 @@ int core_build_env(char* const* base, const char* const* set, char** out, int ma
 int core_find_runtime(const char* system_dir, char* dir_out, size_t size);
 
 // PICO-8 must keep host_framerate_control 1 to present under the shim. Rewrites
-// the line in <config> to 1 if it says otherwise; a missing file or line is left
-// alone (PICO-8 writes its default, 1). Returns 1 if changed, 0 if not, -1 on error.
+// the line in <config> to 1 if it says otherwise, or adds it if the file has none;
+// a missing file is left alone (PICO-8 writes its default, 1). Returns 1 if
+// changed, 0 if not, -1 on error.
 int core_force_framerate_control(const char* config);
 
 #endif

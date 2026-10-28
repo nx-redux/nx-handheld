@@ -145,11 +145,22 @@ static void test_config(void) {
 	CHECK(core_force_framerate_control(cfg) == 1);
 	expect_file(cfg, "show_fps 0\nhost_framerate_control 1");
 
-	// a longer name sharing the prefix is not it
-	const char* other = "host_framerate_control_x 0\nshow_fps 0\n";
-	write_file(cfg, other);
-	CHECK(core_force_framerate_control(cfg) == 0);
-	expect_file(cfg, other);
+	// a longer name sharing the prefix is not it: the real line is added at the end
+	write_file(cfg, "host_framerate_control_x 0\nshow_fps 0\n");
+	CHECK(core_force_framerate_control(cfg) == 1);
+	expect_file(cfg, "host_framerate_control_x 0\nshow_fps 0\nhost_framerate_control 1\n");
+
+	// a config without the line gets it, after a last line with no newline too
+	write_file(cfg, "show_fps 0");
+	CHECK(core_force_framerate_control(cfg) == 1);
+	expect_file(cfg, "show_fps 0\nhost_framerate_control 1\n");
+	CHECK(core_force_framerate_control(cfg) == 0); // and is then left alone
+	expect_file(cfg, "show_fps 0\nhost_framerate_control 1\n");
+
+	// an empty config (PICO-8 cut short writing it) too
+	write_file(cfg, "");
+	CHECK(core_force_framerate_control(cfg) == 1);
+	expect_file(cfg, "host_framerate_control 1\n");
 }
 
 int main(void) {

@@ -7,6 +7,13 @@
 // HOST_BUTTONS (RETRO_DEVICE_ID_JOYPAD_* mask) is held from frame 300 on. The core
 // finds pico8shim.so and lib/ next to itself, and PICO-8's home under
 // $SHARED_USERDATA_PATH/P8-native/home. Built for the device by `make corehost`.
+//
+// Save states, as minarch does them (HOST_STATE is the state file):
+//   HOST_SAVE_AT=<n>  before run n: serialize_size, serialize, write the whole buffer
+//   HOST_LOAD_AT=<n>  from run n on: read the file, unserialize, retried each run until
+//                     it takes (as minarch's resume) or 600 runs pass
+// A hash of the picture is printed for the 4 runs after a save and after a load: an
+// exact continuation prints the same hashes.
 #include <dlfcn.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -25,6 +32,7 @@ static unsigned frames_seen, frames_null, frames_changed;
 static unsigned long long audio_total, audio_nonzero;
 static uint32_t held;
 static int frame_no, shutdown_asked;
+static uint32_t last_hash;
 
 static void log_printf(enum retro_log_level level, const char* fmt, ...) {
 	(void)level;
@@ -65,6 +73,10 @@ static void video(const void* data, unsigned w, unsigned h, size_t pitch) {
 	}
 	if (memcmp(frame_copy, data, sizeof(frame_copy)) != 0)
 		frames_changed++;
+	uint32_t hash = 2166136261u;
+	for (int i = 0; i < 128 * 128; i++)
+		hash = (hash ^ ((const uint32_t*)data)[i]) * 16777619u;
+	last_hash = hash;
 	memcpy(frame_copy, data, sizeof(frame_copy));
 	last_fb = frame_copy;
 }
@@ -92,6 +104,59 @@ static double now_s(void) {
 
 #define SYM(name) ((typeof(&name))dlsym(core, #name))
 
+static void* core;
+
+static int save_state(const char* path) {
+	double t0 = now_s();
+	size_t size = SYM(retro_serialize_size)();
+	double t1 = now_s();
+	size_t again = SYM(retro_serialize_size)(); // cached: no frame ran
+	double t2 = now_s();
+	if (!size) {
+		printf("host: serialize_size 0\n");
+		return -1;
+	}
+	void* buf = calloc(1, size);
+	int ok = buf && SYM(retro_serialize)(buf, size);
+	double t3 = now_s();
+	FILE* f = ok ? fopen(path, "wb") : NULL;
+	ok = f && fwrite(buf, 1, size, f) == size;
+	if (f)
+		ok = fclose(f) == 0 && ok;
+	sync();
+	double t4 = now_s();
+	printf("host: save at run %d: size %zu (again %zu), serialize_size %.0f ms, again %.1f ms, serialize %.1f ms, "
+		   "write+sync %.0f ms → %s\n",
+		   frame_no, size, again, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3, (t4 - t3) * 1e3, ok ? "ok" : "FAILED");
+	free(buf);
+	return ok ? 0 : -1;
+}
+
+// 1 loaded, 0 refused, -1 no file
+static int load_state(const char* path, int quiet) {
+	FILE* f = fopen(path, "rb");
+	if (!f)
+		return -1;
+	fseek(f, 0, SEEK_END);
+	long len = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	double t0 = now_s();
+	size_t min = SYM(retro_serialize_size)();
+	double t1 = now_s();
+	size_t size = (size_t)len > min ? (size_t)len : min; // as minarch's State_readData
+	void* buf = calloc(1, size);
+	int ok = buf && fread(buf, 1, (size_t)len, f) == (size_t)len;
+	fclose(f);
+	double t2 = now_s();
+	ok = ok && SYM(retro_unserialize)(buf, size);
+	double t3 = now_s();
+	if (ok || !quiet)
+		printf("host: load at run %d: file %ld, serialize_size %zu (%.0f ms), read %.0f ms, unserialize %.0f ms → %s\n",
+			   frame_no, len, min, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3, ok ? "ok" : "refused");
+	free(buf);
+	return ok;
+}
+
 int main(int argc, char** argv) {
 	setvbuf(stdout, NULL, _IOLBF, 0); // a killed run still leaves its lines in a log file
 	if (argc < 7) {
@@ -102,7 +167,11 @@ int main(int argc, char** argv) {
 	save_dir = argv[3];
 	int frames = atoi(argv[5]);
 	held = getenv("HOST_BUTTONS") ? (uint32_t)strtoul(getenv("HOST_BUTTONS"), NULL, 0) : 0;
-	void* core = dlopen(argv[1], RTLD_NOW);
+	const char* state_path = getenv("HOST_STATE");
+	int save_at = getenv("HOST_SAVE_AT") ? atoi(getenv("HOST_SAVE_AT")) : -1;
+	int load_at = getenv("HOST_LOAD_AT") ? atoi(getenv("HOST_LOAD_AT")) : -1;
+	int report = 0, load_tries = 0;
+	core = dlopen(argv[1], RTLD_NOW);
 	if (!core) {
 		fprintf(stderr, "dlopen: %s\n", dlerror());
 		return 1;
@@ -130,9 +199,26 @@ int main(int argc, char** argv) {
 		   av.geometry.aspect_ratio, av.timing.fps, av.timing.sample_rate);
 	double first = 0;
 	for (frame_no = 0; frame_no < frames && !shutdown_asked; frame_no++) {
+		if (state_path && frame_no == save_at && save_state(state_path) == 0)
+			report = 4;
+		if (state_path && load_at >= 0 && frame_no >= load_at) {
+			int r = load_state(state_path, load_tries > 0);
+			if (r == 1) {
+				printf("host: loaded after %d tries\n", load_tries + 1);
+				report = 4;
+				load_at = -1;
+			} else if (r < 0 || ++load_tries >= 600) {
+				printf("host: load gave up (%s)\n", r < 0 ? "no file" : "600 tries");
+				load_at = -1;
+			}
+		}
 		SYM(retro_run)();
 		if (frame_no == 0)
 			first = now_s();
+		if (report) {
+			printf("host: run %d picture %08x\n", frame_no, last_hash);
+			report--;
+		}
 	}
 	double t1 = now_s();
 	printf("host: %d runs, %u video calls (%u NULL, %u changed), shutdown asked %d\n", frame_no, frames_seen,

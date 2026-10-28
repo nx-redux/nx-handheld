@@ -13,6 +13,9 @@
  * - input: one virtual controller whose buttons are ipc->buttons (input.h); real input
  *   events never reach PICO-8.
  * - cart saves: file calls under $P8NATIVE_HOME/cdata go to $P8NATIVE_CDATA (paths.h).
+ * - save states: P8CMD_SAVE/LOAD snapshot and put back PICO-8's memory while it is
+ *   parked at a present (state.h); malloc and friends are state.c's, so PICO-8's own
+ *   allocations land in its fixed-address arena.
  *
  * Which SDL calls PICO-8 makes, and wrapping them through dlsym(RTLD_NEXT) without SDL
  * headers, follows josegonzalez/minui-pico-8-pak's shim/sdl-display.c (MIT licence).
@@ -38,11 +41,13 @@
 #include <unistd.h>
 
 #include "../p8ipc.h"
+#include "../p8state.h"
 #include "audio.h"
 #include "clock.h"
 #include "frame.h"
 #include "input.h"
 #include "paths.h"
+#include "state.h"
 
 #define EXPORT __attribute__((visibility("default")))
 #define LOG(...) fprintf(stderr, "pico8shim: " __VA_ARGS__)
@@ -84,6 +89,7 @@ typedef struct {
 static struct p8ipc* ipc;
 static pid_t core_pid;
 static int owe_done;	  /* a frame_req was taken whose frame_done is still owed */
+static int at_present;	  /* parked in SDL_RenderPresent, where a state can be taken or put back */
 static uint32_t slice_ms; /* frame_ms of the slice being run */
 static int quitting;	  /* P8CMD_QUIT came: PICO-8 runs free until it exits */
 static struct timespec quit_at;
@@ -119,9 +125,9 @@ static void attach(void) {
 	LOG("attached to %s (core pid %d)\n", path, (int)core_pid);
 }
 
-static void fail(const char* reason) {
-	snprintf(ipc->reason, sizeof(ipc->reason), "%s", reason);
-	LOG("%s\n", reason);
+static void fail(const char* what, const char* reason) {
+	snprintf(ipc->reason, sizeof(ipc->reason), "%s%s", what, reason);
+	LOG("%s%s\n", what, reason);
 }
 
 static void fill_audio(void) {
@@ -135,6 +141,45 @@ static void fill_audio(void) {
 	ipc->audio_rate = au.freq;
 }
 
+// The core put a p8state_hdr (magic, pico8_64's hash, cart) at the start of state[];
+// the snapshot goes after it, and its length and PICO-8's clock into it
+static void save_state(void) {
+	struct p8state_hdr h;
+	const char* why = NULL;
+	memcpy(&h, ipc->state, sizeof(h));
+	size_t n = state_capture(ipc->state + sizeof(h), P8IPC_STATE_MAX - sizeof(h), &why);
+	if (!n) {
+		fail("cannot save a state: ", why);
+		return;
+	}
+	h.len = (uint32_t)n;
+	// where the clock starts the next frame: the rest of this slice is skipped at the grant
+	h.ticks = clk.granted;
+	memcpy(ipc->state, &h, sizeof(h));
+	ipc->cmd_result = (int32_t)(sizeof(h) + n);
+}
+
+// The core checked the header against this pico8_64 and cart; the shim checks the rest.
+// PICO-8's clock goes back to where it was when the state was saved.
+static void load_state(void) {
+	struct p8state_hdr h;
+	const char* why = NULL;
+	memcpy(&h, ipc->state, sizeof(h));
+	if (ipc->state_len > P8IPC_STATE_MAX || ipc->state_len < sizeof(h) || h.len > ipc->state_len - sizeof(h)) {
+		fail("cannot load a state: ", "it is cut short");
+		return;
+	}
+	if (!state_load(ipc->state + sizeof(h), h.len, &why)) {
+		fail("cannot load a state: ", why);
+		return;
+	}
+	clk.now = clk.granted = h.ticks;
+	pthread_mutex_lock(&audio_lock);
+	au.fifo_frames = 0; // samples PICO-8 made before the load
+	pthread_mutex_unlock(&audio_lock);
+	ipc->cmd_result = 1;
+}
+
 // Commands come while the shim is parked; each is answered with frame_done
 static void run_cmd(uint32_t cmd) {
 	ipc->cmd_result = 0;
@@ -146,11 +191,19 @@ static void run_cmd(uint32_t cmd) {
 		clock_gettime(CLOCK_MONOTONIC, &quit_at);
 		break;
 	case P8CMD_SAVE:
+		if (!at_present)
+			ipc->cmd_result = P8CMD_RETRY;
+		else
+			save_state();
+		break;
 	case P8CMD_LOAD:
-		fail("save states are not supported yet");
+		if (!at_present)
+			ipc->cmd_result = P8CMD_RETRY;
+		else
+			load_state();
 		break;
 	default:
-		fail("unknown command");
+		fail("", "unknown command");
 		break;
 	}
 	ipc->cmd = P8CMD_NONE;
@@ -158,9 +211,10 @@ static void run_cmd(uint32_t cmd) {
 
 // The end of a slice of the core's time: by a present, or by PICO-8 waiting past it.
 // Hands the slice's frame and audio to the core, then waits for the next request.
-static void end_slice(void) {
+static void end_slice(int present) {
 	attach();
 	spin = 0;
+	at_present = present;
 	if (quitting) {
 		// the core is no longer waiting: PICO-8 runs unpaced to its exit (an SDL_QUIT event)
 		struct timespec now;
@@ -258,7 +312,7 @@ EXPORT int SDL_UpdateTexture(void* texture, const SDL_Rect* rect, const void* pi
 		}
 		if (frame_convert(pixels, pitch, screen_format, ipc->fb) != 0 && !refused) {
 			refused = 1;
-			fail("screen texture format not supported");
+			fail("", "screen texture format not supported");
 		}
 	}
 	return real_SDL_UpdateTexture ? real_SDL_UpdateTexture(texture, rect, pixels, pitch) : 0;
@@ -285,7 +339,9 @@ EXPORT void SDL_RenderPresent(void* renderer) {
 		LOG("first present%s\n", screen ? "" : ", with no 128x128 screen texture seen");
 	}
 	ipc->fb_serial++;
-	end_slice();
+	state_frame();
+	ipc->state_ready = state_ready();
+	end_slice(1);
 }
 
 // Logged once each for the spike: a window-surface path would bypass the texture capture
@@ -335,7 +391,7 @@ EXPORT uint32_t SDL_GetTicks(void) {
 		}
 		spin = 0;
 		if (p8clock_delay(&clk, 1))
-			end_slice();
+			end_slice(0);
 	}
 	return clk.now;
 }
@@ -351,7 +407,7 @@ EXPORT void SDL_Delay(uint32_t ms) {
 	if (ms == 0)
 		return;
 	if (p8clock_delay(&clk, ms))
-		end_slice();
+		end_slice(0);
 }
 
 /* ---- audio ---- */

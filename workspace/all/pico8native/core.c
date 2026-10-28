@@ -6,8 +6,16 @@
 //
 // The child is a direct fork+execve of the frontend: the shim's parked wait gives
 // up only when its parent is gone (getppid), and PR_SET_PDEATHSIG kills it if the
-// frontend dies without unloading. ASLR is off in the child so the save-state
-// arena (Task 7) maps at a fixed address.
+// frontend dies without unloading. ASLR is off in the child so a save state
+// (shim/state.c) puts PICO-8's memory back at the addresses it was taken from.
+//
+// Save states: the shim snapshots PICO-8's memory into the ipc block's state[]
+// while it is parked, behind a p8state_hdr the core fills (pico8_64's SHA-256 and
+// the cart's name, checked before a state is let near PICO-8). serialize_size is
+// not fixed: it takes the snapshot and reports its size, rounded up and never
+// smaller than before in this game (so minarch's undo-load buffer stays usable),
+// because minarch writes states uncompressed by default and a fixed upper bound
+// would write 24 MB per save. Rewind is not supported: each state is megabytes.
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -30,6 +38,7 @@
 #include "libretro.h"
 #include "core_args.h"
 #include "p8ipc.h"
+#include "p8state.h"
 
 #define CORE_NAME "PICO-8 (native)"
 #define CORE_VERSION "1.0"
@@ -37,7 +46,10 @@
 #define FIRST_FRAME_TIMEOUT_MS 10000 // pico8_64 boots in ~0.6 s; a cold SD card can be slower
 #define FRAME_TIMEOUT_MS 3000
 #define QUIT_TIMEOUT_MS 1000
-#define WAIT_SLICE_MS 250 // frame waits check that the child is still alive this often
+#define WAIT_SLICE_MS 250	   // frame waits check that the child is still alive this often
+#define STATE_TIMEOUT_MS 10000 // taking or putting back a state: tens to hundreds of ms
+#define STATE_RETRIES 4		   // frames run to bring PICO-8 to a present for a state
+#define STATE_SIZE_STEP (256u << 10)
 #define ENV_MAX 512
 #define P8_PATH 1024 // paths the core builds; env strings add a name to one
 
@@ -55,10 +67,20 @@ static struct {
 	char ipc_path[64];
 	pid_t child;
 	int dead;		  // the child failed or exited; retro_run only waits for the frontend to stop
-	unsigned frame;	  // retro_run count, for the 17/17/16 ms pattern
+	unsigned frame;	  // frames run (retro_run, and those a state command asked for)
+	unsigned phase;	  // where in the 17/17/16 ms pattern the next frame is
 	unsigned rate;	  // sample rate reported to the frontend
 	int rate_refused; // the frontend would not take a new rate; logged once
 	int splore;
+	char cart[P8_PATH];
+	uint8_t sha[32]; // of the pico8_64 started, which states must match
+	int states;		 // states are possible this game: not Splore, pico8_64 hashed
+	// the last snapshot taken, still in ipc->state while no frame has run since
+	int snap_valid;
+	unsigned snap_frame;
+	size_t snap_len;
+	size_t state_size;	 // what serialize_size last reported: rounded up, never shrinks
+	const char* refused; // the last reason a state was refused, logged once (resume retries)
 } p8 = {.child = -1, .rate = DEFAULT_RATE};
 
 static void core_log(enum retro_log_level level, const char* fmt, ...) {
@@ -169,12 +191,17 @@ static void stop_child_atexit(void) {
 	stop_child(0); // the frontend is going away: no time for a polite quit
 }
 
+// The shim's last failure, bounded: it writes the field from another process
+static int reason_len(void) {
+	return p8.ipc ? (int)strnlen(p8.ipc->reason, sizeof(p8.ipc->reason)) : 0;
+}
+
 static void request_shutdown(const char* why) {
 	if (p8.dead)
 		return;
 	p8.dead = 1;
-	const char* reason = p8.ipc && p8.ipc->reason[0] ? p8.ipc->reason : "";
-	core_log(RETRO_LOG_ERROR, "%s%s%s\n", why, reason[0] ? "; shim: " : "", reason);
+	int n = reason_len();
+	core_log(RETRO_LOG_ERROR, "%s%s%.*s\n", why, n ? "; shim: " : "", n, n ? p8.ipc->reason : "");
 	environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
 }
 
@@ -189,6 +216,8 @@ static int spawn(char* const* argv, char* const* envp) {
 		prctl(PR_SET_PDEATHSIG, SIGKILL);
 		if (getppid() != parent) // the frontend died before the line above
 			_exit(127);
+		// its own process group: a signal to the frontend's group is not PICO-8's
+		setpgid(0, 0);
 		// the frontend's display, audio and input fds stay with the frontend
 		for (int fd = 3; fd < 1024; fd++)
 			close(fd);
@@ -219,6 +248,25 @@ static int start(const char* cart) {
 		return -1;
 	}
 	snprintf(bin, sizeof(bin), "%s/pico8_64", runtime);
+
+	// A state only loads into the pico8_64 that saved it
+	p8.states = 0;
+	if (!p8.splore) {
+		struct p8state_hdr h;
+		struct timespec t0, t1;
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		if (p8state_sha256_file(bin, p8.sha) != 0)
+			core_log(RETRO_LOG_WARN, "cannot read %s: save states are off\n", bin);
+		else if (!cart || p8state_hdr_init(&h, p8.sha, cart) != 0)
+			core_log(RETRO_LOG_WARN, "the cart's file name is too long for a state: save states are off\n");
+		else {
+			p8.states = 1;
+			snprintf(p8.cart, sizeof(p8.cart), "%s", cart);
+		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		core_log(RETRO_LOG_INFO, "hashed pico8_64 in %ld ms\n",
+				 (long)((t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000));
+	}
 
 	char pak[P8_PATH];
 	if (pak_dir(pak, sizeof(pak)) != 0) {
@@ -264,8 +312,10 @@ static int start(const char* cart) {
 	snprintf(e_preload, sizeof(e_preload), "LD_PRELOAD=%s/pico8shim.so", pak);
 	snprintf(e_libpath, sizeof(e_libpath), "LD_LIBRARY_PATH=%s/lib%s%s", pak, inherited && *inherited ? ":" : "",
 			 inherited ? inherited : "");
-	const char* set[] = {e_ipc, e_home, e_cdata, e_preload, e_libpath,
-						 "SDL_VIDEODRIVER=offscreen", "SDL_AUDIODRIVER=dummy", NULL};
+	// P8NATIVE_STATES=1 puts PICO-8's allocations in the shim's save-state arena;
+	// Splore runs without it (no states, and downloads would fill it)
+	const char* set[] = {e_ipc, e_home, e_cdata, e_preload, e_libpath, "SDL_VIDEODRIVER=offscreen",
+						 "SDL_AUDIODRIVER=dummy", p8.states ? "P8NATIVE_STATES=1" : "P8NATIVE_STATES=0", NULL};
 	static char* envp[ENV_MAX];
 	if (core_build_env(environ, set, envp, ENV_MAX) < 0) {
 		core_log(RETRO_LOG_ERROR, "environment too large\n");
@@ -368,8 +418,12 @@ bool retro_load_game(const struct retro_game_info* game) {
 	p8.splore = splore && strcmp(splore, "1") == 0;
 	p8.dead = 0;
 	p8.frame = 0;
+	p8.phase = 0;
 	p8.rate = DEFAULT_RATE;
 	p8.rate_refused = 0;
+	p8.snap_valid = 0;
+	p8.state_size = 0;
+	p8.refused = NULL;
 	return start(game && game->path ? game->path : NULL) == 0;
 }
 
@@ -386,17 +440,168 @@ unsigned retro_get_region(void) {
 	return RETRO_REGION_NTSC;
 }
 
-// Save states arrive with Task 7
-size_t retro_serialize_size(void) {
+static long ms_since(const struct timespec* t0) {
+	struct timespec t1;
+	clock_gettime(CLOCK_MONOTONIC, &t1);
+	return (long)((t1.tv_sec - t0->tv_sec) * 1000 + (t1.tv_nsec - t0->tv_nsec) / 1000000);
+}
+
+// One PICO-8 frame, with whatever buttons the last retro_run set. 0 ok; else the
+// child is gone or stuck and the frontend has been asked to shut down.
+static int run_frame(void) {
+	// 60 Hz in whole ms: 17, 17, 16 is exactly 50 ms per 3 frames
+	p8.ipc->frame_ms = p8.phase++ % 3 == 2 ? 16 : 17;
+	p8.ipc->cmd = P8CMD_NONE;
+	sem_post(&p8.ipc->frame_req);
+	int r = wait_done(p8.frame == 0 ? FIRST_FRAME_TIMEOUT_MS : FRAME_TIMEOUT_MS);
+	p8.frame++;
+	if (r != 0)
+		request_shutdown(r == -2 ? "pico8_64 ended" : "pico8_64 stopped answering");
+	return r;
+}
+
+// A SAVE or LOAD in the shim; returns its cmd_result (0: failed). A shim parked
+// between presents asks for a frame first; that frame's picture and sound are dropped.
+static int32_t state_command(uint32_t cmd) {
+	p8.ipc->reason[0] = '\0'; // the shim is parked: only a failure of this command lands here
+	for (int tries = 0;; tries++) {
+		p8.ipc->cmd_result = 0;
+		p8.ipc->cmd = cmd;
+		sem_post(&p8.ipc->frame_req);
+		int r = wait_done(STATE_TIMEOUT_MS);
+		if (r != 0) {
+			request_shutdown(r == -2 ? "pico8_64 ended" : "pico8_64 stopped answering");
+			return 0;
+		}
+		int32_t result = p8.ipc->cmd_result;
+		if (result != P8CMD_RETRY)
+			return result;
+		if (tries == STATE_RETRIES) {
+			snprintf(p8.ipc->reason, sizeof(p8.ipc->reason), "PICO-8 did not reach a frame");
+			return 0;
+		}
+		if (run_frame() != 0)
+			return 0;
+	}
+}
+
+// Where the 17/17/16 pattern stands once PICO-8's clock reads ticks: after 3k frames it
+// is at 50k, after 3k+1 at 50k+17, after 3k+2 at 50k+34
+static unsigned phase_at(uint32_t ticks) {
+	switch (ticks % 50) {
+	case 0:
+		return 0;
+	case 17:
+		return 1;
+	default:
+		return 2;
+	}
+}
+
+static int states_now(void) {
+	return p8.states && !p8.dead && p8.ipc && p8.frame > 0;
+}
+
+// Takes a snapshot into ipc->state unless the one there is still current (no frame
+// has run since). 0 ok; -1 if none can be taken now.
+static int capture(void) {
+	if (!states_now())
+		return -1;
+	if (p8.snap_valid && p8.snap_frame == p8.frame)
+		return 0;
+	p8.snap_valid = 0;
+	if (!p8.ipc->state_ready)
+		return -1; // the cart has not started
+	struct p8state_hdr h;
+	if (p8state_hdr_init(&h, p8.sha, p8.cart) != 0)
+		return -1;
+	memcpy(p8.ipc->state, &h, sizeof(h));
+
+	struct timespec t0;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	int32_t n = state_command(P8CMD_SAVE);
+	if (n <= 0) {
+		int len = reason_len();
+		core_log(RETRO_LOG_ERROR, "cannot take a state: %.*s\n", len, len ? p8.ipc->reason : "no answer");
+		return -1;
+	}
+	struct p8state_hdr got;
+	const char* why = NULL;
+	if ((size_t)n > P8IPC_STATE_MAX ||
+		p8state_check(p8.ipc->state, (size_t)n, P8IPC_STATE_MAX - sizeof(got), p8.sha, p8.cart, &got, &why) != 0 ||
+		sizeof(got) + got.len != (size_t)n) {
+		core_log(RETRO_LOG_ERROR, "the shim's state is not one this core can load (%s)\n", why ? why : "its size");
+		return -1;
+	}
+	p8.snap_valid = 1;
+	p8.snap_frame = p8.frame;
+	p8.snap_len = (size_t)n;
+	core_log(RETRO_LOG_INFO, "took a state of %zu KB in %ld ms\n", p8.snap_len >> 10, ms_since(&t0));
 	return 0;
 }
-bool retro_serialize(void* data, size_t size) {
-	(void)data, (void)size;
-	return false;
+
+// The state's size is only known once it is taken. Before the cart has started there is
+// none to take, and the upper bound lets minarch read any state for the resume retries.
+size_t retro_serialize_size(void) {
+	if (!p8.states)
+		return 0; // Splore, or pico8_64 unreadable: minarch offers no states
+	if (capture() != 0)
+		return p8.state_size ? p8.state_size : P8IPC_STATE_MAX;
+	size_t want = (p8.snap_len + STATE_SIZE_STEP - 1) / STATE_SIZE_STEP * STATE_SIZE_STEP;
+	if (want > p8.state_size)
+		p8.state_size = want;
+	return p8.state_size;
 }
+
+bool retro_serialize(void* data, size_t size) {
+	if (!data || capture() != 0)
+		return false;
+	if (size < p8.snap_len) {
+		core_log(RETRO_LOG_ERROR, "a state of %zu bytes does not fit in %zu\n", p8.snap_len, size);
+		return false;
+	}
+	memcpy(data, p8.ipc->state, p8.snap_len);
+	memset((uint8_t*)data + p8.snap_len, 0, size - p8.snap_len);
+	return true;
+}
+
 bool retro_unserialize(const void* data, size_t size) {
-	(void)data, (void)size;
-	return false;
+	if (!states_now())
+		return false;
+	struct p8state_hdr h;
+	const char* why = NULL;
+	// minarch retries a refused resume every frame for a while: each reason is logged once
+	if (p8state_check(data, size, P8IPC_STATE_MAX - sizeof(h), p8.sha, p8.cart, &h, &why) != 0) {
+		if (p8.refused != why)
+			core_log(RETRO_LOG_ERROR, "cannot load the state: %s\n", why);
+		p8.refused = why;
+		return false;
+	}
+	if (!p8.ipc->state_ready) {
+		why = "the cart has not started yet";
+		if (p8.refused != why)
+			core_log(RETRO_LOG_INFO, "%s; the state waits for it\n", why);
+		p8.refused = why;
+		return false;
+	}
+	p8.refused = NULL;
+	size_t n = sizeof(h) + h.len;
+	p8.snap_valid = 0; // state[] is about to hold this state instead
+	memcpy(p8.ipc->state, data, n);
+	p8.ipc->state_len = (uint32_t)n;
+
+	struct timespec t0;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	if (state_command(P8CMD_LOAD) <= 0) {
+		int len = reason_len();
+		core_log(RETRO_LOG_ERROR, "cannot load the state: %.*s\n", len, len ? p8.ipc->reason : "no answer");
+		return false;
+	}
+	// PICO-8's clock is back at the state's; the pattern goes on from there as it did
+	// after the save (every clock value is a sum of 17, 17, 16, ... from 0)
+	p8.phase = phase_at(h.ticks);
+	core_log(RETRO_LOG_INFO, "loaded a state of %zu KB in %ld ms\n", n >> 10, ms_since(&t0));
+	return true;
 }
 
 void retro_cheat_reset(void) {}
@@ -452,15 +657,7 @@ void retro_run(void) {
 		if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, id))
 			buttons |= 1u << id;
 	p8.ipc->buttons = buttons;
-	// 60 Hz in whole ms: 17, 17, 16 is exactly 50 ms per 3 frames
-	p8.ipc->frame_ms = p8.frame % 3 == 2 ? 16 : 17;
-	p8.ipc->cmd = P8CMD_NONE;
-	sem_post(&p8.ipc->frame_req);
-
-	int r = wait_done(p8.frame == 0 ? FIRST_FRAME_TIMEOUT_MS : FRAME_TIMEOUT_MS);
-	p8.frame++;
-	if (r != 0) {
-		request_shutdown(r == -2 ? "pico8_64 ended" : "pico8_64 stopped answering");
+	if (run_frame() != 0) {
 		video_cb(NULL, P8_W, P8_H, P8_W * sizeof(uint32_t));
 		return;
 	}

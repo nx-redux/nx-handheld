@@ -123,12 +123,20 @@ int core_force_framerate_control(const char* config) {
 		if (p)
 			p++;
 	}
-	if (!line)
-		return 0;
-	char* val = line + klen + 1;
-	size_t vlen = strcspn(val, "\r\n");
-	if (vlen == 1 && val[0] == '1')
-		return 0;
+	// no line: added at the end. Else its value is replaced by 1.
+	char *val, *rest;
+	const char* put;
+	if (!line) {
+		val = rest = buf + n;
+		put = n && buf[n - 1] != '\n' ? "\n" FRAMERATE_KEY " 1\n" : FRAMERATE_KEY " 1\n";
+	} else {
+		val = line + klen + 1;
+		size_t vlen = strcspn(val, "\r\n");
+		if (vlen == 1 && val[0] == '1')
+			return 0;
+		rest = val + vlen;
+		put = "1";
+	}
 
 	char tmp[1100];
 	if (snprintf(tmp, sizeof(tmp), "%s.tmp", config) >= (int)sizeof(tmp))
@@ -137,9 +145,7 @@ int core_force_framerate_control(const char* config) {
 	if (!o)
 		return -1;
 	size_t head = (size_t)(val - buf);
-	const char* rest = val + vlen;
-	int ok = fwrite(buf, 1, head, o) == head && fputc('1', o) != EOF &&
-			 fwrite(rest, 1, strlen(rest), o) == strlen(rest);
+	int ok = fwrite(buf, 1, head, o) == head && fputs(put, o) != EOF && fwrite(rest, 1, strlen(rest), o) == strlen(rest);
 	ok = (fclose(o) == 0) && ok;
 	if (!ok || rename(tmp, config) != 0) {
 		unlink(tmp);

@@ -142,11 +142,27 @@ int main(int argc, char** argv) {
 	snprintf(path, sizeof(path), "%s/cdata/fake.p8d.txt", home);
 	CHECK(stat(path, &st) != 0);
 
-	// A command runs while parked, instead of a frame
+	// A command runs while parked, instead of a frame. States are off in this run (no
+	// P8NATIVE_STATES, no pstate): at a present SAVE fails with the reason.
+	if (fps == 30) {
+		// parked between presents (waiting out a slice), a state command asks for a frame
+		uint32_t before = ipc->fb_serial;
+		step(ipc, 0, 17);
+		if (ipc->fb_serial != before) // it presented: the next slice is the waiting one
+			step(ipc, 0, 17);
+		uint32_t at = ipc->fb_serial;
+		ipc->cmd = P8CMD_SAVE;
+		step(ipc, 0, 17);
+		CHECK(ipc->cmd_result == P8CMD_RETRY && ipc->cmd == P8CMD_NONE && ipc->fb_serial == at);
+		step(ipc, 0, 17);
+		CHECK(ipc->fb_serial == at + 1);
+	}
+	CHECK(!ipc->state_ready);
 	uint32_t serial = ipc->fb_serial;
 	ipc->cmd = P8CMD_SAVE;
+	ipc->reason[0] = '\0';
 	step(ipc, 0, 17);
-	CHECK(ipc->cmd_result == 0 && ipc->reason[0] && ipc->cmd == P8CMD_NONE);
+	CHECK(ipc->cmd_result == 0 && strstr(ipc->reason, "off") && ipc->cmd == P8CMD_NONE);
 	CHECK(ipc->fb_serial == serial);
 	step(ipc, 0, 17);
 	CHECK(ipc->fb_serial == serial + 1 || fps == 30);

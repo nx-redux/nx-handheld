@@ -32,14 +32,22 @@ cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_t
 # The core's pure helpers: pico8_64 argv/env, the Bios lookup, the config.txt fix-up
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_core_args ../core_args.c test_core_args.c
 /tmp/nx_test_core_args
+# The save state header the core checks before a state reaches PICO-8, and its SHA-256
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_state_header ../p8state.c test_state_header.c
+/tmp/nx_test_state_header
 # The shim as a whole: fake_pico8 runs under it against a fake libSDL2, test_shim is the core.
+# fake_pico8 is not PIE: its image stays put between runs, as pico8_64's does with ASLR off.
 # No ASan here: it must come first in LD_PRELOAD, ahead of the shim.
 T=/tmp/nx_test_shim_bin
 rm -rf $T && mkdir -p $T
 cc -std=gnu99 -shared -fPIC -fvisibility=hidden -Wall -Wextra -Werror -U_FORTIFY_SOURCE -g -o $T/pico8shim.so \
-	../shim/shim.c ../shim/frame.c ../shim/paths.c ../shim/clock.c ../shim/audio.c ../p8ipc.c -ldl -lpthread
+	../shim/shim.c ../shim/frame.c ../shim/paths.c ../shim/clock.c ../shim/audio.c ../shim/state.c ../p8ipc.c ../p8state.c \
+	-ldl -lpthread
 cc -std=gnu99 -shared -fPIC -Wall -Wextra -Werror -g -Wl,-soname,libSDL2-2.0.so.0 -o $T/libSDL2-2.0.so.0 fake_sdl.c
-cc -std=gnu99 -Wall -Wextra -Werror -g -o $T/fake_pico8 fake_pico8.c $T/libSDL2-2.0.so.0 -Wl,-rpath,$T -lpthread
+cc -std=gnu99 -Wall -Wextra -Werror -g -no-pie -o $T/fake_pico8 fake_pico8.c $T/libSDL2-2.0.so.0 -Wl,-rpath,$T -lpthread
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o $T/test_shim ../p8ipc.c test_shim.c -pthread
 $T/test_shim $T/pico8shim.so $T/fake_pico8 60
 $T/test_shim $T/pico8shim.so $T/fake_pico8 30
+# Save states end to end: save, load, damaged states, and a load into a fresh run
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o $T/test_state ../p8ipc.c ../p8state.c test_state.c -pthread
+$T/test_state $T/pico8shim.so $T/fake_pico8
