@@ -121,6 +121,17 @@ bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size);
 // .media/wheel/; 3D box art = .media/boxart/; each also beside the folder for a folder game's disc. Otherwise ROM_findScreenshot's pick (false), as for Screenshot.
 bool ROM_findListArt(const char* rom_path, int art, char* out, size_t out_size);
 
+// Native PICO-8: true when Bios/P8 (checked first) or Bios/PICO under the runtime root holds both pico8_64 and
+// pico8.dat; dir_out gets that folder (no trailing slash). The answer is cached for the process.
+bool PICO8_findRuntime(char* dir_out, size_t size);
+// Forgets the cached PICO8_findRuntime answer (tests).
+void PICO8_resetRuntimeCache(void);
+// Points PICO8_findRuntime at another card root (default SDCARD_PATH) and resets the cache (tests).
+void PICO8_setRuntimeRoot(const char* sdcard_root);
+// The tag a resume marker is stored under: "P8" becomes "P8-native" while the native runtime is present, so its
+// markers stay apart from fake-08's; every other tag is copied unchanged.
+void ROM_resumeTag(const char* emu_name, char* out, size_t size);
+
 // Folder-named .m3u: /Roms/PSX/Game/disc1.bin -> /Roms/PSX/Game/Game.m3u.
 // Writes the candidate path to m3u_path; returns whether it exists.
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size);

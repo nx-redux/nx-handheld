@@ -1052,3 +1052,44 @@ int M3U_forEachDisc(const char* m3u_path, M3U_DiscFn fn, void* ctx) {
 	fclose(file);
 	return count;
 }
+
+static char pico8_root[MAX_PATH] = SDCARD_PATH;
+static int pico8_cached = -1; // -1 unknown, 0 absent, 1 found in pico8_dir
+static char pico8_dir[MAX_PATH];
+
+void PICO8_resetRuntimeCache(void) {
+	pico8_cached = -1;
+	pico8_dir[0] = '\0';
+}
+
+void PICO8_setRuntimeRoot(const char* sdcard_root) {
+	snprintf(pico8_root, sizeof(pico8_root), "%s", sdcard_root);
+	PICO8_resetRuntimeCache();
+}
+
+bool PICO8_findRuntime(char* dir_out, size_t size) {
+	if (pico8_cached < 0) {
+		static const char* bios[] = {"P8", "PICO"};
+		pico8_cached = 0;
+		for (int i = 0; i < 2 && !pico8_cached; i++) {
+			char dir[MAX_PATH], bin[MAX_PATH], dat[MAX_PATH];
+			snprintf(dir, sizeof(dir), "%s/Bios/%s", pico8_root, bios[i]);
+			snprintf(bin, sizeof(bin), "%s/pico8_64", dir);
+			snprintf(dat, sizeof(dat), "%s/pico8.dat", dir);
+			if (exists(bin) && exists(dat)) {
+				snprintf(pico8_dir, sizeof(pico8_dir), "%s", dir);
+				pico8_cached = 1;
+			}
+		}
+	}
+	if (pico8_cached && dir_out && size)
+		snprintf(dir_out, size, "%s", pico8_dir);
+	return pico8_cached == 1;
+}
+
+void ROM_resumeTag(const char* emu_name, char* out, size_t size) {
+	if (strcmp(emu_name, "P8") == 0 && PICO8_findRuntime(NULL, 0))
+		snprintf(out, size, "P8-native");
+	else
+		snprintf(out, size, "%s", emu_name);
+}
