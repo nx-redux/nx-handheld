@@ -58,3 +58,15 @@ cc -std=gnu99 -shared -fPIC -fvisibility=hidden -Wall -Wextra -Werror -g -I.. -I
 	-o $T/pico8native_libretro.so ../core.c ../core_args.c ../p8ipc.c ../p8state.c -ldl -lpthread
 cc -std=gnu99 -Wall -Wextra -Werror -g -I../../minarch/libretro-common/include -o $T/test_core test_core.c -ldl
 $T/test_core $T
+# The device scripts Splore runs: favourites copy and the P8/Splore launchers. Under this
+# sh, then under busybox's sh and applets (awk, cksum, find...) as on the devices.
+sh test_copy_favourites.sh
+sh test_splore_launch.sh
+if B=$(command -v busybox); then
+	BB=/tmp/nx_test_busybox
+	rm -rf $BB && mkdir -p $BB && $B --install -s $BB
+	PATH=$BB:$PATH sh test_copy_favourites.sh
+	PATH=$BB:$PATH sh test_splore_launch.sh
+else
+	echo "run_tests: no busybox here, the device scripts ran under $(readlink -f /bin/sh) only"
+fi
