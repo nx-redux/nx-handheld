@@ -170,7 +170,7 @@ int main(int argc, char** argv) {
 	// Run 1: not ready before the cart starts; then save, run on, load, continue exactly
 	struct p8ipc* ipc = start();
 	step(ipc);
-	CHECK(!ipc->state_ready);
+	CHECK(!ipc->state_ready && ipc->state_available);
 	struct p8state_hdr h;
 	CHECK(p8state_hdr_init(&h, sha, "fake.p8") == 0);
 	memcpy(ipc->state, &h, sizeof(h));

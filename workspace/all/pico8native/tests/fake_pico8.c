@@ -7,11 +7,19 @@
 //   [4] checksum of its heap list  [5] checksum of pstate  [6] checksum of its big block
 // Everything a frame depends on is a global or on the heap, never on the stack, so a
 // state put back at a present continues exactly.
+// For test_shim, FAKE_SYSTEM=1 runs two commands through system() at start and reports
+//   [7] bit 0: xdg-open was refused (-1), bit 1: "exit 3" ran (status 3)
+// For test_core:
+//   FAKE_SLOW_AT=<frame> FAKE_SLOW_MS=<ms>  that frame really takes ms (a download, a heavy cart)
+//   FAKE_EXIT_AT=<frame>                    exits with 0 there (PICO-8's own shutdown)
+//   FAKE_DIE_AT=<frame>                     exits with 3 there, 300 ms into the frame
+//   FAKE_FILL_ARENA=1                       one allocation bigger than the save state arena
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "fake_sdl.h"
 
@@ -29,7 +37,7 @@ int num_threads;				 // downloads running
 
 // SDL handles in the writable segment: pointers a state keeps from the run it loads into
 void *ren, *tex, *pad;
-uint32_t flags, frame, due_x3;
+uint32_t flags, frame, due_x3, system_bits;
 
 struct node {
 	struct node* next;
@@ -85,6 +93,11 @@ static void states_frame(void) {
 	n->next->value = frame;
 }
 
+static int env_int(const char* name) {
+	const char* v = getenv(name);
+	return v ? atoi(v) : 0;
+}
+
 static void audio_cb(void* userdata, uint8_t* stream, int len) {
 	(void)userdata;
 	int16_t* s = (int16_t*)stream;
@@ -129,6 +142,18 @@ int main(void) {
 			big[i] = (uint8_t)(i * 7 + (i >> 12));
 	}
 
+	if (env_int("FAKE_FILL_ARENA")) { // falls back to libc's malloc, and states go off
+		void* volatile huge = malloc((size_t)512 << 20);
+		free(huge);
+	}
+	if (env_int("FAKE_SYSTEM")) {
+		system_bits |= system("xdg-open https://www.lexaloffle.com/bbs/") == -1;
+		int st = system("exit 3");
+		system_bits |= (st != -1 && (st >> 8) == 3) << 1;
+	}
+	uint32_t slow_at = (uint32_t)env_int("FAKE_SLOW_AT"), slow_ms = (uint32_t)env_int("FAKE_SLOW_MS");
+	uint32_t exit_at = (uint32_t)env_int("FAKE_EXIT_AT"), die_at = (uint32_t)env_int("FAKE_DIE_AT");
+
 	SDL_Init(0);
 	ren = SDL_CreateRenderer(SDL_CreateWindow("fake", 0, 0, 512, 512, 0), -1, 0);
 	tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 128, 128);
@@ -164,6 +189,14 @@ int main(void) {
 						SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_B) << 1 |
 						SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_START) << 2 |
 						SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP) << 3;
+		if (exit_at && frame == exit_at)
+			return 0;
+		if (die_at && frame == die_at) {
+			usleep(300000);
+			_exit(3);
+		}
+		if (slow_at && frame == slow_at)
+			usleep(slow_ms * 1000);
 		SDL_LockAudio(); // as PICO-8 does around its sound state
 		SDL_UnlockAudio();
 		for (int y = 0; y < 128; y++)
@@ -173,6 +206,7 @@ int main(void) {
 		put(1, SDL_GetTicks());
 		put(2, bits);
 		put(3, flags);
+		put(7, system_bits);
 		if (states) {
 			states_frame();
 			put(4, list_sum());

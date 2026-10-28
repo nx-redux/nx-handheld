@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
 		setenv("P8NATIVE_HOME", home, 1);
 		setenv("P8NATIVE_CDATA", cdata, 1);
 		setenv("FAKE_FPS", argv[3], 1);
+		setenv("FAKE_SYSTEM", "1", 1);
 		setenv("LD_PRELOAD", argv[1], 1);
 		execl(argv[2], argv[2], (char*)NULL);
 		_exit(127);
@@ -115,6 +116,7 @@ int main(int argc, char** argv) {
 			else
 				CHECK(bits == 0);			  // anything else held reaches nothing
 			CHECK(px(ipc, 3) == 0);			  // no real input leaked
+			CHECK((px(ipc, 7) & 3) == 3);	  // system(): xdg-open refused, anything else run
 			CHECK(px(ipc, 100) == 0x123456u); // the rest of the screen, converted
 		}
 
@@ -157,15 +159,22 @@ int main(int argc, char** argv) {
 		step(ipc, 0, 17);
 		CHECK(ipc->fb_serial == at + 1);
 	}
-	CHECK(!ipc->state_ready);
+	CHECK(!ipc->state_ready && !ipc->state_available);
 	uint32_t serial = ipc->fb_serial;
 	ipc->cmd = P8CMD_SAVE;
 	ipc->reason[0] = '\0';
 	step(ipc, 0, 17);
 	CHECK(ipc->cmd_result == 0 && strstr(ipc->reason, "off") && ipc->cmd == P8CMD_NONE);
 	CHECK(ipc->fb_serial == serial);
-	step(ipc, 0, 17);
-	CHECK(ipc->fb_serial == serial + 1 || fps == 30);
+	// and frames go on at the cart's rate: 30 requests of 17/17/16 ms are 500 ms
+	for (int i = 0; i < 30; i++)
+		step(ipc, 0, i % 3 == 2 ? 16 : 17);
+	uint32_t after = ipc->fb_serial - serial;
+	printf("test_shim %d fps: %u frames in 500 ms after the failed SAVE\n", fps, after);
+	if (fps == 60) // a frame may slip a slice at either end of the window
+		CHECK(after >= 29 && after <= 31);
+	else
+		CHECK(after >= 14 && after <= 16);
 
 	// Quit: accepted at once, and PICO-8 exits on the SDL_QUIT it is handed
 	ipc->cmd = P8CMD_QUIT;

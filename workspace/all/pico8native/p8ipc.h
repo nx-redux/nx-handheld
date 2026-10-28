@@ -5,7 +5,8 @@
 // LD_PRELOAD shim inside pico8_64. They run in lockstep: one retro_run posts
 // frame_req, the shim runs one PICO-8 frame and posts frame_done.
 // The core creates the file at /tmp/p8native.<pid>.ipc and passes it in env
-// P8NATIVE_IPC. Commands (save/load/quit) run while the shim is parked
+// P8NATIVE_IPC; once the first frame is done both sides have it mapped and the core
+// unlinks it, so nothing is left in /tmp however the core ends. Commands (save/load/quit) run while the shim is parked
 // between frame_done and the next frame_req: the core sets cmd and posts
 // frame_req, the shim runs the command instead of a frame and posts frame_done.
 
@@ -14,7 +15,7 @@
 #include <semaphore.h>
 
 #define P8IPC_MAGIC 0x50384e31u /* "P8N1" */
-#define P8IPC_VERSION 2
+#define P8IPC_VERSION 3
 #define P8_W 128
 #define P8_H 128
 #define P8IPC_AUDIO_MAX 4096		/* stereo frames per video frame, upper bound */
@@ -38,13 +39,14 @@ struct p8ipc {
 	uint32_t fb[P8_W * P8_H]; /* XRGB8888, written by shim */
 	uint32_t fb_serial;		  /* +1 per presented frame */
 	int16_t audio[P8IPC_AUDIO_MAX * 2];
-	uint32_t audio_frames; /* stereo frames in audio[] this frame */
-	uint32_t audio_rate;   /* Hz PICO-8 opened with */
-	uint32_t cmd;		   /* enum p8cmd, set by core while the shim is parked */
-	int32_t cmd_result;	   /* >0 ok (SAVE: bytes in state[]), 0 failed, P8CMD_RETRY: run a frame, ask again */
-	uint32_t state_len;	   /* LOAD: bytes in state[] */
-	uint32_t state_ready;  /* shim: a SAVE/LOAD can run now (cart started, states on), set at each present */
-	char reason[256];	   /* last failure, for the core's log */
+	uint32_t audio_frames;	  /* stereo frames in audio[] this frame */
+	uint32_t audio_rate;	  /* Hz PICO-8 opened with */
+	uint32_t cmd;			  /* enum p8cmd, set by core while the shim is parked */
+	int32_t cmd_result;		  /* >0 ok (SAVE: bytes in state[]), 0 failed, P8CMD_RETRY: run a frame, ask again */
+	uint32_t state_len;		  /* LOAD: bytes in state[] */
+	uint32_t state_ready;	  /* shim: a SAVE/LOAD can run now (cart started, states on), set at each present */
+	uint32_t state_available; /* shim: states are on in this run of PICO-8, set before every frame_done */
+	char reason[256];		  /* last failure, for the core's log */
 	_Alignas(8) uint8_t state[P8IPC_STATE_MAX];
 };
 

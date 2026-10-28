@@ -13,6 +13,8 @@
  * - input: one virtual controller whose buttons are ipc->buttons (input.h); real input
  *   events never reach PICO-8.
  * - cart saves: file calls under $P8NATIVE_HOME/cdata go to $P8NATIVE_CDATA (paths.h).
+ * - system(): every command PICO-8 runs is logged; xdg-open (a URL or folder for a
+ *   desktop) is refused, as there is none.
  * - save states: P8CMD_SAVE/LOAD snapshot and put back PICO-8's memory while it is
  *   parked at a present (state.h); malloc and friends are state.c's, so PICO-8's own
  *   allocations land in its fixed-address arena.
@@ -215,6 +217,7 @@ static void end_slice(int present) {
 	attach();
 	spin = 0;
 	at_present = present;
+	ipc->state_available = state_available(); // goes off for good if the arena fills
 	if (quitting) {
 		// the core is no longer waiting: PICO-8 runs unpaced to its exit (an SDL_QUIT event)
 		struct timespec now;
@@ -619,6 +622,27 @@ EXPORT int16_t SDL_JoystickGetAxis(void* joy, int axis) {
 
 EXPORT int SDL_GetModState(void) {
 	return 0;
+}
+
+/* ---- commands ---- */
+
+// PICO-8 runs wget (with use_wget), chmod and xdg-open through system(). xdg-open would
+// look for a desktop that is not there, while PICO-8's frame waits on it.
+EXPORT int system(const char* command) {
+	REAL(int, system, const char*);
+	if (!real_system)
+		return -1;
+	if (!command)
+		return real_system(NULL);
+	LOG("system: %s\n", command);
+	const char* p = command;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (strncmp(p, "xdg-open", 8) == 0 && (p[8] == '\0' || p[8] == ' ' || p[8] == '\t')) {
+		LOG("system: xdg-open refused, there is no desktop to open it on\n");
+		return -1;
+	}
+	return real_system(command);
 }
 
 /* ---- cart save redirect ---- */
