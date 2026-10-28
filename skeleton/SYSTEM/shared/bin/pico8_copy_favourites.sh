@@ -15,9 +15,15 @@
 # - The target is <title>.p8.png, made safe for exFAT. A file of that name with the
 #   same bytes is taken as the copy; a different one (the user's) is left alone and
 #   the cart goes to "<title> (<slug>).p8.png" instead.
-# - Copies are recorded in <roms>/.splore/copied.txt as slug<TAB>rev<TAB>filename.
-#   Only a recorded copy is ever replaced, and only by a newer revision; a recorded
-#   copy the user removed is not brought back. Nothing is deleted.
+# - Copies are recorded in <roms>/.splore/copied.txt as
+#   slug<TAB>rev<TAB>filename<TAB>crc/size (cksum of the copy). Only a recorded copy
+#   is ever replaced, only by a newer revision, and only while the file still holds
+#   what was copied: a file the user changed is left alone. A row from before the
+#   checksum column counts as the copy only while the file matches that revision in
+#   the bbs cache. A recorded copy the user removed is not brought back. Nothing is
+#   deleted.
+# - Prints the number of carts copied or updated on stdout (Splore.pak rebuilds the
+#   game list only then); everything else goes to the log.
 #
 # The favourites.txt traps (padded fields, CRLF, empty file, title taken from the
 # file rather than the cart's Lua comments) were found by minui-pico-8-pak
@@ -51,6 +57,7 @@ for f in "$P8_HOME/favourites.txt" "$P8_HOME/.lexaloffle/pico-8/favourites.txt";
 done
 if [ -z "$FAVS" ]; then
 	log "favourites: no favourites.txt under $P8_HOME"
+	echo 0
 	exit 0
 fi
 OLDIFS=$IFS
@@ -102,13 +109,14 @@ LC_ALL=C awk -F'|' '
 IFS=$OLDIFS
 if [ ! -s "$WORK/favs" ]; then
 	log "favourites: none listed"
+	echo 0
 	exit 0
 fi
 
-# the bbs cache -> slug<TAB>rev<TAB>path, newest revision per slug
+# the bbs cache -> slug<TAB>rev<TAB>path, newest revision per slug; every revision in all
 for b in "$P8_HOME/bbs" "$P8_HOME/.lexaloffle/pico-8/bbs"; do
 	[ -d "$b" ] && find "$b" -type f -name '*.p8.png'
-done | LC_ALL=C awk '
+done | LC_ALL=C awk -v all="$WORK/all" '
 	{
 		name = $0
 		sub(/.*\//, "", name)
@@ -120,9 +128,11 @@ done | LC_ALL=C awk '
 			slug = substr(stem, 1, RSTART - 1)
 			rev = substr(stem, RSTART + 1) + 0
 		}
+		print slug "\t" rev "\t" $0 > all
 		if (!(slug in best) || rev > best[slug]) { best[slug] = rev; path[slug] = $0 }
 	}
 	END { for (s in best) print s "\t" best[s] "\t" path[s] }' >"$WORK/cache"
+[ -f "$WORK/all" ] || : >"$WORK/all"
 
 # favourites that are cached -> slug<TAB>rev<TAB>path<TAB>title
 LC_ALL=C awk -F'\t' '
@@ -132,11 +142,28 @@ LC_ALL=C awk -F'\t' '
 	"$WORK/cache" "$WORK/favs" >"$WORK/todo" 2>"$WORK/missing"
 [ -s "$WORK/missing" ] && while IFS= read -r line; do log "$line"; done <"$WORK/missing"
 
-# record <slug> <rev> <filename>: one row per slug in copied.txt
+# sum_of <file>: crc/size from cksum, empty if it cannot be read
+sum_of() {
+	cksum "$1" 2>/dev/null | awk '{ print $1 "/" $2; exit }'
+}
+
+# record <slug> <rev> <filename>: one row per slug in copied.txt, with the copy's sum
 record() {
+	_sum=$(sum_of "$ROMS/$3")
 	awk -F'\t' -v s="$1" '$1 != s' "$COPIED" >"$WORK/copied" &&
-		printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$WORK/copied" &&
+		printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$_sum" >>"$WORK/copied" &&
 		cat "$WORK/copied" >"$COPIED"
+}
+
+# still_ours <slug> <rev> <sum> <filename>: the recorded copy is unchanged. A row with
+# no sum (written before there was one) is ours while the file is that revision's cart.
+still_ours() {
+	if [ -n "$3" ]; then
+		[ "$(sum_of "$ROMS/$4")" = "$3" ]
+		return
+	fi
+	_was=$(awk -F'\t' -v s="$1" -v r="$2" '$1 == s && $2 == r { print $3; exit }' "$WORK/all")
+	[ -n "$_was" ] && cmp -s "$_was" "$ROMS/$4"
 }
 
 # copy_to <src> <filename>: through a temp file, so the list never sees half a cart
@@ -151,11 +178,14 @@ while IFS=$TAB read -r slug rev src title; do
 	if [ -n "$row" ]; then
 		old_rev=$(printf '%s' "$row" | cut -f2)
 		old_file=$(printf '%s' "$row" | cut -f3)
+		old_sum=$(printf '%s' "$row" | cut -f4)
 		if [ ! -f "$ROMS/$old_file" ]; then
 			continue # removed by the user: not brought back
 		fi
 		if [ "$rev" -gt "$old_rev" ] 2>/dev/null; then
-			if copy_to "$src" "$old_file"; then
+			if ! still_ours "$slug" "$old_rev" "$old_sum" "$old_file"; then
+				log "favourites: $old_file is not the copy made of $slug, not updating it to revision $rev"
+			elif copy_to "$src" "$old_file"; then
 				record "$slug" "$rev" "$old_file"
 				log "favourites: updated $old_file to revision $rev"
 				n=$((n + 1))
@@ -188,4 +218,5 @@ done <"$WORK/todo"
 
 [ "$n" -gt 0 ] && sync
 log "favourites: $n copied or updated"
+echo "$n"
 exit 0

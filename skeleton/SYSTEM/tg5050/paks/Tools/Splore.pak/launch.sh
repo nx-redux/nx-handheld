@@ -37,8 +37,11 @@ ROM="$MARKER"
 nx_gpu_shader_boost
 P8NATIVE_SPLORE=1 minarch.elf "$P8_PAK/pico8native_libretro.so" "$MARKER" >"$LOG" 2>&1
 
-# PICO-8's home, as the core sets it (core.c: $SHARED_USERDATA_PATH/P8-native/home)
-sh "$SHARED_SYSTEM_PATH/bin/pico8_copy_favourites.sh" "$SHARED_USERDATA_PATH/P8-native/home" "$ROMS"
+# PICO-8's home, as the core sets it (core.c: $SHARED_USERDATA_PATH/P8-native/home).
+# The script prints how many carts it copied or updated.
+COPIED=$(sh "$SHARED_SYSTEM_PATH/bin/pico8_copy_favourites.sh" "$SHARED_USERDATA_PATH/P8-native/home" "$ROMS")
 
 # new carts: the game list rebuilds instead of using its caches
-rm -f "$USERDATA_PATH/emulist_cache.txt" "$USERDATA_PATH/romindex_cache.txt"
+if [ "${COPIED:-0}" -gt 0 ] 2>/dev/null; then
+    rm -f "$USERDATA_PATH/emulist_cache.txt" "$USERDATA_PATH/romindex_cache.txt"
+fi

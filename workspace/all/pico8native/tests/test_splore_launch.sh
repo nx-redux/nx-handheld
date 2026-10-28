@@ -70,10 +70,20 @@ for PLAT in tg5040 tg5050; do
 	# the auto-resumed Splore marker reopens Splore, once, and copies favourites
 	mkdir -p "$(dirname "$MARKER")"
 	: >"$MARKER"
+	CACHES="$SD/.userdata/$PLAT/emulist_cache.txt $SD/.userdata/$PLAT/romindex_cache.txt"
+	for c in $CACHES; do : >"$c"; done
 	run "$P8" "$MARKER"
 	check "$PLAT resumed marker opens Splore mode" has "minarch splore=1 $T/sys/paks/Emus/P8.pak/pico8native_libretro.so $MARKER"
 	check "$PLAT resumed marker runs minarch once" count 1
 	check "$PLAT resumed marker copies favourites" test -f "$SD/Roms/Pico-8 (P8)/a game.p8.png"
+	for c in $CACHES; do check "$PLAT a copy clears $(basename "$c")" test ! -e "$c"; done
+
+	# a Splore session that copies nothing keeps the game list caches
+	rm -f "$T/calls"
+	for c in $CACHES; do : >"$c"; done
+	run "$SPLORE"
+	check "$PLAT splore with runtime runs minarch" count 1
+	for c in $CACHES; do check "$PLAT nothing copied keeps $(basename "$c")" test -e "$c"; done
 done
 
 echo "test_splore_launch: $PASSES passed, $FAILS failed"
