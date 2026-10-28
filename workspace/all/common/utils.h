@@ -104,21 +104,25 @@ bool ROM_artExists(char* path, size_t size);
 // (older libraries keep showing art); without it, `out` is left on the
 // nonexistent variant path so the caller shows no art at all. A disc of a
 // folder game (Home's recents and pins store the .m3u) also finds the variant
-// beside its folder. Always fills `out`.
+// beside its folder. When the path it would give does not exist, a PICO-8
+// .p8.png cart gives its own ROM path (the cartridge picture). Always fills `out`.
 void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix,
 						char* out, size_t out_size);
 // ROM_mediaArtPath, existence-checked, with multi-disc fallback to
-// <parent>/.media/<containing-folder>.png. Returns whether the path in `out` exists.
+// <parent>/.media/<containing-folder>.png, then a .p8.png cart's own ROM path (the cartridge
+// picture). Returns whether the path in `out` exists.
 bool ROM_findArt(const char* rom_path, char* out, size_t out_size);
 // The game's screenshot for the views: .media/screenshot/<name>.png (scraped), else the root
 // .media/<name>.png (PortMaster's convention, hand-made art, older libraries); for a disc of a
-// folder game, then the same two beside its folder. false = none exists; out then names the
-// screenshot path, so a caller can still key a cache on it.
+// folder game, then the same two beside its folder; last, a .p8.png cart's own ROM path (the
+// cartridge picture). false = none exists; out then names the screenshot path, so a caller can
+// still key a cache on it.
 bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size);
 // The List's game picture for `art`, a GAME_LIST_ART_* value (config.h: 0 Screenshot, 1 Mix, 2 2D box art, 3 Wheel,
 // 4 3D box art; an int so utils.c stays free of config.h). A fitted picture found (true): Mix = .media/mix/<name>.png,
 // else the legacy root .media/<name>.png (older libraries, Ports); 2D box art = .media/boxart2d/; Wheel =
-// .media/wheel/; 3D box art = .media/boxart/; each also beside the folder for a folder game's disc. Otherwise ROM_findScreenshot's pick (false), as for Screenshot.
+// .media/wheel/; 3D box art = .media/boxart/; each also beside the folder for a folder game's disc. Otherwise ROM_findScreenshot's pick (false), as for Screenshot;
+// with no screenshot either, a .p8.png cart's own ROM path (the cartridge picture) counts as found (true).
 bool ROM_findListArt(const char* rom_path, int art, char* out, size_t out_size);
 
 // Native PICO-8: true when Bios/P8 (checked first) or Bios/PICO under the runtime root holds both pico8_64 and

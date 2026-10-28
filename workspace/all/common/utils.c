@@ -911,6 +911,16 @@ static bool folderGameArtPath(const char* rom_path, const char* variant, char* o
 	return true;
 }
 
+// The last art fallback: a PICO-8 .p8.png cart (any case) that is on disk is its own cartridge picture, so a cart
+// with no scraped or hand-made art still shows one. true = out is the ROM path; a miss leaves out untouched.
+static bool cartPictureFallback(const char* rom_path, char* out, size_t out_size) {
+	size_t len = strlen(rom_path);
+	if (len < 7 || len >= out_size || strcasecmp(rom_path + len - 7, ".p8.png") != 0 || !exists((char*)rom_path))
+		return false;
+	snprintf(out, out_size, "%s", rom_path);
+	return true;
+}
+
 void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix,
 						char* out, size_t out_size) {
 	const char* variant = artVariantFolder(art_type);
@@ -919,21 +929,29 @@ void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix
 		if (ROM_artExists(out, out_size) || folderGameArtPath(rom_path, variant, out, out_size))
 			return;
 		// Caller asked for this variant only: leave the missing path in place
-		// so nothing is drawn, rather than substituting a different image.
-		if (!fallback_to_mix)
+		// so nothing is drawn, rather than substituting a different image
+		// (a .p8.png cart's own picture aside: that is the game's only art).
+		if (!fallback_to_mix) {
+			cartPictureFallback(rom_path, out, out_size);
 			return;
+		}
 	}
 	// No variant requested, or the scraper never wrote one for this game
 	// (older libraries only have the mix composite).
 	ROM_mediaArtPath(rom_path, out, out_size);
+	if (ROM_artExists(out, out_size))
+		return;
 	// The mix asked for but never made (the scraper no longer composes it):
 	// the screenshot instead, when there is one.
-	if (!variant && !ROM_artExists(out, out_size)) {
+	if (!variant) {
 		char shot[MAX_PATH];
 		ROM_mediaArtVariantPath(rom_path, "screenshot", shot, sizeof(shot));
-		if (ROM_artExists(shot, sizeof(shot)))
+		if (ROM_artExists(shot, sizeof(shot))) {
 			snprintf(out, out_size, "%s", shot);
+			return;
+		}
 	}
+	cartPictureFallback(rom_path, out, out_size);
 }
 
 bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
@@ -946,17 +964,18 @@ bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
 	dir[sizeof(dir) - 1] = '\0';
 	char* slash = strrchr(dir, '/');
 	if (!slash)
-		return false;
+		return cartPictureFallback(rom_path, out, out_size);
 	*slash = '\0';
 	char* parent_slash = strrchr(dir, '/');
 	if (!parent_slash || parent_slash == dir)
-		return false;
+		return cartPictureFallback(rom_path, out, out_size);
 	*parent_slash = '\0';
 	snprintf(out, out_size, "%s/.media/%s.png", dir, parent_slash + 1);
-	return ROM_artExists(out, out_size);
+	return ROM_artExists(out, out_size) || cartPictureFallback(rom_path, out, out_size);
 }
 
-bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
+// ROM_findScreenshot's chain without the cart picture (ROM_findListArt tells the two apart).
+static bool findScreenshotArt(const char* rom_path, char* out, size_t out_size) {
 	ROM_mediaArtVariantPath(rom_path, "screenshot", out, out_size);
 	if (ROM_artExists(out, out_size))
 		return true;
@@ -969,6 +988,10 @@ bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
 	// a folder game's disc: the same two, beside the folder (a miss: out stays the screenshot path)
 	return folderGameArtPath(rom_path, "screenshot", out, out_size) ||
 		   folderGameArtPath(rom_path, NULL, out, out_size);
+}
+
+bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
+	return findScreenshotArt(rom_path, out, out_size) || cartPictureFallback(rom_path, out, out_size);
 }
 
 // The fitted List art's folder for a GAME_LIST_ART_* value (config.h; int-typed so utils.c stays free of config.h):
@@ -1001,8 +1024,10 @@ bool ROM_findListArt(const char* rom_path, int art, char* out, size_t out_size) 
 				return true;
 		}
 	}
-	ROM_findScreenshot(rom_path, out, out_size);
-	return false;
+	// the screenshot (false); with none, a .p8.png cart's own picture counts as found
+	if (findScreenshotArt(rom_path, out, out_size))
+		return false;
+	return cartPictureFallback(rom_path, out, out_size);
 }
 
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size) {

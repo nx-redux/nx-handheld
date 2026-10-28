@@ -1,6 +1,6 @@
 // Host test for the screenshot resolver (utils.c): the scraped .media/screenshot/<name>.png first, then the root
 // .media/<name>.png (PortMaster's convention, hand-made art, older scrapes), else a miss that still names the
-// screenshot path.
+// screenshot path; a PICO-8 .p8.png cart with no art falls back to its own cartridge picture.
 #include "../utils.h"
 #include <assert.h>
 #include <stdio.h>
@@ -256,6 +256,78 @@ int main(void) {
 	assert(!ROM_artExists(got, strlen(got) + 1)); // the .jpeg name does not fit: a miss, path unchanged
 	snprintf(want, sizeof(want), "%s/Chrono Trigger.png", sn_media);
 	assert(strcmp(got, want) == 0);
+
+	// 10. a PICO-8 .p8.png cart with no art: its own cartridge picture (the ROM path) as the last fallback,
+	// everywhere; any real art still wins, and a text .p8 cart or a plain .png stays a miss
+	char p8[512], p8_media[512], cart[512];
+	snprintf(p8, sizeof(p8), "%s/Roms/Pico-8 (P8)", root);
+	snprintf(p8_media, sizeof(p8_media), "%s/.media", p8);
+	snprintf(mk, sizeof(mk), "mkdir -p '%s/screenshot' '%s/boxart2d'", p8_media, p8_media);
+	assert(system(mk) == 0);
+	snprintf(cart, sizeof(cart), "%s/Celeste.p8.png", p8);
+	mkfile(cart);
+	assert(ROM_findScreenshot(cart, out, sizeof(out)));
+	assert(strcmp(out, cart) == 0);
+	assert(ROM_findArt(cart, out, sizeof(out)));
+	assert(strcmp(out, cart) == 0);
+	for (int art = 0; art <= 4; art++) {
+		assert(ROM_findListArt(cart, art, out, sizeof(out)));
+		assert(strcmp(out, cart) == 0);
+	}
+	for (int type = 0; type <= 2; type++) {
+		ROM_displayArtPath(cart, type, false, out, sizeof(out));
+		assert(strcmp(out, cart) == 0);
+		ROM_displayArtPath(cart, type, true, out, sizeof(out));
+		assert(strcmp(out, cart) == 0);
+	}
+	// scraped 2D box art wins for that type; the Screenshot type still falls back to the cart
+	snprintf(want, sizeof(want), "%s/boxart2d/Celeste.p8.png", p8_media);
+	mkfile(want);
+	assert(ROM_findListArt(cart, 2, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	assert(ROM_findListArt(cart, 0, out, sizeof(out)));
+	assert(strcmp(out, cart) == 0);
+	// a scraped screenshot wins over the cart
+	snprintf(want, sizeof(want), "%s/screenshot/Celeste.p8.png", p8_media);
+	mkfile(want);
+	assert(ROM_findScreenshot(cart, out, sizeof(out)));
+	assert(strcmp(out, want) == 0);
+	assert(!ROM_findListArt(cart, 0, out, sizeof(out))); // the screenshot: not a fitted picture, as before
+	assert(strcmp(out, want) == 0);
+	ROM_displayArtPath(cart, 1, false, out, sizeof(out));
+	assert(strcmp(out, want) == 0);
+	// a text cart (.p8) with no art: a miss as before
+	snprintf(cart, sizeof(cart), "%s/Jelpi.p8", p8);
+	mkfile(cart);
+	assert(!ROM_findScreenshot(cart, out, sizeof(out)));
+	snprintf(want, sizeof(want), "%s/screenshot/Jelpi.png", p8_media);
+	assert(strcmp(out, want) == 0);
+	assert(!ROM_findArt(cart, out, sizeof(out)));
+	for (int art = 0; art <= 4; art++) {
+		assert(!ROM_findListArt(cart, art, out, sizeof(out)));
+		assert(strcmp(out, want) == 0);
+	}
+	ROM_displayArtPath(cart, 2, false, out, sizeof(out));
+	snprintf(want, sizeof(want), "%s/boxart/Jelpi.png", p8_media);
+	assert(strcmp(out, want) == 0);
+	// the extension matches whatever its case
+	snprintf(cart, sizeof(cart), "%s/UPPER.P8.PNG", p8);
+	mkfile(cart);
+	assert(ROM_findScreenshot(cart, out, sizeof(out)));
+	assert(strcmp(out, cart) == 0);
+	assert(ROM_findListArt(cart, 3, out, sizeof(out)));
+	assert(strcmp(out, cart) == 0);
+	// a plain .png that is not a cart: no fallback
+	snprintf(cart, sizeof(cart), "%s/notacart.png", p8);
+	mkfile(cart);
+	assert(!ROM_findScreenshot(cart, out, sizeof(out)));
+	assert(!ROM_findArt(cart, out, sizeof(out)));
+	assert(!ROM_findListArt(cart, 2, out, sizeof(out)));
+	ROM_displayArtPath(cart, 2, false, out, sizeof(out));
+	assert(strcmp(out, cart) != 0);
+	// a .p8.png name that is not on disk: no fallback
+	snprintf(cart, sizeof(cart), "%s/Missing.p8.png", p8);
+	assert(!ROM_findScreenshot(cart, out, sizeof(out)));
 
 	snprintf(mk, sizeof(mk), "rm -rf '%s'", root);
 	assert(system(mk) == 0);
