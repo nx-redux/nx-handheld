@@ -455,9 +455,10 @@ static void write_default_audio_file(void) {
 		audiomon_log("Failed to write audio config file");
 		return;
 	}
-	// PlaybackDmix is the stock speaker dmix (ipc_key 1111, hw:audiocodec,0,
-	// 48 kHz, period 2048, buffer 8192). Reuse it so OSD and NX clients share
-	// the existing owner instead of creating a second hardware mixer.
+	// PlaybackDmix is the firmware's speaker dmix in /etc/asound.conf (48 kHz,
+	// buffer 8192; tg5040: ipc_key 1111, period 2048; tg5050: ipc_key 9394,
+	// period 1024). Reuse it so OSD and NX clients share the existing owner
+	// instead of creating a second hardware mixer.
 	fprintf(f,
 			"pcm.nx_game { type softvol; slave.pcm \"PlaybackDmix\"; control { name \"Game Volume\"; card audiocodec; } }\n"
 			"pcm.nx_music { type plug; slave.pcm \"PlaybackDmix\"; }\n"
