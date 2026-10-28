@@ -384,13 +384,13 @@ void GBALink_clearPendingReload(void) {
 	gl.client_link_mode[0] = '\0';
 }
 
-// Apply pending link mode to config (called when user confirms before reload)
-// Note: gpsp ignores runtime option changes, so we just set the option here
-// and the caller must reload the game for gpsp to pick it up
+// Apply the host's pending link mode for this session only: the joiner's saved
+// config keeps its own mode. gpsp ignores runtime option changes, so the
+// caller must reload the game for gpsp to pick it up
 void GBALink_applyPendingLinkMode(void) {
 	const char* key = gbalink_link_mode_key(gl.core_name);
 	if (key && gl.needs_reload && gl.pending_link_mode[0]) {
-		minarch_setCoreOptionValue(key, gl.pending_link_mode);
+		minarch_setCoreOptionValueForSession(key, gl.pending_link_mode);
 		GBALink_clearPendingReload();
 	}
 }

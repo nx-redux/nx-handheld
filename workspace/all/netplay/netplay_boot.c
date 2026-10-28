@@ -111,11 +111,11 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 		if (rc == 0)
 			return 0;
 		if (type == LINK_TYPE_GBALINK && rc == GBALINK_CONNECT_NEEDS_RELOAD && gbalink_link_mode_key(core_name)) {
-			// Host runs a different gpsp_serial mode: adopt it, persist it,
-			// reload the core with the new mode, then reconnect. The engine
-			// getters/appliers live in gbalink.c.
+			// Host runs a different gpsp_serial mode: adopt it for this session
+			// (the saved config keeps the joiner's own), reload the core with
+			// the new mode, then reconnect. The engine getters/appliers live in
+			// gbalink.c.
 			GBALink_applyPendingLinkMode();
-			minarch_saveConfig();
 			GBALink_disconnect();
 			minarch_reloadGame();
 		}

@@ -98,8 +98,10 @@ before; an old client never sends it.
 core at ROM load; `auto` picks the right mode from the built-in game table
 (FireRed → RFU). The wizard flow passes the HOST's setting in the handshake;
 on mismatch the client adopts the host's mode in-band
-(`GBALINK_CONNECT_NEEDS_RELOAD` → adopt + persist + core reload + reconnect,
-`netplay_boot.c`). The string values are compared verbatim — "auto" on a
+(`GBALINK_CONNECT_NEEDS_RELOAD` → adopt for the session + core reload +
+reconnect, `netplay_boot.c`). The adopted mode is never saved: the joiner's
+cfg keeps its own mode (`Config_setSessionOption`), so its next launch is back
+on it, and the option is hidden from its menu for the session. The string values are compared verbatim — "auto" on a
 FireRed host and "rfu" on the client is a mismatch even though they resolve
 to the same hardware.
 

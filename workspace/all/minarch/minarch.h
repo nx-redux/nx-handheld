@@ -30,6 +30,8 @@ size_t minarch_getGameSize(void);
 // Core option accessors
 char* minarch_getCoreOptionValue(const char* key);
 void minarch_setCoreOptionValue(const char* key, const char* value);
+// For this netplay session only: the saved config keeps the user's value
+void minarch_setCoreOptionValueForSession(const char* key, const char* value);
 
 // Batch mode for setting multiple core options atomically
 void minarch_beginOptionsBatch(void);
@@ -38,9 +40,6 @@ void minarch_endOptionsBatch(void);
 // Force core to process option changes immediately
 // Runs one frame with video output suppressed to trigger check_variables()
 void minarch_forceCoreOptionUpdate(void);
-
-// Save current config to file
-void minarch_saveConfig(void);
 
 // Reload game to apply option changes (e.g., gpSP serial mode)
 // Unloads and reloads ROM so core re-reads options during load_game()

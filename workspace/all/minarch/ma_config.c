@@ -1218,12 +1218,62 @@ void Config_free(void) {
 static const char* np_pad_keys[] = {"picodrive_input1", "picodrive_input2"};
 static int np_pad_user_value[] = {-1, -1}; // the user's picodrive_input1/2 while forced
 
+// Session option: a netplay joiner runs the host's link mode (gpsp_serial) for
+// the session only, as NX Redux Mobile does (NetplayLinkOptions.forSession).
+// Its own choice stays in its cfg, so the next launch is back on it.
+static char session_key[64];
+static char session_value[64];
+static int session_user_value = -1; // the user's value of session_key while forced
+
 // The value Config_write saves for `option`: the user's own while a session forces it
-static int Config_netplayPadUserValue(Option* option) {
+static int Config_netplayUserValue(Option* option) {
 	for (int i = 0; i < 2; i++)
 		if (np_pad_user_value[i] >= 0 && exactMatch(option->key, (char*)np_pad_keys[i]))
 			return np_pad_user_value[i];
+	if (session_user_value >= 0 && exactMatch(option->key, session_key))
+		return session_user_value;
 	return option->value;
+}
+void Config_setSessionOption(const char* key, const char* value) {
+	Option* option = OptionList_getOption(&config.core, key);
+	if (!option)
+		return;
+	if (session_user_value < 0 || !exactMatch(session_key, (char*)key)) {
+		snprintf(session_key, sizeof(session_key), "%s", key);
+		session_user_value = option->value;
+	}
+	snprintf(session_value, sizeof(session_value), "%s", value);
+	LOG_info("Netplay: %s = %s for the session (user: %s)\n", key, value,
+			 option->values[session_user_value]);
+	OptionList_setOptionValue(&config.core, key, value);
+	option->lock = 1; // hidden from the menu: a change would need a reload and break the link
+}
+static void Config_forceSessionOption(void) {
+	if (session_user_value < 0)
+		return;
+	Option* option = OptionList_getOption(&config.core, session_key);
+	if (!option)
+		return;
+	if (config.user_cfg)
+		session_user_value = option->value; // this re-read just left the user's choice
+	OptionList_setOptionValue(&config.core, session_key, session_value);
+	option->lock = 1;
+}
+// Restore Defaults during a session: the defaults become the user's choice that
+// Config_write saves, and the forced values stay on (the running core has them)
+static void Config_restoreNetplayValues(void) {
+	for (int i = 0; i < 2; i++) {
+		Option* option = np_pad_user_value[i] >= 0 ? OptionList_getOption(&config.core, np_pad_keys[i]) : NULL;
+		if (!option)
+			continue;
+		np_pad_user_value[i] = option->default_value;
+		OptionList_setOptionValue(&config.core, np_pad_keys[i], "3 button pad");
+	}
+	Option* option = session_user_value >= 0 ? OptionList_getOption(&config.core, session_key) : NULL;
+	if (option) {
+		session_user_value = option->default_value;
+		OptionList_setOptionValue(&config.core, session_key, session_value);
+	}
 }
 static void Config_forceNetplayPads(void) {
 	const char* role = getenv("NETPLAY_ROLE"); // a wizard-launched session (minarch's boot-time engine)
@@ -1251,6 +1301,7 @@ void Config_readOptions(void) {
 	Config_readOptionsString(config.default_cfg);
 	Config_readOptionsString(config.user_cfg);
 	Config_forceNetplayPads(); // after the user's cfg: a session overrides it
+	Config_forceSessionOption();
 }
 void Config_reapplyOptions(void) {
 	// Cores can re-register their option list mid-game (eg. after a disc
@@ -1294,7 +1345,7 @@ void Config_readControls(void) {
 }
 static void writeOption(FILE* file, Option* option) {
 	int count = Option_valueCount(option);
-	int value = Config_netplayPadUserValue(option); // a forced netplay pad saves the user's own choice
+	int value = Config_netplayUserValue(option); // a value a netplay session forces saves the user's own choice
 	if (value >= 0 && value < count) {
 		fprintf(file, "%s = %s\n", option->key, option->values[value]);
 	}
@@ -1364,6 +1415,7 @@ void Config_restore(void) {
 		Option* option = &config.core.options[i];
 		option->value = option->default_value;
 	}
+	Config_restoreNetplayValues();
 	for (int i = 0; config.shaders.options[i].key; i++) {
 		Option* option = &config.shaders.options[i];
 		option->value = option->default_value;

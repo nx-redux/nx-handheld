@@ -69,7 +69,7 @@ bool GBALink_checkCoreSupport(const char* core_name);
 // Called before hosting to capture the current gpsp_serial value
 void GBALink_setLinkMode(const char* mode);
 void GBALink_clearPendingReload(void);	 // Clear pending reload state
-void GBALink_applyPendingLinkMode(void); // Apply pending mode to config
+void GBALink_applyPendingLinkMode(void); // Apply pending mode for the session
 
 // Connection management
 // If hotspot_ip is NULL, uses WiFi mode. Otherwise, uses hotspot mode with given IP.
