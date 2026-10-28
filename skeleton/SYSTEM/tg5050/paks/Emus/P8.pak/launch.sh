@@ -1,6 +1,9 @@
 #!/bin/sh
 
+# The user's own PICO-8 (pico8_64 + pico8.dat in Bios/P8 or Bios/PICO) runs carts
+# through the pico8native bridge core; without it, fake08 as before.
 EMU_EXE=fake08
+sh "$SHARED_SYSTEM_PATH/bin/pico8_runtime.sh" >/dev/null 2>&1 && EMU_EXE=pico8native
 CORES_PATH=$(dirname "$0")
 
 ###############################

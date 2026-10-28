@@ -1,11 +1,15 @@
 #!/bin/sh
-# NAME: Pico-8 (fake08)
+# NAME: Pico-8
 # Pre-launch options editor entry point (minarch core options). Its existence
 # is the capability marker nxredux probes for the "Emulator Options"
 # context-menu entry, and the Emulator Settings picker lists it.
 # Usage: options.sh [rom-path]   (no arg: edit the console-wide config)
 
+# Edits the core launch.sh will run: native PICO-8 when the user has it, else fake08
 EMU_EXE=fake08
+sh "$SHARED_SYSTEM_PATH/bin/pico8_runtime.sh" >/dev/null 2>&1 && EMU_EXE=pico8native
+EMU_LABEL="Pico-8 (fake08)"
+[ "$EMU_EXE" = pico8native ] && EMU_LABEL="Pico-8 (native)"
 CORES_PATH="$(dirname "$0")"
 
 ###############################
@@ -61,5 +65,5 @@ else
     options.elf --json "$CACHE" \
         --minarch-system "$SYS_CFG" --minarch-default "$DEF_CFG" \
         --minarch-dir "$CONFIG_DIR" \
-        --game "Pico-8 (fake08)" 2>> "$LOGS_PATH/emu-options.txt"
+        --game "$EMU_LABEL" 2>> "$LOGS_PATH/emu-options.txt"
 fi
