@@ -17,3 +17,6 @@ fi
 # Compile and run on separate lines: set -e ignores a failure on the left of &&.
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_p8ipc ../p8ipc.c test_p8ipc.c -pthread
 /tmp/nx_test_p8ipc
+# p8ipc_wait against wall-clock steps: includes p8ipc.c to put it on fake clocks
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_p8ipc_clock test_p8ipc_clock.c -pthread
+/tmp/nx_test_p8ipc_clock

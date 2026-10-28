@@ -11,6 +11,14 @@
 
 // Signals can land mid-wait (SIGCHLD, SIGALRM...); retry this many times before giving up
 #define P8IPC_EINTR_RETRIES 16
+// sem_timedwait only takes a CLOCK_REALTIME deadline (no sem_clockwait in the device's glibc 2.28)
+// and ntpd can step that clock mid-game. The timeout is kept on CLOCK_MONOTONIC instead, waiting
+// in slices of at most this long, each with a fresh realtime deadline.
+#define P8IPC_SLICE_MS 100
+
+// Swappable so the host test can step a fake wall clock
+static int (*p8_clock_gettime)(clockid_t, struct timespec*) = clock_gettime;
+static int (*p8_sem_timedwait)(sem_t*, const struct timespec*) = sem_timedwait;
 
 static struct p8ipc* map_fd(int fd) {
 	void* p = mmap(NULL, sizeof(struct p8ipc), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -71,20 +79,35 @@ void p8ipc_close(struct p8ipc* ipc) {
 		munmap(ipc, sizeof(*ipc));
 }
 
-int p8ipc_wait(sem_t* sem, int timeout_ms) {
+static long clock_ms(clockid_t clk) {
 	struct timespec ts;
-	clock_gettime(CLOCK_REALTIME, &ts); // sem_timedwait takes an absolute CLOCK_REALTIME deadline
-	ts.tv_sec += timeout_ms / 1000;
-	ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
-	if (ts.tv_nsec >= 1000000000L) {
-		ts.tv_sec++;
-		ts.tv_nsec -= 1000000000L;
-	}
-	for (int i = 0; i <= P8IPC_EINTR_RETRIES; i++) {
-		if (sem_timedwait(sem, &ts) == 0)
+	p8_clock_gettime(clk, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+int p8ipc_wait(sem_t* sem, int timeout_ms) {
+	long start = clock_ms(CLOCK_MONOTONIC);
+	int eintr = 0;
+	for (;;) {
+		long left = timeout_ms - (clock_ms(CLOCK_MONOTONIC) - start);
+		if (left <= 0)
+			return sem_trywait(sem) == 0 ? 0 : -1; // a post right at the deadline still counts
+		long slice = left < P8IPC_SLICE_MS ? left : P8IPC_SLICE_MS;
+		struct timespec ts;
+		p8_clock_gettime(CLOCK_REALTIME, &ts);
+		ts.tv_sec += slice / 1000;
+		ts.tv_nsec += (slice % 1000) * 1000000L;
+		if (ts.tv_nsec >= 1000000000L) {
+			ts.tv_sec++;
+			ts.tv_nsec -= 1000000000L;
+		}
+		if (p8_sem_timedwait(sem, &ts) == 0)
 			return 0;
-		if (errno != EINTR)
+		// a forward step expires the slice early: the monotonic check above decides if time is really up
+		if (errno == EINTR) {
+			if (++eintr > P8IPC_EINTR_RETRIES)
+				return -1;
+		} else if (errno != ETIMEDOUT)
 			return -1;
 	}
-	return -1;
 }
