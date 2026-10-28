@@ -1,5 +1,11 @@
 #!/bin/sh
 
+# Splore's marker cart (Tools/Splore.pak) comes back here when a Splore session is
+# auto-resumed after sleep and power-off: reopen Splore, which runs minarch itself.
+case "$1" in
+*/.splore/Splore.p8) exec sh "$SYSTEM_PATH/paks/Tools/Splore.pak/launch.sh" ;;
+esac
+
 # The user's own PICO-8 (pico8_64 + pico8.dat in Bios/P8 or Bios/PICO) runs carts
 # through the pico8native bridge core; without it, fake08 as before.
 EMU_EXE=fake08

@@ -62,6 +62,7 @@ cart "$H/bbs/5/56576.p8.png" "buns"
 cart "$H/bbs/carts/celeste_classic-2.p8.png" "celeste 2"
 cart "$H/bbs/carts/picodriller-0.p8.png" "driller"
 cart "$H/bbs/carts/otherthing-1.p8.png" "not a favourite"
+cart "$H/bbs/carts/jamcart-3.p8.png" "jam"
 cart "$H/bbs/carts/temp-celeste_classic-3.p8.png" "partial download"
 printf 'my own driller' >"$R/picodriller.p8.png"
 printf 'my own game' >"$R/mine.p8.png"
@@ -73,8 +74,9 @@ file_is "$R/celeste- classic - remix.p8.png" "celeste 2"
 file_is "$R/picodriller.p8.png" "my own driller"
 file_is "$R/picodriller (picodriller).p8.png" "driller"
 file_is "$R/mine.p8.png" "my own game"
+file_is "$R/jam cart.p8.png" "jam"
 absent "$R/otherthing.p8.png"
-want=$(printf '%s\n' "celeste- classic - remix.p8.png" "mai-chan's sweet buns.p8.png" "mine.p8.png" \
+want=$(printf '%s\n' "celeste- classic - remix.p8.png" "mai-chan's sweet buns.p8.png" "mine.p8.png" "jam cart.p8.png" \
 	"picodriller (picodriller).p8.png" "picodriller.p8.png" "suika game demake.p8.png" | sort)
 if [ "$(carts "$R")" = "$want" ]; then ok; else fail "first run carts:
 $(carts "$R")"; fi

@@ -82,10 +82,12 @@ LC_ALL=C awk -F'|' '
 	BEGIN { for (i = 128; i < 256; i++) ord[sprintf("%c", i)] = i }
 	{
 		sub(/\r$/, "")
-		# the cart is field 2, or in the old layout the first field naming a .p8 file
+		# the cart is field 2, or in the old |0|bbs/1/<id>.p8.png|<id> layout (no title
+		# column) the first field naming a .p8 file
 		stem = trim($2)
-		for (i = 2; i <= NF; i++)
-			if (index($i, ".p8")) { stem = trim($i); break }
+		if (NF <= 4 && stem ~ /^[0-9]+$/)
+			for (i = 3; i <= NF; i++)
+				if (index($i, ".p8")) { stem = trim($i); break }
 		sub(/.*\//, "", stem)
 		sub(/\.p8(\.png)?$/, "", stem)
 		if (stem == "" || stem ~ /^temp-/) next
