@@ -118,6 +118,9 @@ bool ROM_findArt(const char* rom_path, char* out, size_t out_size);
 // cartridge picture). false = none exists; out then names the screenshot path, so a caller can
 // still key a cache on it.
 bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size);
+// Whether the game has art of its own (scraped, fetched or hand-made): ROM_findScreenshot's pick or its 3D box art.
+// A .p8.png cart's own picture never counts, so the game list still offers Fetch Artwork for it.
+bool ROM_hasRealArt(const char* rom_path);
 // The List's game picture for `art`, a GAME_LIST_ART_* value (config.h: 0 Screenshot, 1 Mix, 2 2D box art, 3 Wheel,
 // 4 3D box art; an int so utils.c stays free of config.h). A fitted picture found (true): Mix = .media/mix/<name>.png,
 // else the legacy root .media/<name>.png (older libraries, Ports); 2D box art = .media/boxart2d/; Wheel =

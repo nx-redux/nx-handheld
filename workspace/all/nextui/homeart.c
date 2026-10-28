@@ -310,12 +310,15 @@ static SDL_Surface* addShadow(SDL_Surface* art, int pad, int off, int r) {
 
 // Box art fitted (contain) into w×h with its soft shadow; *ox/*oy = the art's top-left in the result. KIND_BOXART_2D and
 // KIND_WHEEL fit the scraped 2D box art or wheel the same way (a wheel keeps its wide aspect), falling back to the 3D
-// box art when the game has none (or it can't be read).
+// box art when the game has none (or it can't be read). A .p8.png cart's own picture (ROM_findListArt's last fallback,
+// the ROM path) waits until the 3D box art misses too: ROM_displayArtPath ends in it.
 static SDL_Surface* buildBoxart(int kind, const char* rom, int w, int h, int* ox, int* oy) {
 	char path[MAX_PATH];
 	SDL_Surface* src = NULL;
 	if (kind != KIND_BOXART &&
-		ROM_findListArt(rom, kind == KIND_BOXART_2D ? GAME_LIST_ART_BOXART2D : GAME_LIST_ART_WHEEL, path, sizeof(path)))
+		ROM_findListArt(rom, kind == KIND_BOXART_2D ? GAME_LIST_ART_BOXART2D : GAME_LIST_ART_WHEEL, path,
+						sizeof(path)) &&
+		strcmp(path, rom) != 0)
 		src = loadArgb(path);
 	if (!src) {
 		ROM_displayArtPath(rom, ART_TYPE_BOXART, false, path, sizeof(path));

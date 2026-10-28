@@ -478,13 +478,10 @@ static bool entryArtInfo(Entry* entry, char* rom_to_hash, char* out_png, char* t
 	return true;
 }
 
-// A game has art: its screenshot (scraped, or the root .media picture a Port ships) or its box art.
+// A game has art: its screenshot (scraped, or the root .media picture a Port ships) or its box art; a .p8.png cart's
+// own picture does not count.
 static bool entryHasArt(const char* path) {
-	char p[MAX_PATH];
-	if (ROM_findScreenshot(path, p, sizeof(p)))
-		return true;
-	ROM_displayArtPath(path, ART_TYPE_BOXART, false, p, sizeof(p));
-	return exists(p);
+	return ROM_hasRealArt(path);
 }
 
 // True when `path` is the folder-named .cue/.m3u of its parent dir (GameListText_folderGameParent) — the file
@@ -1169,6 +1166,7 @@ static void artFetchLanded(const char* rom, const char* out_png) {
 	// hold a placeholder or a miss for it)
 	char variant[MAX_PATH];
 	thumbCacheInvalidate(out_png);
+	thumbCacheInvalidate(rom); // a .p8.png cart's own picture, shown until now
 	ROM_displayArtPath(rom, ART_TYPE_SCREENSHOT, false, variant, sizeof(variant));
 	thumbCacheInvalidate(variant);
 	ROM_displayArtPath(rom, ART_TYPE_BOXART, false, variant, sizeof(variant));

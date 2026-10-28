@@ -994,6 +994,14 @@ bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
 	return findScreenshotArt(rom_path, out, out_size) || cartPictureFallback(rom_path, out, out_size);
 }
 
+bool ROM_hasRealArt(const char* rom_path) {
+	char p[MAX_PATH];
+	if (findScreenshotArt(rom_path, p, sizeof(p)))
+		return true;
+	ROM_displayArtPath(rom_path, 2, false, p, sizeof(p)); // 2 = ART_TYPE_BOXART (config.h)
+	return strcmp(p, rom_path) != 0 && exists(p);
+}
+
 // The fitted List art's folder for a GAME_LIST_ART_* value (config.h; int-typed so utils.c stays free of config.h):
 // 1 Mix, 2 2D box art, 3 Wheel, 4 3D box art; NULL for the Screenshot (0) or anything else.
 static const char* listArtFolder(int art) {

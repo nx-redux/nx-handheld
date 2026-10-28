@@ -329,6 +329,40 @@ int main(void) {
 	snprintf(cart, sizeof(cart), "%s/Missing.p8.png", p8);
 	assert(!ROM_findScreenshot(cart, out, sizeof(out)));
 
+	// 11. ROM_hasRealArt (the game list's "Fetch Artwork" check): the cart picture never counts; a screenshot, the
+	// root picture or 3D box art does
+	char boxed[512];
+	snprintf(cart, sizeof(cart), "%s/Bare.p8.png", p8);
+	mkfile(cart);
+	assert(!ROM_hasRealArt(cart));
+	snprintf(cart, sizeof(cart), "%s/Jelpi.p8", p8);
+	assert(!ROM_hasRealArt(cart));
+	snprintf(cart, sizeof(cart), "%s/notacart.png", p8);
+	assert(!ROM_hasRealArt(cart));
+	snprintf(cart, sizeof(cart), "%s/Celeste.p8.png", p8); // its scraped screenshot (made in 10.)
+	assert(ROM_hasRealArt(cart));
+	assert(ROM_hasRealArt(gbrom));
+	// 3D box art present, no screenshot (Home's 2D box art / Wheel tiles): ROM_findListArt still gives the cart
+	// (true, out = the ROM), so Home tells it apart by the ROM path and asks ROM_displayArtPath for the 3D box art,
+	// which wins over the cart
+	snprintf(mk, sizeof(mk), "mkdir -p '%s/boxart'", p8_media);
+	assert(system(mk) == 0);
+	snprintf(boxed, sizeof(boxed), "%s/Boxed.p8.png", p8);
+	mkfile(boxed);
+	snprintf(want, sizeof(want), "%s/boxart/Boxed.p8.png", p8_media);
+	mkfile(want);
+	assert(ROM_hasRealArt(boxed));
+	assert(ROM_findScreenshot(boxed, out, sizeof(out))); // no screenshot: the cart
+	assert(strcmp(out, boxed) == 0);
+	for (int art = 2; art <= 3; art++) {
+		assert(ROM_findListArt(boxed, art, out, sizeof(out)));
+		assert(strcmp(out, boxed) == 0);
+	}
+	ROM_displayArtPath(boxed, 2, false, out, sizeof(out));
+	assert(strcmp(out, want) == 0);
+	assert(ROM_findListArt(boxed, 4, out, sizeof(out))); // 3D box art as List art: the box, not the cart
+	assert(strcmp(out, want) == 0);
+
 	snprintf(mk, sizeof(mk), "rm -rf '%s'", root);
 	assert(system(mk) == 0);
 	printf("test_art_path: ok\n");
