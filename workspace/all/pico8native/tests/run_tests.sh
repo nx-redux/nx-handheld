@@ -29,6 +29,9 @@ cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_t
 /tmp/nx_test_clock
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_audio ../shim/audio.c test_audio.c
 /tmp/nx_test_audio
+# The core's pure helpers: pico8_64 argv/env, the Bios lookup, the config.txt fix-up
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_core_args ../core_args.c test_core_args.c
+/tmp/nx_test_core_args
 # The shim as a whole: fake_pico8 runs under it against a fake libSDL2, test_shim is the core.
 # No ASan here: it must come first in LD_PRELOAD, ahead of the shim.
 T=/tmp/nx_test_shim_bin

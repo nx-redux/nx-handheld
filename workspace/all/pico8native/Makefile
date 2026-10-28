@@ -26,9 +26,34 @@ SHIM_SRC = shim/shim.c shim/frame.c shim/paths.c shim/clock.c shim/audio.c p8ipc
 SHIM_CFLAGS = -std=gnu99 -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror -U_FORTIFY_SOURCE
 SHIM = $(BUILD)/pico8shim.so
 
-all: shim
+# pico8native_libretro.so: the libretro core minarch loads; spawns pico8_64 with the shim.
+# libretro.h comes from minarch's libretro-common checkout (built before this in workspace/Makefile).
+CORE_SRC = core.c core_args.c p8ipc.c
+CORE_CFLAGS = -std=gnu99 -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror -I. -I../minarch/libretro-common/include
+CORE = $(BUILD)/pico8native_libretro.so
+
+# The child runs on the toolchain's own SDL2 (it has the offscreen video driver the
+# device SDL2 lacks), shipped in P8.pak/lib and put on the child's LD_LIBRARY_PATH only.
+SDL_SRC = $(firstword $(wildcard $(PREFIX)/lib/libSDL2-2.0.so.0 $(SYSROOT)/usr/lib/libSDL2-2.0.so.0))
+SDL = $(BUILD)/lib/libSDL2-2.0.so.0
+
+all: shim core sdl
 
 shim: $(SHIM)
+
+core: $(CORE)
+
+$(CORE): $(CORE_SRC) core_args.h p8ipc.h
+	mkdir -p $(BUILD)
+	$(CC) $(CORE_CFLAGS) -o $@ $(CORE_SRC) -ldl -lpthread
+
+sdl: $(SDL)
+
+$(SDL):
+	@test -n "$(SDL_SRC)" || (echo "no libSDL2-2.0.so.0 in the toolchain sysroot (PREFIX=$(PREFIX))" >&2; exit 1)
+	mkdir -p $(BUILD)/lib
+	cp -L $(SDL_SRC) $@
+	chmod 755 $@
 
 $(SHIM): $(SHIM_SRC) $(wildcard shim/*.h) p8ipc.h
 	mkdir -p $(BUILD)
@@ -41,10 +66,17 @@ $(BUILD)/spike_host: tests/spike_host.c p8ipc.c p8ipc.h
 	mkdir -p $(BUILD)
 	$(CC) -std=gnu99 -O2 -Wall -Wextra -Werror -o $@ tests/spike_host.c p8ipc.c -lpthread
 
+# Device-side minimal frontend for the core (tests/core_host.c); not shipped
+corehost: $(BUILD)/core_host
+
+$(BUILD)/core_host: tests/core_host.c
+	mkdir -p $(BUILD)
+	$(CC) -std=gnu99 -O2 -Wall -Wextra -Werror -I../minarch/libretro-common/include -o $@ tests/core_host.c -ldl
+
 tests:
 	./tests/run_tests.sh
 
 clean:
 	rm -rf build
 
-.PHONY: all shim spike tests clean
+.PHONY: all shim core sdl spike corehost tests clean
