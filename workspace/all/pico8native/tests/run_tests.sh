@@ -30,6 +30,9 @@ cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_t
 /tmp/nx_test_clock
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_audio ../shim/audio.c test_audio.c
 /tmp/nx_test_audio
+# The quit dialog's input: when Menu opens it, what closes it, what stays from PICO-8
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_dialog ../shim/dialog.c test_dialog.c
+/tmp/nx_test_dialog
 # The core's pure helpers: pico8_64 argv/env, the Bios lookup, the config.txt fix-up
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_test_core_args ../core_args.c test_core_args.c
 /tmp/nx_test_core_args
@@ -42,13 +45,19 @@ cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/nx_t
 T=/tmp/nx_test_shim_bin
 rm -rf $T && mkdir -p $T
 cc -std=gnu99 -shared -fPIC -fvisibility=hidden -Wall -Wextra -Werror -U_FORTIFY_SOURCE -g -o $T/pico8shim.so \
-	../shim/shim.c ../shim/frame.c ../shim/paths.c ../shim/clock.c ../shim/audio.c ../shim/state.c ../p8ipc.c ../p8state.c \
+	../shim/shim.c ../shim/standalone.c ../shim/dialog.c ../shim/frame.c ../shim/paths.c ../shim/clock.c ../shim/audio.c ../shim/state.c ../p8ipc.c ../p8state.c \
 	-ldl -lpthread
 cc -std=gnu99 -shared -fPIC -Wall -Wextra -Werror -g -Wl,-soname,libSDL2-2.0.so.0 -o $T/libSDL2-2.0.so.0 fake_sdl.c
 cc -std=gnu99 -Wall -Wextra -Werror -g -no-pie -o $T/fake_pico8 fake_pico8.c $T/libSDL2-2.0.so.0 -Wl,-rpath,$T -lpthread
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o $T/test_shim ../p8ipc.c test_shim.c -pthread
 $T/test_shim $T/pico8shim.so $T/fake_pico8 60
 $T/test_shim $T/pico8shim.so $T/fake_pico8 30
+# Standalone mode (Splore): fake_splore under the same shim against a fake device SDL
+S=/tmp/nx_test_standalone_bin
+rm -rf $S && mkdir -p $S
+cc -std=gnu99 -shared -fPIC -Wall -Wextra -Werror -g -Wl,-soname,libSDL2-2.0.so.0 -o $S/libSDL2-2.0.so.0 fake_sdl_standalone.c
+cc -std=gnu99 -Wall -Wextra -Werror -g -o $S/fake_splore fake_splore.c $S/libSDL2-2.0.so.0 -Wl,-rpath,$S
+sh test_standalone.sh $T/pico8shim.so $S/fake_splore
 # Save states end to end: save, load, damaged states, and a load into a fresh run
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o $T/test_state ../p8ipc.c ../p8state.c test_state.c -pthread
 $T/test_state $T/pico8shim.so $T/fake_pico8

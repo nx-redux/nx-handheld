@@ -19,6 +19,10 @@
  *   parked at a present (state.h); malloc and friends are state.c's, so PICO-8's own
  *   allocations land in its fixed-address arena.
  *
+ * Standalone (P8SHIM_STANDALONE=1, Splore's launcher): none of the above but the cart
+ * saves, system() and the sensor flag. PICO-8 runs on the device's SDL with every call
+ * going straight through, and Menu opens a "Quit Splore?" dialog (standalone.c).
+ *
  * Which SDL calls PICO-8 makes, and wrapping them through dlsym(RTLD_NEXT) without SDL
  * headers, follows josegonzalez/minui-pico-8-pak's shim/sdl-display.c (MIT licence).
  *
@@ -49,6 +53,7 @@
 #include "frame.h"
 #include "input.h"
 #include "paths.h"
+#include "standalone.h"
 #include "state.h"
 
 #define EXPORT __attribute__((visibility("default")))
@@ -282,7 +287,7 @@ EXPORT void* SDL_CreateTexture(void* renderer, uint32_t format, int access, int 
 	REAL(void*, SDL_CreateTexture, void*, uint32_t, int, int, int);
 	void* t = real_SDL_CreateTexture ? real_SDL_CreateTexture(renderer, format, access, w, h) : NULL;
 	LOG("texture %dx%d %s (0x%08x) access %d → %p\n", w, h, frame_format_name(format), format, access, t);
-	if (t && w == P8_W && h == P8_H) {
+	if (!standalone && t && w == P8_W && h == P8_H) {
 		screen = t;
 		screen_format = format;
 	}
@@ -324,18 +329,27 @@ EXPORT int SDL_UpdateTexture(void* texture, const SDL_Rect* rect, const void* pi
 // Nothing shows what the renderer draws: the frame was taken at upload, so scaling it to
 // the window and presenting it would only cost time in every frame the core waits for
 EXPORT int SDL_RenderCopy(void* renderer, void* texture, const SDL_Rect* src, const SDL_Rect* dst) {
-	(void)renderer, (void)texture, (void)src, (void)dst;
+	if (standalone) {
+		REAL(int, SDL_RenderCopy, void*, void*, const SDL_Rect*, const SDL_Rect*);
+		return real_SDL_RenderCopy ? real_SDL_RenderCopy(renderer, texture, src, dst) : -1;
+	}
 	return 0;
 }
 
 EXPORT int SDL_RenderClear(void* renderer) {
-	(void)renderer;
+	if (standalone) {
+		REAL(int, SDL_RenderClear, void*);
+		return real_SDL_RenderClear ? real_SDL_RenderClear(renderer) : -1;
+	}
 	return 0;
 }
 
 EXPORT void SDL_RenderPresent(void* renderer) {
 	static int logged;
-	(void)renderer;
+	if (standalone) {
+		st_present(renderer);
+		return;
+	}
 	attach();
 	if (!logged) {
 		logged = 1;
@@ -371,14 +385,16 @@ EXPORT void* SDL_CreateWindow(const char* title, int x, int y, int w, int h, uin
 // display refresh in every present: real time the core's frame would wait out
 EXPORT void* SDL_CreateRenderer(void* window, int index, uint32_t flags) {
 	REAL(void*, SDL_CreateRenderer, void*, int, uint32_t);
-	void* r = real_SDL_CreateRenderer ? real_SDL_CreateRenderer(window, index, flags & ~SDL_RENDERER_PRESENTVSYNC) : NULL;
+	// standalone, PICO-8 runs in real time, and its vsync is what paces it
+	uint32_t ask = standalone ? flags : flags & ~SDL_RENDERER_PRESENTVSYNC;
+	void* r = real_SDL_CreateRenderer ? real_SDL_CreateRenderer(window, index, ask) : NULL;
 	LOG("renderer index %d flags 0x%x → %s\n", index, flags, r ? "ok" : "FAILED");
 	return r;
 }
 
 EXPORT int SDL_SetHint(const char* name, const char* value) {
 	REAL(int, SDL_SetHint, const char*, const char*);
-	if (name && strcmp(name, "SDL_RENDER_VSYNC") == 0)
+	if (!standalone && name && strcmp(name, "SDL_RENDER_VSYNC") == 0)
 		value = "0";
 	return real_SDL_SetHint ? real_SDL_SetHint(name, value) : 0;
 }
@@ -386,6 +402,8 @@ EXPORT int SDL_SetHint(const char* name, const char* value) {
 /* ---- clock ---- */
 
 EXPORT uint32_t SDL_GetTicks(void) {
+	if (standalone)
+		return st_ticks();
 	if (main_thread() && ++spin > SPIN_LIMIT) {
 		static int logged;
 		if (!logged) {
@@ -400,7 +418,7 @@ EXPORT uint32_t SDL_GetTicks(void) {
 }
 
 EXPORT void SDL_Delay(uint32_t ms) {
-	if (!main_thread()) { // a thread of PICO-8's own: let it sleep for real
+	if (standalone || !main_thread()) { // a thread of PICO-8's own: let it sleep for real
 		REAL(void, SDL_Delay, uint32_t);
 		if (real_SDL_Delay)
 			real_SDL_Delay(ms);
@@ -444,6 +462,13 @@ static int open_audio(const SDL_AudioSpec* want, SDL_AudioSpec* have) {
 }
 
 EXPORT int SDL_OpenAudio(SDL_AudioSpec* desired, SDL_AudioSpec* obtained) {
+	if (standalone) {
+		REAL(int, SDL_OpenAudio, SDL_AudioSpec*, SDL_AudioSpec*);
+		int r = real_SDL_OpenAudio ? real_SDL_OpenAudio(desired, obtained) : -1;
+		if (r == 0)
+			st_audio_opened(LEGACY_AUDIO_DEVICE);
+		return r;
+	}
 	if (!desired)
 		return -1;
 	// with no obtained, SDL fills in desired's computed fields instead
@@ -452,6 +477,15 @@ EXPORT int SDL_OpenAudio(SDL_AudioSpec* desired, SDL_AudioSpec* obtained) {
 
 EXPORT uint32_t SDL_OpenAudioDevice(const char* device, int iscapture, const SDL_AudioSpec* desired,
 									SDL_AudioSpec* obtained, int allowed_changes) {
+	if (standalone) {
+		REAL(uint32_t, SDL_OpenAudioDevice, const char*, int, const SDL_AudioSpec*, SDL_AudioSpec*, int);
+		uint32_t dev = real_SDL_OpenAudioDevice
+						   ? real_SDL_OpenAudioDevice(device, iscapture, desired, obtained, allowed_changes)
+						   : 0;
+		if (dev && !iscapture)
+			st_audio_opened(dev);
+		return dev;
+	}
 	(void)device;
 	(void)allowed_changes;
 	if (iscapture || !desired)
@@ -460,36 +494,78 @@ EXPORT uint32_t SDL_OpenAudioDevice(const char* device, int iscapture, const SDL
 }
 
 EXPORT void SDL_PauseAudio(int pause_on) {
+	if (standalone) {
+		REAL(void, SDL_PauseAudio, int);
+		if (real_SDL_PauseAudio)
+			real_SDL_PauseAudio(pause_on);
+		return;
+	}
 	pthread_mutex_lock(&audio_lock);
 	au.paused = pause_on;
 	pthread_mutex_unlock(&audio_lock);
 }
 
 EXPORT void SDL_PauseAudioDevice(uint32_t dev, int pause_on) {
+	if (standalone) {
+		REAL(void, SDL_PauseAudioDevice, uint32_t, int);
+		if (real_SDL_PauseAudioDevice)
+			real_SDL_PauseAudioDevice(dev, pause_on);
+		return;
+	}
 	(void)dev;
 	SDL_PauseAudio(pause_on);
 }
 
 // What PICO-8 locks against is the callback, which now runs on its main thread from end_slice
 EXPORT void SDL_LockAudio(void) {
+	if (standalone) {
+		REAL(void, SDL_LockAudio, void);
+		if (real_SDL_LockAudio)
+			real_SDL_LockAudio();
+		return;
+	}
 	pthread_mutex_lock(&audio_lock);
 }
 
 EXPORT void SDL_UnlockAudio(void) {
+	if (standalone) {
+		REAL(void, SDL_UnlockAudio, void);
+		if (real_SDL_UnlockAudio)
+			real_SDL_UnlockAudio();
+		return;
+	}
 	pthread_mutex_unlock(&audio_lock);
 }
 
 EXPORT void SDL_LockAudioDevice(uint32_t dev) {
+	if (standalone) {
+		REAL(void, SDL_LockAudioDevice, uint32_t);
+		if (real_SDL_LockAudioDevice)
+			real_SDL_LockAudioDevice(dev);
+		return;
+	}
 	(void)dev;
 	pthread_mutex_lock(&audio_lock);
 }
 
 EXPORT void SDL_UnlockAudioDevice(uint32_t dev) {
+	if (standalone) {
+		REAL(void, SDL_UnlockAudioDevice, uint32_t);
+		if (real_SDL_UnlockAudioDevice)
+			real_SDL_UnlockAudioDevice(dev);
+		return;
+	}
 	(void)dev;
 	pthread_mutex_unlock(&audio_lock);
 }
 
 EXPORT void SDL_CloseAudio(void) {
+	if (standalone) {
+		REAL(void, SDL_CloseAudio, void);
+		if (real_SDL_CloseAudio)
+			real_SDL_CloseAudio();
+		return;
+	}
 	pthread_mutex_lock(&audio_lock);
 	au.callback = NULL;
 	pthread_mutex_unlock(&audio_lock);
@@ -503,6 +579,8 @@ static int is_input_event(uint32_t type) {
 }
 
 EXPORT int SDL_PollEvent(void* event) {
+	if (standalone)
+		return st_poll_event(event);
 	REAL(int, SDL_PollEvent, void*);
 	if (quitting && !quit_event_sent) {
 		if (event) {
@@ -532,95 +610,180 @@ EXPORT int SDL_PollEvent(void* event) {
 }
 
 EXPORT int SDL_NumJoysticks(void) {
+	if (standalone) {
+		REAL(int, SDL_NumJoysticks, void);
+		return real_SDL_NumJoysticks ? real_SDL_NumJoysticks() : 0;
+	}
 	return 1;
 }
 
 EXPORT int SDL_IsGameController(int index) {
+	if (standalone) {
+		REAL(int, SDL_IsGameController, int);
+		return real_SDL_IsGameController ? real_SDL_IsGameController(index) : 0;
+	}
 	return index == 0;
 }
 
 EXPORT const char* SDL_GameControllerNameForIndex(int index) {
+	if (standalone) {
+		REAL(const char*, SDL_GameControllerNameForIndex, int);
+		return real_SDL_GameControllerNameForIndex ? real_SDL_GameControllerNameForIndex(index) : NULL;
+	}
 	return index == 0 ? "NX Redux" : NULL;
 }
 
 EXPORT const char* SDL_JoystickNameForIndex(int index) {
+	if (standalone) {
+		REAL(const char*, SDL_JoystickNameForIndex, int);
+		return real_SDL_JoystickNameForIndex ? real_SDL_JoystickNameForIndex(index) : NULL;
+	}
 	return index == 0 ? "NX Redux" : NULL;
 }
 
 EXPORT void* SDL_GameControllerOpen(int index) {
+	if (standalone) {
+		REAL(void*, SDL_GameControllerOpen, int);
+		void* p = real_SDL_GameControllerOpen ? real_SDL_GameControllerOpen(index) : NULL;
+		st_pad_opened(p);
+		return p;
+	}
 	LOG("controller %d opened\n", index);
 	return index == 0 ? &fake_pad : NULL;
 }
 
 EXPORT void SDL_GameControllerClose(void* pad) {
+	if (standalone) {
+		REAL(void, SDL_GameControllerClose, void*);
+		st_pad_closed(pad);
+		if (real_SDL_GameControllerClose)
+			real_SDL_GameControllerClose(pad);
+		return;
+	}
 	(void)pad;
 }
 
 EXPORT int SDL_GameControllerGetAttached(void* pad) {
+	if (standalone) {
+		REAL(int, SDL_GameControllerGetAttached, void*);
+		return real_SDL_GameControllerGetAttached ? real_SDL_GameControllerGetAttached(pad) : 0;
+	}
 	return pad == &fake_pad;
 }
 
 EXPORT void* SDL_GameControllerGetJoystick(void* pad) {
+	if (standalone) {
+		REAL(void*, SDL_GameControllerGetJoystick, void*);
+		return real_SDL_GameControllerGetJoystick ? real_SDL_GameControllerGetJoystick(pad) : NULL;
+	}
 	return pad == &fake_pad ? &fake_joy : NULL;
 }
 
 EXPORT char* SDL_GameControllerMapping(void* pad) {
+	if (standalone) {
+		REAL(char*, SDL_GameControllerMapping, void*);
+		return real_SDL_GameControllerMapping ? real_SDL_GameControllerMapping(pad) : NULL;
+	}
 	(void)pad;
 	return NULL; // the caller would SDL_free it; nothing to free
 }
 
 EXPORT uint8_t SDL_GameControllerGetButton(void* pad, int button) {
+	if (standalone)
+		return st_pad_button(pad, button);
 	return pad == &fake_pad ? (uint8_t)input_pad_button(buttons, button) : 0;
 }
 
 EXPORT int16_t SDL_GameControllerGetAxis(void* pad, int axis) {
+	if (standalone) {
+		REAL(int16_t, SDL_GameControllerGetAxis, void*, int);
+		return real_SDL_GameControllerGetAxis ? real_SDL_GameControllerGetAxis(pad, axis) : 0;
+	}
 	(void)pad;
 	(void)axis;
 	return 0;
 }
 
 EXPORT void* SDL_JoystickOpen(int index) {
+	if (standalone) {
+		REAL(void*, SDL_JoystickOpen, int);
+		void* j = real_SDL_JoystickOpen ? real_SDL_JoystickOpen(index) : NULL;
+		st_joystick_opened(j);
+		return j;
+	}
 	LOG("joystick %d opened\n", index);
 	return index == 0 ? &fake_joy : NULL;
 }
 
 EXPORT void SDL_JoystickClose(void* joy) {
+	if (standalone) {
+		REAL(void, SDL_JoystickClose, void*);
+		if (real_SDL_JoystickClose)
+			real_SDL_JoystickClose(joy);
+		return;
+	}
 	(void)joy;
 }
 
 EXPORT int32_t SDL_JoystickInstanceID(void* joy) {
+	if (standalone) {
+		REAL(int32_t, SDL_JoystickInstanceID, void*);
+		return real_SDL_JoystickInstanceID ? real_SDL_JoystickInstanceID(joy) : -1;
+	}
 	return joy == &fake_joy ? 0 : -1;
 }
 
 // The raw-joystick view has no buttons or axes: PICO-8 reads it as a controller
 EXPORT int SDL_JoystickNumButtons(void* joy) {
+	if (standalone) {
+		REAL(int, SDL_JoystickNumButtons, void*);
+		return real_SDL_JoystickNumButtons ? real_SDL_JoystickNumButtons(joy) : 0;
+	}
 	(void)joy;
 	return 0;
 }
 
 EXPORT int SDL_JoystickNumAxes(void* joy) {
+	if (standalone) {
+		REAL(int, SDL_JoystickNumAxes, void*);
+		return real_SDL_JoystickNumAxes ? real_SDL_JoystickNumAxes(joy) : 0;
+	}
 	(void)joy;
 	return 0;
 }
 
 EXPORT int SDL_JoystickNumBalls(void* joy) {
+	if (standalone) {
+		REAL(int, SDL_JoystickNumBalls, void*);
+		return real_SDL_JoystickNumBalls ? real_SDL_JoystickNumBalls(joy) : 0;
+	}
 	(void)joy;
 	return 0;
 }
 
 EXPORT uint8_t SDL_JoystickGetButton(void* joy, int button) {
+	if (standalone)
+		return st_joy_button(joy, button);
 	(void)joy;
 	(void)button;
 	return 0;
 }
 
 EXPORT int16_t SDL_JoystickGetAxis(void* joy, int axis) {
+	if (standalone) {
+		REAL(int16_t, SDL_JoystickGetAxis, void*, int);
+		return real_SDL_JoystickGetAxis ? real_SDL_JoystickGetAxis(joy, axis) : 0;
+	}
 	(void)joy;
 	(void)axis;
 	return 0;
 }
 
 EXPORT int SDL_GetModState(void) {
+	if (standalone) {
+		REAL(int, SDL_GetModState, void);
+		return real_SDL_GetModState ? real_SDL_GetModState() : 0;
+	}
 	return 0;
 }
 
@@ -658,6 +821,8 @@ static int real_mkdir_fn(const char* path, mode_t mode) {
 
 __attribute__((constructor)) static void shim_init(void) {
 	paths_mkdir = real_mkdir_fn; // creating $P8NATIVE_CDATA skips the hook below
+	const char* mode = getenv("P8SHIM_STANDALONE");
+	standalone = mode && strcmp(mode, "1") == 0;
 }
 
 EXPORT FILE* fopen(const char* path, const char* mode) {

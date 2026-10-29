@@ -23,7 +23,7 @@ BUILD = build/$(PLATFORM)
 # -Ofast from Makefile.env: the shim is tiny and must not pull in newer libm symbols.
 # _FORTIFY_SOURCE would turn open() into an inline wrapper the hook cannot replace.
 # shim/state.c builds in the vendored dlmalloc and LZ4 (shim/vendor/) for save states.
-SHIM_SRC = shim/shim.c shim/frame.c shim/paths.c shim/clock.c shim/audio.c shim/state.c p8ipc.c p8state.c
+SHIM_SRC = shim/shim.c shim/standalone.c shim/dialog.c shim/frame.c shim/paths.c shim/clock.c shim/audio.c shim/state.c p8ipc.c p8state.c
 SHIM_CFLAGS = -std=gnu99 -shared -fPIC -fvisibility=hidden -O2 -Wall -Wextra -Werror -U_FORTIFY_SOURCE
 SHIM = $(BUILD)/pico8shim.so
 
