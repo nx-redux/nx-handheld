@@ -268,15 +268,19 @@ typedef struct
 #define CFG_DEFAULT_STATEFORMAT STATE_FORMAT_SRM_UNCOMPRESSED
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
 #define CFG_DEFAULT_FNLEDS false
-#define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel (Consoles and Collections)
+#define CFG_DEFAULT_MENUSTYLE MENUSTYLE_MAIN_DEFAULT		 // Carousel (Consoles)
+#define CFG_DEFAULT_MENUSTYLE_COLLECTIONS MENU_STYLE_MINIMAL // the Collections tab's own default
 #define CFG_DEFAULT_MENUSTYLE_TOOLS MENU_STYLE_GRID			 // the Tools tab's own default
 #define CFG_DEFAULT_GAMELISTSTYLE MENUSTYLE_GAMELIST_DEFAULT // Carousel
-// A main-menu tab's default style: Grid for Tools, Carousel for the others.
-#define CFG_DEFAULT_MENUSTYLE_FOR(cat) ((cat) == MENU_CAT_TOOLS ? CFG_DEFAULT_MENUSTYLE_TOOLS : CFG_DEFAULT_MENUSTYLE)
+// A main-menu tab's default style: Minimal for Collections, Grid for Tools, Carousel for Consoles.
+#define CFG_DEFAULT_MENUSTYLE_FOR(cat)                                   \
+	((cat) == MENU_CAT_TOOLS		 ? CFG_DEFAULT_MENUSTYLE_TOOLS       \
+	 : (cat) == MENU_CAT_COLLECTIONS ? CFG_DEFAULT_MENUSTYLE_COLLECTIONS \
+									 : CFG_DEFAULT_MENUSTYLE)
 #define CFG_DEFAULT_MENUORIENT MENUSTYLE_ORIENT_DEFAULT		// Horizontal
 #define CFG_DEFAULT_GAMELISTORIENT MENUSTYLE_ORIENT_DEFAULT // Horizontal
 #define CFG_DEFAULT_GAMELISTVALIGN MENUSTYLE_VALIGN_DEFAULT // Left
-#define CFG_DEFAULT_HOMESTYLE HOMESTYLE_DEFAULT				// Grid
+#define CFG_DEFAULT_HOMESTYLE HOMESTYLE_DEFAULT				// Minimal
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_WIFI_DIAG false
