@@ -1090,6 +1090,7 @@ const char* Tiles_toolIcon(const char* pak_name) {
 		{"Xtras", "menu_icon_xtras.png"},
 		{"PortMaster", "menu_icon_portmaster.png"},
 		{"Cheat Database", "menu_icon_cheats.png"},
+		{"Splore", "menu_icon_splore.png"},
 	};
 	if (!pak_name)
 		return NULL;
