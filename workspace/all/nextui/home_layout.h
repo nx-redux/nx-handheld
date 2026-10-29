@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#include "../common/nx_edge.h"
+
 // Home B2 (docs/home-b2.md): the stats strip under the tabs, the top section (Continue and the tool squares) and the
 // pinned games in rows below. Pure, host-tested.
 //
@@ -15,13 +17,20 @@
 #define HOME_WIDE_COL_GAMES 2 // the wide layout puts up to this many games in the top section, beside Continue
 #define HOME_TOOL_COLS 3	  // the tool squares' columns at most (more tools than fit are left off, see shortcuts.h)
 
-#define HOME_EDGE 51.0f	  // the content's left and right margin
+// Home's units per dp: 1.5 a px at the Brick's 3.0 (2.14 px a dp), 2 at the Smart Pro S's 2.25 (1.61): 45/14 on both
+#define HOME_UNITS_PER_DP (45.0f / 14.0f)
+// the content's left and right margin: the shared NX_EDGE_DP (16 dp) in whole units (51), the same px as 16 dp on every
+// screen (Brick 34, Brick Pro 29, Smart Pro S 26)
+#define HOME_EDGE ((float)(int)(NX_EDGE_DP * HOME_UNITS_PER_DP + 0.5f))
 #define HOME_GAP 30.0f	  // between tiles
 #define HOME_PIN_H 155.0f // a pin row's height
+// the top section's bottom over the tab row: the shared NX_BOTTOM_GAP_DP (4 dp) in whole units (13), where the Grid's
+// last row ends
+#define HOME_PAGE_BOTTOM ((float)(int)(NX_BOTTOM_GAP_DP * HOME_UNITS_PER_DP + 0.5f))
 #define HOME_BOTTOM 34.0f // the page's margin at either bar (the last row to the hint bar, a scrolled-to row to the tabs)
 #define HOME_RADIUS 24.0f // a tile's corners
 #define HOME_RING 6.0f	  // a lit game's ring, outside the tile
-#define HOME_EDGE_W 2.0f  // a tile's edge, white 8%
+#define HOME_EDGE_W 2.0f  // a tile's edge, white 14%
 
 typedef struct {
 	float x, y, w, h;
@@ -68,9 +77,12 @@ void HomeLayout_computeStrip(float W, float H, float bar, int strip_lines, float
 // What HomeLayout_computeOpts takes beyond the screen: strip_k and text_k as HomeLayout_computeStripText's (0, or a
 // NULL opts, is 1). tool_rows: the top section's tool squares per column (0: 4). wide_pin_cols: the wide layout's pins
 // a row (0: 4).
+// strip_base0: the strip's first baseline (0: under the tab row, at the bar); with the tab row in the bottom bar the
+// strip moves up into the top bar's row, the top section HOME_BOTTOM-ish (30 × the strip's scale) under its last line.
 typedef struct {
 	float strip_k, text_k;
 	int tool_rows, wide_pin_cols;
+	float strip_base0;
 } HomeLayoutOpts;
 void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const HomeLayoutOpts* opts, int ngames,
 							int ntools, HomeLayout* out);
@@ -92,17 +104,14 @@ typedef enum { HOME_DIR_UP,
 typedef enum { HOME_MOVE_STAY,
 			   HOME_MOVE_MOVED,
 			   HOME_MOVE_EDGE_PREV, // past the left edge: the caller switches tab (a fresh press only)
-			   HOME_MOVE_EDGE_NEXT,
-			   HOME_MOVE_TABS } HomeMoveResult; // UP out of the top section: the tab row
+			   HOME_MOVE_EDGE_NEXT } HomeMoveResult;
 
 // The D-pad on Home (docs/home-b2.md, D-pad on Home): in the top section a press goes to the nearest tile on that side
 // that overlaps the current one across the move, ties to the tile last left, else the top-left one; DOWN goes to the
 // first-row pin under the tile's centre. In the pins LEFT/RIGHT run along a row, UP/DOWN keep the column (a shorter
-// last row takes its last pin), UP from the first row returns to the top tile last on.
+// last row takes its last pin), UP from the first row returns to the top tile last on. DOWN off the bottom of the page
+// stays.
 HomeMoveResult HomeLayout_move(const HomeLayout* l, HomeFocus* f, HomeDir dir);
-// UP on the tab row wraps to the last pin row: from Continue its first pin, from another top tile the last pin. No
-// pins: the top section, unchanged.
-void HomeLayout_fromTabs(const HomeLayout* l, HomeFocus* f);
 // A focus kept in range after a rebuild (fewer tiles: the last one; no pins: the top section).
 HomeFocus HomeLayout_clampFocus(const HomeLayout* l, HomeFocus f);
 // The focused tile's rect.

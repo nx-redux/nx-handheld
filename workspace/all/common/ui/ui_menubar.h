@@ -48,6 +48,10 @@ int UI_renderMenuBarPage(SDL_Surface* screen, const char* tool, const char* page
 // Format "<parent> | <page>" into out (parent alone when page is NULL or empty). Returns out.
 const char* UI_pageTitle(char* out, size_t size, const char* parent, const char* page);
 
+// The hardware group's width (the status icons on the bar's right) as the bar last drew it, 0 before the first: for
+// content sharing the bar's row (Home's stats).
+int UI_statusWidth(void);
+
 // Snapshot the just-rendered top menu bar into a new surface (caller frees).
 // Used to overlay a fixed menu bar during slide transitions. Returns NULL on failure.
 SDL_Surface* UI_captureMenuBar(SDL_Surface* screen);

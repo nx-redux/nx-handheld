@@ -140,3 +140,22 @@ HomeArtListKind HomeArt_parseListPath(const char* path, char* preview, size_t pr
 	*rom = nl + 1;
 	return HOMEART_LIST_CONT;
 }
+
+void HomeArt_drain(unsigned* px, int w, int h, int pitch_words, int level) {
+	if (!px || w <= 0 || h <= 0)
+		return;
+	if (level < 0)
+		level = 0;
+	if (level > 256)
+		level = 256;
+	for (int y = 0; y < h; y++) {
+		unsigned* row = px + (size_t)y * pitch_words;
+		for (int x = 0; x < w; x++) {
+			unsigned c = row[x];
+			// 0.2126, 0.7152, 0.0722 in 256ths (54 + 183 + 19 = 256: white stays white)
+			unsigned l = (54u * ((c >> 16) & 0xFFu) + 183u * ((c >> 8) & 0xFFu) + 19u * (c & 0xFFu) + 128u) >> 8;
+			l = (l * (unsigned)level + 128u) >> 8;
+			row[x] = (c & 0xFF000000u) | (l << 16) | (l << 8) | l;
+		}
+	}
+}

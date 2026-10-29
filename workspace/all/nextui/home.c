@@ -11,7 +11,8 @@
 // so scrolled tiles are cut at both bars. Each tile is composed once into its own surface (base, picture, fade, text,
 // edge, anti-aliased corners) and cached under a key of its kind, size, look (plain/lit) and a stamp of what it shows;
 // a frame only blits cached tiles (and the strip, cached whole), and a tile is recomposed only when its key changes. A
-// selection crossfade blends the cached lit look over the plain one (the ring at the same alpha).
+// selection crossfade blends the cached lit look over the plain one. No ring marks the selection (nx-mobile's "drained"
+// look): a game's plain look has its picture in grey at 25% (HomeArt_drain) and its text dimmed, its lit look in colour.
 //
 // Frame cost (the Brick's A133 draws the UI in software): SDL's per-pixel-alpha blit runs ~20 ns a pixel there, so a
 // tile goes through it only for its four anti-aliased corners. Everything else in a tile is opaque and is copied, or
@@ -34,7 +35,6 @@
 #include "utils.h"
 
 #include "content.h"
-#include "contentdim.h"
 #include "gameinfo.h"
 #include "gameinfo_text.h"
 #include "gamelist.h"
@@ -50,6 +50,7 @@
 #include "list_window.h"
 #include "menuart.h"
 #include "menutabs.h"
+#include "ui_menubar.h" // UI_statusWidth
 #include "minimal_draw.h"
 #include "placeholder_art.h"
 #include "row_model.h"
@@ -63,7 +64,7 @@
 #include "ui_fade.h"
 #include "view_common.h"
 
-#define BORDER_ALPHA 20 // white at 8%
+#define BORDER_ALPHA 36 // white at 14%: a subtle grey edge on every card (as the Grid's tiles)
 #define SEL_MS 120		// selection crossfade
 #define SCROLL_MS 320	// page scroll, UI_easeStandard
 #define SLIDE_MS 300	// the Carousel row's slide, UI_easeStandard (as the game lists' Carousel)
@@ -95,11 +96,6 @@ static SDL_Color cardBg(bool lit) {
 }
 static SDL_Color cardInk(bool lit) {
 	return lit ? opaque(UI_onAccent()) : C_WHITE;
-}
-// An icon or mark lit: tinted to the ink (black at the default theme), its alpha unchanged.
-static void tintLit(SDL_Surface* art) {
-	SDL_Color ink = cardInk(true);
-	SDL_SetSurfaceColorMod(art, ink.r, ink.g, ink.b);
 }
 
 ///////////////////////////////////////
@@ -137,6 +133,7 @@ static HomeFocus focus = {HOME_SEC_TOP, 0, 0, -1};
 // The Carousel (Layouts > Home layout): built instead of `layout` while it is the stored style (read on each use; the
 // settings pak restarts nextui anyway)
 static int built_style = -1;
+static int built_bottom = -1; // MenuTabs_bottomBar() as the layout was built (it sizes the page)
 static HomeCarLayout car;
 static HomeCarFocus car_focus = {false, 0, 0};
 static HomeTile car_tile;												   // the focused item as a tile (focusedTile)
@@ -205,7 +202,6 @@ static int strip_top = 0; // the surface's top on the unscrolled page (px)
 
 static void cardCacheClear(void);
 static void stretchFree(void);
-static void ringFree(void);
 static void pickArtFree(void);
 
 ///////////////////////////////////////
@@ -569,9 +565,9 @@ static bool currentStats(HomeStats* st) {
 	return st->ready;
 }
 
-// None with Layouts > Extra info hidden: the page lays out as a fresh install's, without the strip's band.
+// None with Layouts > Top bar (pagetitle) hidden: the page lays out as a fresh install's, without the strip.
 static int stripLines(void) {
-	if (!CFG_getExtraInfo())
+	if (!CFG_getPageTitle())
 		return 0;
 	HomeStats st;
 	currentStats(&st);
@@ -604,6 +600,32 @@ static void stripInk(int* up, int* down) {
 		*down = -TTF_FontDescent(f);
 }
 
+// The stats strip in the top bar's row (Layouts > Top bar, which also shows or hides it), beside the status icons, its
+// first line centred on the bar (its cap height's middle on the bar's middle). Its first baseline in px, 0 with the
+// top bar hidden (no strip).
+static int stripBarBase0(void) {
+	if (!CFG_getPageTitle())
+		return 0;
+	return (int)(barPx() / 2.0f + 0.36f * statsPx() + 0.5f);
+}
+
+// The List's and the Minimal's strip and first row (home_list_layout.c): the strip's lines strip_gap under `bar` (the
+// top bar's bottom, or with the strip in the bar's row the height that puts its first baseline there).
+static HomeListOpts listOpts(TTF_Font* f) {
+	int asc = f ? TTF_FontAscent(f) : 0, gap = NX_DP(8);
+	int b0 = stripBarBase0();
+	return (HomeListOpts){b0 > 0 ? b0 - gap - asc : barPx(), gap, NX_DP(12), barPx() + NX_DP(12), asc,
+						  f ? -TTF_FontDescent(f) : 0, px(36.0f * stripK() * statsTextK())};
+}
+
+// The screen's height as Home's layouts take it (Home's units): with Layouts > Bottom bar hidden there is no bar at the
+// bottom, so its room is the page's too, less the side margin's distance from the edge (the layouts keep a bar's height
+// and HOME_PAGE_BOTTOM off the bottom: 16 dp in all, as at the sides).
+static float layoutH(void) {
+	int bottom = MenuTabs_bottomBar() ? 0 : barPx() - NX_DP(NX_EDGE_DP - NX_BOTTOM_GAP_DP);
+	return (screen->h + bottom) / unitPx();
+}
+
 // The Carousel's geometry: its centre tile capped at, and its gap the same as, the game lists' Carousel on this screen
 // (rowview.c computeGeo: Row_sizes at the UI scale, the selection CAROUSEL_GAME_SEL_K bigger), in Home's units. The row
 // snaps to its selection (no slide across a rebuild).
@@ -616,9 +638,9 @@ static void carRelayout(int lines) {
 	float sel_k = TextPx_for(CAROUSEL_GAME_SEL_K, dev);
 	HomeCarOpts o = {stripK(), statsTextK(), ink_up / u, ink_down / u,
 					 sz.item_h * (sel_k > 0 ? sel_k : 1.0f) * pd / u, sz.gap * pd / u,
-					 (barPx() - SCALE1(2)) / u, // menutabs.c draws the underline SCALE1(2) above the bar's bottom
-					 !cont};
-	HomeCar_compute(screen->w / u, screen->h / u, barPx() / u, lines, &o, ngames, ntools, &car);
+					 barPx() / u, // the top bar's bottom
+					 !cont, stripBarBase0() / u};
+	HomeCar_compute(screen->w / u, layoutH(), barPx() / u, lines, &o, ngames, ntools, &car);
 	car_focus = HomeCar_clampFocus(&car, car_focus);
 	car_full_w = px(car.tile_w);
 	car_full_h = px(car.tile_h);
@@ -636,8 +658,7 @@ static void carRelayout(int lines) {
 // The window kept on the selection for the rows that now fit.
 static void listRelayout(int lines) {
 	TTF_Font* f = UIFont_getPx(statsPx(), false);
-	HomeListOpts o = {barPx(), NX_DP(8), NX_DP(12), barPx() + NX_DP(12), f ? TTF_FontAscent(f) : 0,
-					  f ? -TTF_FontDescent(f) : 0, px(36.0f * stripK() * statsTextK())};
+	HomeListOpts o = listOpts(f);
 	HomeList_compute(lines, &o, &hl_geom);
 	int n = hl_entries ? hl_entries->count : 0;
 	hl_dir.selected = ListWindow_reload(n, GameList_rowCountFrom(hl_geom.list_top), hl_dir.selected, &hl_dir.start,
@@ -676,8 +697,7 @@ static void relayout(int lines) {
 	card_epoch++;
 	if (minimalMode()) { // the List's strip; the names under it (built again on the next draw)
 		TTF_Font* f = UIFont_getPx(statsPx(), false);
-		HomeListOpts o = {barPx(), NX_DP(8), NX_DP(12), barPx() + NX_DP(12), f ? TTF_FontAscent(f) : 0,
-						  f ? -TTF_FontDescent(f) : 0, px(36.0f * stripK() * statsTextK())};
+		HomeListOpts o = listOpts(f);
 		HomeList_compute(lines, &o, &hl_geom);
 		min_area_top = hl_geom.list_top;
 		min_sel = HomeList_clampSel(min_sel, ngames, ntools);
@@ -697,10 +717,10 @@ static void relayout(int lines) {
 	}
 	UIDevice dev = UIScale_deviceIndex(UI_DEVICE_NAME);
 	HomeLayoutOpts opts = {stripK(), statsTextK(), (int)TextPx_for(HOME_TOOL_ROWS, dev),
-						   (int)TextPx_for(HOME_WIDE_PIN_COLS, dev)};
-	HomeLayout_computeOpts(screen->w / u, screen->h / u, barPx() / u, lines, &opts, ngames, ntools, &layout);
+						   (int)TextPx_for(HOME_WIDE_PIN_COLS, dev), stripBarBase0() / u};
+	HomeLayout_computeOpts(screen->w / u, layoutH(), barPx() / u, lines, &opts, ngames, ntools, &layout);
 	focus = HomeLayout_clampFocus(&layout, focus);
-	scroll_to = HomeLayout_scrollFor(&layout, focus, screen->h / u, barPx() / u, scroll_to);
+	scroll_to = HomeLayout_scrollFor(&layout, focus, layoutH(), barPx() / u, scroll_to);
 	scroll_from = scroll_to;
 	scroll_tw.active = false;
 	sel_tw.active = false;
@@ -716,6 +736,7 @@ static void rebuild(void) {
 	built_h = screen->h;
 	built_scale = homeScale();
 	built_style = CFG_getHomeStyle();
+	built_bottom = MenuTabs_bottomBar();
 
 	if (cont)
 		Entry_free(cont);
@@ -770,13 +791,14 @@ static void ensureBuilt(void) {
 	if (stats_due) {
 		stats_due = false;
 		stats_day = HomeStats_localDay(minute * 60);
-		if (CFG_getExtraInfo()) // hidden, the strip isn't drawn: nothing to count
+		if (CFG_getPageTitle()) // hidden, the strip isn't drawn: nothing to count
 			HomeStats_request();
 	}
 	// Home's own inputs only: a reset, the root list (the pins are borrowed from it) and the screen. Not the tab
 	// generation: stepping tabs alone changes nothing Home shows.
 	if (need_rebuild || built_root != ((Directory*)stack->items[0])->serial || built_w != screen->w ||
-		built_h != screen->h || built_scale != homeScale() || built_style != CFG_getHomeStyle()) {
+		built_h != screen->h || built_scale != homeScale() || built_style != CFG_getHomeStyle() ||
+		built_bottom != (int)MenuTabs_bottomBar()) {
 		rebuild();
 		return;
 	}
@@ -824,7 +846,6 @@ void Home_quit(void) {
 	pickArtFree();
 	cardCacheClear();
 	stretchFree();
-	ringFree();
 	need_rebuild = true;
 }
 
@@ -876,6 +897,21 @@ static void tileBorder(SDL_Surface* s, int w, int h) {
 	strokeRounded(s, 0, 0, w, h, radiusPx(), t, C_WHITE, BORDER_ALPHA);
 }
 
+// A plain (unselected) card's picture, already on s: grey at 25%, as over black (nx-mobile's DRAIN_PICTURE_ALPHA).
+static void drainCard(SDL_Surface* s, int w, int h) {
+	HomeArt_drain(s->pixels, w, h, s->pitch / 4, HOMEART_DRAIN_LEVEL);
+}
+
+// A card's text alpha: the lit look's own a, else the plain look's dimmed ink (nx-mobile's inkDim, white at 38%; the
+// lines under a name at 70% of that, DRAIN_SUB_OF_NAME) and badge (30%, DRAIN_BADGE_ALPHA).
+#define DIM_NAME_A 97
+// A card's name: the Main color (Color 1) on the selected card, white (dimmed by its alpha) on the others.
+static SDL_Color nameColour(bool lit) {
+	return lit ? cardBg(true) : C_WHITE;
+}
+#define DIM_SUB_A 68
+#define DIM_BADGE_K 0.3f
+
 // The eased black gradient over the bottom 80%: 0.92 · (1 − t³)³, t = 0 at the bottom edge.
 static void captionFade(SDL_Surface* s, int w, int h) {
 	int fh = (int)(h * 0.8f + 0.5f);
@@ -885,14 +921,14 @@ static void captionFade(SDL_Surface* s, int w, int h) {
 }
 
 // Lines of lh px centred as a block in (0, top, w, h), each line centred across.
-static void drawCentredLines(SDL_Surface* s, TTF_Font* f, char lines[][LINE_MAX], int n, int lh, SDL_Color c, int w,
-							 int top, int h) {
+static void drawCentredLines(SDL_Surface* s, TTF_Font* f, char lines[][LINE_MAX], int n, int lh, SDL_Color c, int a,
+							 int w, int top, int h) {
 	if (!f || n <= 0)
 		return;
 	int y = top + (h - n * lh) / 2;
 	for (int i = 0; i < n; i++, y += lh) {
 		int lw = textW(f, lines[i]);
-		drawText(s, f, lines[i], c, (w - lw) / 2, y + (lh - TTF_FontHeight(f)) / 2, 255);
+		drawText(s, f, lines[i], c, (w - lw) / 2, y + (lh - TTF_FontHeight(f)) / 2, a);
 	}
 }
 
@@ -906,7 +942,7 @@ static void drawInLine(SDL_Surface* s, TTF_Font* f, const char* text, SDL_Color 
 // from the pinned games. Its corner sits three quarters of the caption's inset in; padding 0.26 / 0.74 of the text's
 // height (the mockup's 3 and 9 dp round 12 sp). k: the card's size over its full size (a Carousel neighbour's 0.62).
 // Returns the pill's bottom (0: none drawn).
-static int drawContinueBadge(SDL_Surface* s, int inset, float k) {
+static int drawContinueBadge(SDL_Surface* s, int inset, float k, bool lit) {
 	int badge_px = (int)(TextPx_for(TEXT_HOME_CONT_BADGE, UIScale_deviceIndex(UI_DEVICE_NAME)) * k + 0.5f);
 	TTF_Font* f = badge_px > 0 ? UIFont_getPx(badge_px, false) : NULL;
 	if (!f)
@@ -914,8 +950,9 @@ static int drawContinueBadge(SDL_Surface* s, int inset, float k) {
 	const char* word = "Continue";
 	int th = TTF_FontHeight(f), pad_y = (int)(th * 0.26f + 0.5f), pad_x = (int)(th * 0.74f + 0.5f);
 	int bw = textW(f, word) + 2 * pad_x, bh = th + 2 * pad_y, at = (int)(inset * 0.75f + 0.5f);
-	fillRounded(s, at, at, bw, bh, bh / 2, C_BLACK, 158);
-	drawText(s, f, word, C_WHITE, at + pad_x, at + pad_y, 255);
+	float dim = lit ? 1.0f : DIM_BADGE_K;
+	fillRounded(s, at, at, bw, bh, bh / 2, C_BLACK, (int)(158 * dim + 0.5f));
+	drawText(s, f, word, C_WHITE, at + pad_x, at + pad_y, (int)(255 * dim + 0.5f));
 	return at + bh;
 }
 
@@ -923,12 +960,16 @@ static int drawContinueBadge(SDL_Surface* s, int inset, float k) {
 // (TEXT_HOME_CONT_INFO, grey), 29 in, baselines 74 and 31 above the bottom at the UI scale's sizes (44 and 31), further
 // up as the time grows (HomeLayout_captionBaselines) (the art: the game's own, else its abstract picture). No picture
 // at all: the name centred (up to 2 lines) over the time.
-static void composeContinue(SDL_Surface* s, int w, int h) {
+static void composeContinue(SDL_Surface* s, int w, int h, bool lit) {
 	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	SDL_Surface* pic = NULL;
 	HomeArtState st = HomeArt_continue(cont->path, cont_preview[0] ? cont_preview : NULL, w, h, 0, &pic);
+	int name_a = lit ? 255 : DIM_NAME_A, sub_a = lit ? 255 : DIM_SUB_A;
+	SDL_Color name_c = nameColour(lit);
 	if (pic) {
 		SDL_BlitSurface(pic, NULL, s, &(SDL_Rect){0, 0});
+		if (!lit)
+			drainCard(s, w, h);
 		captionFade(s, w, h);
 	}
 	int inset = px(CONT_INSET);
@@ -942,7 +983,7 @@ static void composeContinue(SDL_Surface* s, int w, int h) {
 	if (f && when[0]) {
 		char line[LINE_MAX];
 		ellipsize(f, when, line, w - 2 * inset);
-		drawTextBaseline(s, f, line, C_GREY, inset, h - (int)(sub_up + 0.5f), 255);
+		drawTextBaseline(s, f, line, lit ? C_GREY : C_WHITE, inset, h - (int)(sub_up + 0.5f), sub_a);
 	}
 	f = UIFont_getPx(title_px, false);
 	if (!f)
@@ -951,14 +992,14 @@ static void composeContinue(SDL_Surface* s, int w, int h) {
 		char lines[2][LINE_MAX];
 		int nl = wrapLines(f, View_displayName(cont), w - 2 * inset, 2, lines);
 		int lh = (int)(TTF_FontHeight(f) * 1.1f + 0.5f);
-		drawCentredLines(s, f, lines, nl, lh, C_WHITE, w, 0, h - (int)(title_up + 0.5f));
+		drawCentredLines(s, f, lines, nl, lh, name_c, name_a, w, 0, h - (int)(title_up + 0.5f));
 	} else {
 		// the name alone (no time, Layouts > Extra info hidden) sits where the time would, as a pin's
 		char name[LINE_MAX];
 		ellipsize(f, View_displayName(cont), name, w - 2 * inset);
-		drawTextBaseline(s, f, name, C_WHITE, inset, h - (int)((when[0] ? title_up : sub_up) + 0.5f), 255);
+		drawTextBaseline(s, f, name, name_c, inset, h - (int)((when[0] ? title_up : sub_up) + 0.5f), name_a);
 	}
-	drawContinueBadge(s, inset, 1.0f);
+	drawContinueBadge(s, inset, 1.0f, lit);
 	tileBorder(s, w, h);
 }
 
@@ -1014,12 +1055,15 @@ static SDL_Surface* pickArt(int w, int h) {
 }
 
 // Pick a game (nothing played yet): the accent's abstract picture full-bleed, the mark over it at 10%, the title and
-// its line in white and grey; it lights with Continue's ring (drawTile), so it has one look.
-static void composePick(SDL_Surface* s, int w, int h) {
+// its line in white and grey; plain, the picture grey and the text dimmed, as Continue's.
+static void composePick(SDL_Surface* s, int w, int h, bool lit) {
 	SDL_Surface* art = pickArt(w, h);
-	if (art)
+	int name_a = lit ? 255 : DIM_NAME_A, sub_a = lit ? 255 : DIM_SUB_A;
+	if (art) {
 		SDL_BlitSurface(art, NULL, s, &(SDL_Rect){0, 0, w, h});
-	else
+		if (!lit)
+			drainCard(s, w, h);
+	} else
 		SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
 	// the mark's ink (the PNG is cropped to it) 60% of the card tall, its width following
 	SDL_Surface* mark = MenuArt_get("nx_mark.png", w, (int)(h * 0.6f));
@@ -1040,10 +1084,10 @@ static void composePick(SDL_Surface* s, int w, int h) {
 		int gap = homeDp(4);
 		int y = (h - (big_h + gap + small_h)) / 2;
 		big = UIFont_get(homeSp(24), false);
-		drawText(s, big, title, C_WHITE, (w - textW(big, title)) / 2, y, 255);
+		drawText(s, big, title, C_WHITE, (w - textW(big, title)) / 2, y, name_a);
 		y += big_h + gap;
 		small = UIFont_get(homeSp(14), false);
-		drawText(s, small, sub, C_GREY, (w - textW(small, sub)) / 2, y, 255);
+		drawText(s, small, sub, lit ? C_GREY : C_WHITE, (w - textW(small, sub)) / 2, y, sub_a);
 	}
 	tileBorder(s, w, h);
 }
@@ -1057,8 +1101,11 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 	SDL_Surface* pic = NULL;
 	HomeArtState st = HomeArt_pin(e->path, w, h, 0, &pic);
 	bool title_tile = st == HOMEART_NONE;
-	if (pic)
+	if (pic) {
 		SDL_BlitSurface(pic, NULL, s, &(SDL_Rect){0, 0});
+		if (!lit)
+			drainCard(s, w, h);
+	}
 	char when[160] = "";
 	if (lit) {
 		captionFade(s, w, h);
@@ -1097,7 +1144,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 				max_lines = 1;
 			char lines[3][LINE_MAX];
 			int nl = wrapLines(f, View_displayName(e), w - 2 * side, max_lines, lines);
-			drawCentredLines(s, f, lines, nl, (int)(lh + 0.5f), C_WHITE, w, 0, h - caption);
+			drawCentredLines(s, f, lines, nl, (int)(lh + 0.5f), nameColour(lit), lit ? 255 : DIM_NAME_A, w, 0, h - caption);
 		}
 	} else if (lit) {
 		// the name on up to 2 lines (the rest "..."), stacked up from where one line would sit
@@ -1105,7 +1152,7 @@ static void composeGame(SDL_Surface* s, int w, int h, bool lit, int g) {
 		char lines[2][LINE_MAX];
 		int nl = f ? wrapLines(f, View_displayName(e), w - 2 * side, 2, lines) : 0;
 		for (int i = 0; i < nl; i++)
-			drawTextBaseline(s, f, lines[i], C_WHITE, side, name_base - (nl - 1 - i) * name_lh, 255);
+			drawTextBaseline(s, f, lines[i], nameColour(true), side, name_base - (nl - 1 - i) * name_lh, 255);
 	}
 	tileBorder(s, w, h);
 }
@@ -1126,21 +1173,26 @@ static float toolGlyph(void) {
 	return carousel() ? car.dock_glyph : layout.glyph;
 }
 
-// A tool's square: its icon centred as a white mask (no label); lit, the accent fills the plate and the icon turns to
-// its ink (black), with no ring and no edge.
+// A tool's square: its icon centred as a white mask (no label) on black with the edge, dimmed to 38%; lit, the icon in
+// the Main color (Color 1) at full strength (no fill).
 static void composeTool(SDL_Surface* s, int w, int h, bool lit, int t) {
-	SDL_Color bg = cardBg(lit);
-	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, bg.r, bg.g, bg.b, 255));
+	SDL_FillRect(s, &(SDL_Rect){0, 0, w, h}, SDL_MapRGBA(s->format, 0, 0, 0, 255));
+	// the icon by what it shows, as the Grid's tool tiles: its pixels one height on every square (0.8 of the glyph's
+	// box), a wide one capped at 1.5 of that and centred
 	int g = px(toolGlyph());
-	SDL_Surface* icon = g > 0 ? MenuArt_get(toolIcon(tools[t]), g, g) : NULL;
-	if (icon) {
+	SDL_Rect ink = {0, 0, 0, 0};
+	SDL_Surface* icon = g > 0 ? Tiles_toolIconSized(toolIcon(tools[t]), (int)(g * 0.8f + 0.5f), &ink) : NULL;
+	if (icon && ink.w > 0 && ink.h > 0) {
+		SDL_Color main = cardBg(true);
 		if (lit)
-			tintLit(icon);
-		SDL_BlitSurface(icon, NULL, s, &(SDL_Rect){(w - icon->w) / 2, (h - icon->h) / 2});
+			SDL_SetSurfaceColorMod(icon, main.r, main.g, main.b);
+		else
+			SDL_SetSurfaceAlphaMod(icon, DIM_NAME_A); // dimmed as the plain cards' text
+		SDL_BlitSurface(icon, &ink, s, &(SDL_Rect){(w - ink.w) / 2, (h - ink.h) / 2, ink.w, ink.h});
 		SDL_SetSurfaceColorMod(icon, 255, 255, 255);
+		SDL_SetSurfaceAlphaMod(icon, 255);
 	}
-	if (!lit)
-		tileBorder(s, w, h);
+	tileBorder(s, w, h);
 }
 
 ///////////////////////////////////////
@@ -1203,7 +1255,7 @@ static void drawCarCaption(SDL_Surface* s, int w, int h, Entry* e, int top) {
 	if (f) {
 		char name[LINE_MAX];
 		ellipsize(f, View_displayName(e), name, w - 2 * side);
-		drawTextBaseline(s, f, name, C_WHITE, side, name_base, 255);
+		drawTextBaseline(s, f, name, nameColour(true), side, name_base, 255); // drawn on the lit look only
 	}
 }
 
@@ -1220,12 +1272,14 @@ static void composeCar(SDL_Surface* s, int w, int h, bool lit, bool is_cont, int
 			SDL_BlitSurface(pic, NULL, s, &(SDL_Rect){0, 0});
 		else
 			SDL_BlitScaled(pic, NULL, s, &(SDL_Rect){0, 0, w, h});
+		if (!lit)
+			drainCard(s, w, h);
 	}
 	float k = car_full_w > 0 ? (float)w / car_full_w : 1.0f;
 	int inset = (int)(px(CONT_INSET) * k + 0.5f);
 	if (lit)
 		captionFade(s, w, h);
-	int badge_bottom = is_cont ? drawContinueBadge(s, inset, k) : 0;
+	int badge_bottom = is_cont ? drawContinueBadge(s, inset, k, lit) : 0;
 	if (lit) {
 		drawCarCaption(s, w, h, e, badge_bottom > 0 ? badge_bottom + inset / 2 : inset);
 	} else if (st == HOMEART_NONE) { // a title card: the name centred, up to 3 lines, at the card's scale
@@ -1234,8 +1288,8 @@ static void composeCar(SDL_Surface* s, int w, int h, bool lit, bool is_cont, int
 		if (f) {
 			char lines[3][LINE_MAX];
 			int nl = wrapLines(f, View_displayName(e), w - 2 * inset, 3, lines);
-			drawCentredLines(s, f, lines, nl, (int)(TTF_FontHeight(f) * 1.1f + 0.5f), C_WHITE, w, badge_bottom,
-							 h - badge_bottom);
+			drawCentredLines(s, f, lines, nl, (int)(TTF_FontHeight(f) * 1.1f + 0.5f), C_WHITE, DIM_NAME_A, w,
+							 badge_bottom, h - badge_bottom);
 		}
 	}
 	tileBorder(s, w, h);
@@ -1285,7 +1339,7 @@ static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int 
 static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	int mode = listMode() || minimalMode() ? 2 : carousel() ? 1
 															: 0;
-	bool centre = mode == 1;
+	bool centre = mode == 1 && stripBarBase0() == 0; // the Carousel's under the bar; in the bar's row, left-aligned
 	int lines, base[2], x, right;
 	if (mode == 2) {
 		lines = hl_geom.strip_lines;
@@ -1294,15 +1348,23 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 		x = NX_DP(NX_MENU_GUTTER_DP);
 		right = dst->w - x;
 	} else {
-		lines = centre ? car.strip_lines : layout.strip_lines;
-		const float* b = centre ? car.strip_base : layout.strip_base;
+		bool car_strip = mode == 1; // the Carousel's own geometry (centred under the bar, left-aligned in it)
+		lines = car_strip ? car.strip_lines : layout.strip_lines;
+		const float* b = car_strip ? car.strip_base : layout.strip_base;
 		base[0] = px(b[0]);
 		base[1] = px(b[1]);
-		x = px(centre ? car.strip_left : layout.strip_x);
-		right = px(centre ? car.strip_right : layout.strip_right);
+		x = px(car_strip ? car.strip_left : layout.strip_x);
+		right = px(car_strip ? car.strip_right : layout.strip_right);
 	}
 	if (lines <= 0)
 		return;
+	bool in_bar = stripBarBase0() > 0;
+	if (in_bar) { // beside the status icons: clear of them
+		int cut = dst->w - UI_statusWidth() - NX_DP(16);
+		if (right > cut)
+			right = cut;
+		scroll_px = 0; // the bar's row doesn't scroll with the page
+	}
 	StripInput in = stripInput(st);
 	StripLine l1, l2;
 	HomeStrip_build(&in, &l1, &l2);
@@ -1344,7 +1406,12 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 		strip_key = key;
 		strip_top = top;
 	}
+	SDL_Rect clip;
+	SDL_GetClipRect(dst, &clip);
+	if (in_bar) // in the top bar's row, outside the page's clip
+		SDL_SetClipRect(dst, NULL);
 	SDL_BlitSurface(strip_surf, NULL, dst, &(SDL_Rect){0, strip_top - scroll_px});
+	SDL_SetClipRect(dst, &clip);
 }
 
 ///////////////////////////////////////
@@ -1370,8 +1437,7 @@ static int carId(HomeCarFocus f) {
 	return f.dock ? CAR_ID_DOCK + f.tool : CAR_ID_ROW;
 }
 
-// How lit a tile is (0..1): the focused tile fades in, the previous one out. (While the tab row has focus the whole
-// page dims as one layer: contentdim.c.)
+// How lit a tile is (0..1): the focused tile fades in, the previous one out.
 static float litAmount(int id) {
 	float p = tweenProgress(&sel_tw, SEL_MS);
 	if (id == (carousel() ? carId(car_focus) : tileId(focus)))
@@ -1530,10 +1596,10 @@ static void composeCardKind(SDL_Surface* s, CardKind kind, int w, int h, bool li
 	SDL_SetClipRect(s, &(SDL_Rect){0, 0, w, h});
 	switch (kind) {
 	case CARD_CONTINUE:
-		composeContinue(s, w, h);
+		composeContinue(s, w, h, lit);
 		break;
 	case CARD_PICK:
-		composePick(s, w, h);
+		composePick(s, w, h, lit);
 		break;
 	case CARD_GAME:
 		composeGame(s, w, h, lit, ref);
@@ -1567,8 +1633,6 @@ static Uint32 cardIdent(CardKind kind, int ref) {
 // same game is held while a lookup comes back again (its picture evicted while the card kept its stamp, a fetched
 // picture after HomeArt_forget, its info evicted from GameInfo's cache), so it never flashes to its loading look.
 static SDL_Surface* cachedCard(CardKind kind, int ref, int w, int h, bool lit) {
-	if (kind == CARD_CONTINUE || kind == CARD_PICK)
-		lit = false; // Continue and Pick a game light with their ring only
 	if (kind == CARD_PICK)
 		ref = -1;
 	if (kind == CARD_CAR_CONTINUE)
@@ -1692,27 +1756,21 @@ static CardKind cardKind(const HomeTile* t) {
 	return CARD_PICK;
 }
 
-// dst's clip rect is the page band: a tile wholly outside it costs nothing. A lit game (Continue, a pin) and Pick a
-// game wear the 6 px ring outside it; a lit tool square its filled look instead.
+// dst's clip rect is the page band: a tile wholly outside it costs nothing. The selection is its lit look: a game
+// (Continue, a pin) and Pick a game in colour, a tool square filled.
 static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px) {
 	SDL_Rect r = toScreen(t->r, scroll_px);
-	int ring = px(HOME_RING);
 	const SDL_Rect* band = &dst->clip_rect;
-	if (r.w <= 0 || r.h <= 0 || r.y + r.h + ring <= band->y || r.y - ring >= band->y + band->h)
+	if (r.w <= 0 || r.h <= 0 || r.y + r.h <= band->y || r.y >= band->y + band->h)
 		return; // outside the band
 	CardKind kind = cardKind(t);
 	float lit = litAmount(id);
-	bool ringed = kind == CARD_CONTINUE || kind == CARD_PICK || kind == CARD_GAME;
-	bool lit_differs = kind != CARD_CONTINUE && kind != CARD_PICK; // Continue and Pick a game light with their ring only
-	if (ringed && lit > 0.0f)
-		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
-					  cardBg(true), (int)(lit * 255 + 0.5f));
-	if (lit > 0.0f && lit < 1.0f && lit_differs) { // a crossfade: both looks in one pass
+	if (lit > 0.0f && lit < 1.0f) { // a crossfade: both looks in one pass
 		blitCardOver(dst, cachedCard(kind, t->ref, r.w, r.h, true), cachedCard(kind, t->ref, r.w, r.h, false), r,
 					 (int)(lit * 255 + 0.5f), 0);
 		return;
 	}
-	blitCard(dst, cachedCard(kind, t->ref, r.w, r.h, lit >= 1.0f && lit_differs), r, 255);
+	blitCard(dst, cachedCard(kind, t->ref, r.w, r.h, lit >= 1.0f), r, 255);
 }
 
 ///////////////////////////////////////
@@ -1770,11 +1828,10 @@ static bool car_sprites = false;
 // a look of a card within reach still had no texture after this frame's one (carWarm): keep redrawing (Home_animating)
 static bool car_warming = false;
 
-// A sprite's alpha: a at the tab-focus dim (the page dims as one layer: contentdim.c for the software part)
+// A sprite's alpha: a, clamped to 0..255
 static Uint8 carSpriteAlpha(int a) {
-	if (a <= 0)
-		return 0;
-	return (Uint8)((a > 255 ? 255 : a) * MenuTabs_contentAlpha() + 0.5f);
+	return (Uint8)(a <= 0 ? 0 : a > 255 ? 255
+										: a);
 }
 
 // card's texture into r at alpha a, darkened by dim (a colour mod: its clear corners stay clear)
@@ -1785,95 +1842,19 @@ static void cardSprite(SDL_Surface* dst, SDL_Surface* card, SDL_Rect r, int a, U
 		PLAT_spriteAddShaded(t, NULL, &r, sa, (Uint8)(255 - dim), &dst->clip_rect);
 }
 
-// The selection ring around the centre card at full strength, as strokeRounded draws it on the screen: one colour, its
-// coverage in the alpha (straight, as a sprite's). Made again when the card's size, the ring or the accent changes.
-static SDL_Surface* ring_surf = NULL;
-static int ring_t = 0, ring_r = 0;
-static Uint32 ring_rgb = 0;
-
-static void ringFree(void) {
-	GFX_freeSurfaceAndTexture(ring_surf);
-	ring_surf = NULL;
-}
-
-static SDL_Surface* ringSurface(void) {
-	int t = px(HOME_RING);
-	int sw = car_full_w + 2 * t, sh = car_full_h + 2 * t;
-	SDL_Color c = cardBg(true);
-	Uint32 rgb = ((Uint32)c.r << 16) | ((Uint32)c.g << 8) | c.b;
-	int r = clampRadius(radiusPx() + t, sw, sh);
-	if (ring_surf && ring_surf->w == sw && ring_surf->h == sh && ring_t == t && ring_r == r && ring_rgb == rgb)
-		return ring_surf;
-	ringFree();
-	if (t <= 0 || sw <= 0 || sh <= 0)
-		return NULL;
-	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, sw, sh, 32, SDL_PIXELFORMAT_ARGB8888);
-	if (!s)
-		return NULL;
-	SDL_FillRect(s, NULL, 0);
-	strokeRounded(s, 0, 0, sw, sh, radiusPx() + t, t, c, 255);
-	// a partly covered pixel blended over clear is left premultiplied (blendPx): the ring is one colour, so every
-	// covered pixel takes it back at its coverage
-	for (int y = 0; y < sh; y++) {
-		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
-		for (int x = 0; x < sw; x++)
-			if (row[x] >> 24)
-				row[x] = (row[x] & 0xFF000000u) | rgb;
-	}
-	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
-	ring_surf = s;
-	ring_t = t, ring_r = r, ring_rgb = rgb;
-	return s;
-}
-
-// The ring in the outer rect o at alpha a: its corners 1:1 and its sides stretched along their length (nine pieces less
-// the empty middle), so its thickness and corners stay as strokeRounded's at any card size.
-static void ringSprites(SDL_Surface* dst, SDL_Rect o, int a) {
-	SDL_Surface* s = ringSurface();
-	Uint8 sa = carSpriteAlpha(a);
-	SDL_Texture* tex = sa && s ? PLAT_textureForSurface(s) : NULL;
-	if (!tex)
-		return;
-	const SDL_Rect* clip = &dst->clip_rect;
-	int t = ring_t, R = ring_r, sw = s->w, sh = s->h;
-	if (clampRadius(radiusPx() + t, o.w, o.h) != R || o.w < 2 * R || o.h < 2 * R) {
-		PLAT_spriteAdd(tex, NULL, &o, sa, clip); // not reached at the Carousel's sizes
-		return;
-	}
-	SDL_Rect src[8] = {{0, 0, R, R},
-					   {sw - R, 0, R, R},
-					   {0, sh - R, R, R},
-					   {sw - R, sh - R, R, R},
-					   {R, 0, sw - 2 * R, t},
-					   {R, sh - t, sw - 2 * R, t},
-					   {0, R, t, sh - 2 * R},
-					   {sw - t, R, t, sh - 2 * R}};
-	SDL_Rect d[8] = {{o.x, o.y, R, R},
-					 {o.x + o.w - R, o.y, R, R},
-					 {o.x, o.y + o.h - R, R, R},
-					 {o.x + o.w - R, o.y + o.h - R, R, R},
-					 {o.x + R, o.y, o.w - 2 * R, t},
-					 {o.x + R, o.y + o.h - t, o.w - 2 * R, t},
-					 {o.x, o.y + R, t, o.h - 2 * R},
-					 {o.x + o.w - t, o.y + R, t, o.h - 2 * R}};
-	for (int i = 0; i < 8; i++)
-		if (src[i].w > 0 && src[i].h > 0 && d[i].w > 0 && d[i].h > 0)
-			PLAT_spriteAdd(tex, &src[i], &d[i], sa, clip);
-}
-
 // Row item i with the row at pos: 1:1 from its cached card at a rest size (the centre's, lit; a neighbour's, plain),
-// else both looks stretched from the centre's with the lit one crossfading in (1 − d, as the game lists' Carousel); the
-// darkening (Row_item's) over it. The ring (the selection's, at the lit amount, gone while the dock has the focus:
-// row_lit) outside it.
+// else both looks with the lit one crossfading in (1 − d, as the game lists' Carousel; stretched from the centre's
+// while the item changes size); the darkening (Row_item's) over it. The centre is plain while the dock has the focus
+// (row_lit 0): the colour marks the selection.
 static void drawCarItem(SDL_Surface* dst, int i, float pos, float row_lit) {
 	HomeCarItem it = HomeCar_item(&car, i, pos);
 	if (!it.visible || it.darken >= 1.0f)
 		return;
-	float d = fabsf(i - pos), lit = 1.0f - (d < 1.0f ? d : 1.0f);
+	float d = fabsf(i - pos), lit = (1.0f - (d < 1.0f ? d : 1.0f)) * row_lit;
 	CardKind kind = i > 0 ? CARD_CAR_GAME : cont ? CARD_CAR_CONTINUE
 												 : CARD_PICK;
 	int ref = i > 0 ? i - 1 : 0;
-	bool lit_differs = kind != CARD_PICK; // Pick a game lights with its ring only
+	bool rest = lit < 0.004f || lit > 0.996f; // one look at a rest size
 	bool full = fabsf(it.scale - 1.0f) < 0.004f, side = fabsf(it.scale - car.side_scale) < 0.004f;
 	int w = full ? car_full_w : side ? car_side_w
 									 : (int)(car_full_w * it.scale + 0.5f);
@@ -1882,35 +1863,30 @@ static void drawCarItem(SDL_Surface* dst, int i, float pos, float row_lit) {
 	// the row's centre from its top in whole px: the centre card's top lands on px(row_y), as Grid's tiles on theirs
 	int cx = px(it.r.x + it.r.w / 2), cy = px(car.row_y) + car_full_h / 2;
 	SDL_Rect r = {cx - w / 2, cy - h / 2, w, h};
-	int ring = px(HOME_RING);
-	if (r.x + r.w + ring <= 0 || r.x - ring >= dst->w)
+	if (r.x + r.w <= 0 || r.x >= dst->w)
 		return;
 	Uint8 dim = (Uint8)(it.darken * 255.0f + 0.5f);
-	float ring_a = lit * row_lit * (1.0f - it.darken);
 	if (car_sprites) { // the same looks as sprites, the GPU scaling the centre's while the item changes size
-		if (ring_a > 0.0f)
-			ringSprites(dst, (SDL_Rect){r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring},
-						(int)(ring_a * 255 + 0.5f));
-		if (full || side) {
-			cardSprite(dst, cachedCard(kind, ref, w, h, full && lit_differs), r, 255, dim);
+		if ((full || side) && rest) {
+			cardSprite(dst, cachedCard(kind, ref, w, h, full && lit > 0.5f), r, 255, dim);
 			return;
 		}
-		SDL_Surface* lit_s = lit_differs && lit > 0.004f ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL;
+		SDL_Surface* lit_s = lit > 0.004f ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL;
 		SDL_Surface* plain = !lit_s || lit < 0.996f ? cachedCard(kind, ref, car_full_w, car_full_h, false) : NULL;
 		cardSprite(dst, plain, r, 255, dim);
 		cardSprite(dst, lit_s, r, plain ? (int)(lit * 255 + 0.5f) : 255, dim);
 		return;
 	}
-	if (ring_a > 0.0f)
-		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
-					  cardBg(true), (int)(ring_a * 255 + 0.5f));
-	if (full || side) {
-		blitCardOver(dst, cachedCard(kind, ref, w, h, full && lit_differs), NULL, r, 255, dim);
+	if ((full || side) && rest) {
+		blitCardOver(dst, cachedCard(kind, ref, w, h, full && lit > 0.5f), NULL, r, 255, dim);
 		return;
 	}
-	SDL_Surface* lit_s = lit_differs && lit > 0.004f ? stretched(0, cachedCard(kind, ref, car_full_w, car_full_h, true), w, h) : NULL;
-	SDL_Surface* plain = !lit_s || lit < 0.996f ? stretched(1, cachedCard(kind, ref, car_full_w, car_full_h, false), w, h)
-												: NULL;
+	SDL_Surface* lit_s = lit > 0.004f ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL;
+	SDL_Surface* plain = !lit_s || lit < 0.996f ? cachedCard(kind, ref, car_full_w, car_full_h, false) : NULL;
+	if (!full) { // changing size: stretched from the centre's
+		lit_s = lit_s ? stretched(0, lit_s, w, h) : NULL;
+		plain = plain ? stretched(1, plain, w, h) : NULL;
+	}
 	if (lit_s && plain)
 		blitCardOver(dst, lit_s, plain, r, (int)(lit * 255 + 0.5f), dim);
 	else
@@ -1918,7 +1894,7 @@ static void drawCarItem(SDL_Surface* dst, int i, float pos, float row_lit) {
 }
 
 // Sprite mode, the row at rest: the textures of the looks a slide shows next (each item within reach at a neighbour's
-// size, the centre's size plain and lit, the ring), one a frame, so a slide finds them made instead of making them
+// size, the centre's size plain and lit), one a frame, so a slide finds them made instead of making them
 // (~3 ms each on the Brick) in its frames.
 // The looks whose texture couldn't be made this time the row came to rest: skipped (they get theirs when drawn), so a
 // texture that keeps failing doesn't keep the row redrawing; forgotten once the row moves again (drawCarousel).
@@ -1945,17 +1921,13 @@ static bool warmOne(SDL_Surface* s) {
 static void carWarm(int first, int last) {
 	if (warm_nfailed >= WARM_FAILED_MAX)
 		return; // the GPU keeps refusing: draw on use
-	if (warmOne(ringSurface())) {
-		car_warming = true;
-		return;
-	}
 	for (int i = first; i <= last; i++) {
 		CardKind kind = i > 0 ? CARD_CAR_GAME : cont ? CARD_CAR_CONTINUE
 													 : CARD_PICK;
 		int ref = i > 0 ? i - 1 : 0;
 		SDL_Surface* looks[3] = {cachedCard(kind, ref, car_side_w, car_side_h, false),
 								 cachedCard(kind, ref, car_full_w, car_full_h, false),
-								 kind != CARD_PICK ? cachedCard(kind, ref, car_full_w, car_full_h, true) : NULL};
+								 cachedCard(kind, ref, car_full_w, car_full_h, true)};
 		for (int k = 0; k < 3; k++)
 			if (warmOne(looks[k])) {
 				car_warming = true; // maybe more: the next frame looks again
@@ -1964,7 +1936,7 @@ static void carWarm(int first, int last) {
 	}
 }
 
-// The row, farthest items first (a sliding item's ring is never under a neighbour), then the dock's squares (Grid's
+// The row, farthest items first (a sliding item is never under a neighbour), then the dock's squares (Grid's
 // squares and their selection crossfade).
 static void drawCarousel(SDL_Surface* dst) {
 	float pos = currentPos();
@@ -1993,8 +1965,9 @@ static void drawCarousel(SDL_Surface* dst) {
 }
 
 static void renderHints(SDL_Surface* dst) {
-	// Button hints hidden (Layouts > Button hints): no bar at all, a volume or brightness change included
-	if (!CFG_getButtonHints())
+	// Button hints hidden (Layouts > Bottom bar): no bar at all, a volume or brightness change included; the tab row
+	// holds the bottom bar (its own SELECT RECENT)
+	if (!CFG_getButtonHints() || MenuTabs_rowShown())
 		return;
 	char* pairs[10] = {NULL};
 	int p = 0;
@@ -2005,10 +1978,7 @@ static void renderHints(SDL_Surface* dst) {
 	const HomeTile* t = focusedTile();
 	Entry* e = tileEntry(t);
 	static char tool_name[64]; // the A label on a tool square: its name in capitals
-	if (MenuTabs_focused()) {  // the tab row has focus: exactly SELECT RECENT and A OPEN (A returns to Home)
-		pairs[p++] = "A";
-		pairs[p++] = "OPEN";
-	} else if (!e) { // Pick a game: A opens the Consoles tab, when there is one
+	if (!e) {				   // Pick a game: A opens the Consoles tab, when there is one
 		if (MenuTabs_isVisible(MENU_TAB_CONSOLES)) {
 			pairs[p++] = "A";
 			pairs[p++] = "OPEN";
@@ -2217,7 +2187,7 @@ static void minDraw(SDL_Surface* dst) {
 	// the names from the strip's bottom to the hint bar (a sprite draws over the screen, the strip's text included);
 	// with the page title hidden from the screen's top (under the top fade, the strip over it), with the hints hidden
 	// to its bottom
-	int top = CFG_getPageTitle() ? min_area_top : 0, bottom = CFG_getButtonHints() ? dst->h - barPx() : dst->h;
+	int top = CFG_getPageTitle() ? min_area_top : 0, bottom = MenuTabs_bottomBar() ? dst->h - barPx() : dst->h;
 	SDL_Rect clip = {0, top, dst->w, bottom - top};
 	for (int i = 0; i < min_n; i++) {
 		MinRow* r = &min_rows[i];
@@ -2255,7 +2225,7 @@ static void minDrawFades(SDL_Surface* dst) {
 		else if (f)
 			UI_blitFade(f, NULL, dst, 0, 0);
 	}
-	if (!CFG_getButtonHints()) {
+	if (!MenuTabs_bottomBar()) {
 		int h = barPx() + NX_DP(24);
 		SDL_Surface* f = minFade(1, dst->w, h);
 		if (min_sprites)
@@ -2289,13 +2259,12 @@ static void minBarOverFade(SDL_Surface* dst) {
 
 static void minRender(SDL_Surface* dst) {
 	int bar_h = barPx();
-	int top = CFG_getPageTitle() ? bar_h : 0, bottom = CFG_getButtonHints() ? dst->h - bar_h : dst->h;
+	int top = CFG_getPageTitle() ? bar_h : 0, bottom = MenuTabs_bottomBar() ? dst->h - bar_h : dst->h;
 	if (bottom <= top)
 		return;
 	SDL_Rect body = {0, top, dst->w, bottom - top};
 	SDL_SetClipRect(dst, &body);
 	min_sprites = !ContextMenu_isOpen(); // a context menu draws on the screen, which sprites would cover
-	ContentDim_beginClear(dst, body);	 // the page as one layer for the tab-focus dim
 	HomeStats st;
 	currentStats(&st);
 	if (min_sprites) {
@@ -2312,7 +2281,6 @@ static void minRender(SDL_Surface* dst) {
 		minDrawFades(dst);
 		drawStrip(dst, &st, 0); // over the names that run on behind it
 	}
-	ContentDim_end(dst);
 	SDL_SetClipRect(dst, NULL);
 }
 
@@ -2393,7 +2361,9 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		return;
 	}
 	int bar_h = barPx();
-	int body_h = dst->h - 2 * bar_h;
+	// the page clip down to the bottom bar, or without it to where the page ends (the side margin over the edge, less
+	// the top section's own gap): the next page's pins stay out of sight under it, as under the bar
+	int body_h = dst->h - bar_h - (MenuTabs_bottomBar() ? bar_h : NX_DP(NX_EDGE_DP - NX_BOTTOM_GAP_DP));
 	if (body_h > 0) {
 		// the screen under the band is still clear here (nextui.c drew only the bars), so tiles go straight on
 		SDL_SetClipRect(dst, &(SDL_Rect){0, bar_h, dst->w, body_h});
@@ -2402,14 +2372,6 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 		HomeStats st;
 		currentStats(&st);
 
-		// the page as one layer for the tab-focus dim (contentdim.h); the top band's fade and the hints stay lit
-		// the body is clear under the page (nextui.c cleared it): the GPU dims it, unless the scrolled page's fade goes
-		// over it after (it stays lit)
-		SDL_Rect body = {0, bar_h, dst->w, body_h};
-		if (top_fade)
-			ContentDim_begin(dst, body);
-		else
-			ContentDim_beginClear(dst, body);
 		drawStrip(dst, &st, scroll_px);
 		if (carousel()) {
 			// sprites: not under a context menu (it draws on the screen, which they would cover)
@@ -2422,7 +2384,6 @@ void Home_render(SDL_Surface* dst, int lastScreen) {
 			for (int i = 0; i < layout.npins; i++)
 				drawTile(dst, &layout.pins[i], HOME_MAX_TOP + i, scroll_px);
 		}
-		ContentDim_end(dst);
 		// scrolled: the top band's part below the tab strip goes over the page (nextui.c drew the strip's part)
 		if (top_fade) {
 			int fade_h = bar_h + homeDp(48);
@@ -2478,6 +2439,10 @@ void Home_renderListStrip(SDL_Surface* dst) {
 	HomeStats st;
 	currentStats(&st);
 	drawStrip(dst, &st, 0);
+}
+
+int Home_edgePx(void) {
+	return px(HOME_EDGE);
 }
 
 bool Home_listHasStrip(void) {
@@ -2584,7 +2549,7 @@ static void setFocus(HomeFocus f) {
 	focus = f;
 	tweenStart(&sel_tw);
 	float u = unitPx();
-	float target = HomeLayout_scrollFor(&layout, focus, screen->h / u, barPx() / u, scroll_to);
+	float target = HomeLayout_scrollFor(&layout, focus, layoutH(), barPx() / u, scroll_to);
 	if (fabsf(target - scroll_to) > 0.001f) {
 		scroll_from = currentScroll();
 		scroll_to = target;
@@ -2655,37 +2620,6 @@ static void activate(bool* dirty) {
 
 static bool sameFocus(HomeFocus a, HomeFocus b) {
 	return tileId(a) == tileId(b);
-}
-
-void Home_focusBottom(void) {
-	if (!screen || !Home_active())
-		return;
-	ensureBuilt();
-	if (minimalMode()) { // the last name
-		minSetSel(HomeList_count(ngames, ntools) - 1);
-		return;
-	}
-	if (listMode()) { // the last row, windowed as the List's own wrap to the bottom
-		int n = hl_entries ? hl_entries->count : 0;
-		if (n > 0) {
-			hl_dir.selected = n - 1;
-			ListWindow_toBottom(n, GameList_rowCountFrom(hl_geom.list_top), &hl_dir.start, &hl_dir.end);
-			readyFocus();
-		}
-		return;
-	}
-	if (carousel()) { // the dock when it has tools, else the row as it was
-		HomeCarFocus cf = car_focus;
-		HomeCar_fromTabs(&car, &cf);
-		setCarFocus(cf);
-		return;
-	}
-	HomeFocus f = focus;
-	HomeLayout_fromTabs(&layout, &f);
-	if (!sameFocus(f, focus))
-		setFocus(f);
-	else
-		focus = f;
 }
 
 bool Home_handleInput(unsigned long now, bool* dirty) {
@@ -2767,13 +2701,8 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 			if (res == HOME_MOVE_MOVED) {
 				setCarFocus(cf);
 				*dirty = true;
-			} else if (PAD_justPressed(dpad[i].btn)) { // a fresh press only: a held key stops at the end
-				if (res == HOME_MOVE_TABS) {
-					MenuTabs_setFocused(true);
-					*dirty = true;
-				} else if (res == HOME_MOVE_EDGE_PREV || res == HOME_MOVE_EDGE_NEXT) {
-					GameList_switchTab(res == HOME_MOVE_EDGE_PREV ? -1 : 1, dirty);
-				}
+			} else if (PAD_justPressed(dpad[i].btn) && (res == HOME_MOVE_EDGE_PREV || res == HOME_MOVE_EDGE_NEXT)) {
+				GameList_switchTab(res == HOME_MOVE_EDGE_PREV ? -1 : 1, dirty); // a fresh press only: a held key stops
 			}
 			return true;
 		}
@@ -2785,13 +2714,8 @@ bool Home_handleInput(unsigned long now, bool* dirty) {
 			else
 				focus = f; // the memory moved (the section's own tile is the same)
 			*dirty = true;
-		} else if (PAD_justPressed(dpad[i].btn)) { // a fresh press only: a held key stops at the edge
-			if (res == HOME_MOVE_TABS) {
-				MenuTabs_setFocused(true);
-				*dirty = true;
-			} else if (res == HOME_MOVE_EDGE_PREV || res == HOME_MOVE_EDGE_NEXT) {
-				GameList_switchTab(res == HOME_MOVE_EDGE_PREV ? -1 : 1, dirty);
-			}
+		} else if (PAD_justPressed(dpad[i].btn) && (res == HOME_MOVE_EDGE_PREV || res == HOME_MOVE_EDGE_NEXT)) {
+			GameList_switchTab(res == HOME_MOVE_EDGE_PREV ? -1 : 1, dirty); // a fresh press only: a held key stops
 		}
 		return true;
 	}

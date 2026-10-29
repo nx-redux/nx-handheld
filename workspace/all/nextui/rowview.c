@@ -81,7 +81,7 @@
 #define CAPTION_NAME_SP 18.0f
 #define CAPTION_SIDE_NAME_SP 16.0f // beside a Vertical stack: a column, not the row's full width under it
 #define CAPTION_INFO_SP 14.0f
-#define CAPTION_GUTTER_DP 24.0f
+#define CAPTION_GUTTER_DP NX_EDGE_DP // the side margin (nx_edge.h)
 
 #define TILE_W_SPEC 140.0f // the Grid tile's width: tiles.c's insets scale by tile_w / 140 (never above 1)
 #define BOX_SLOT_W_SPEC 170.0f
@@ -605,11 +605,10 @@ static SDL_Texture* blackTexture(void) {
 	return PLAT_textureForSurface(black_px);
 }
 
-// A sprite's alpha: a at the tab-focus dim (lit everywhere but the main menu)
+// A sprite's alpha: a, clamped to 0..255
 static Uint8 spriteAlpha(int a) {
-	if (a <= 0)
-		return 0;
-	return (Uint8)((a > 255 ? 255 : a) * MenuTabs_contentAlpha() + 0.5f);
+	return (Uint8)(a <= 0 ? 0 : a > 255 ? 255
+										: a);
 }
 
 // s's texture into rect r at alpha a, clipped as the screen is
@@ -631,8 +630,8 @@ static void blitCentred(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float 
 	if (w <= 0 || h <= 0)
 		return;
 	SDL_Rect r = {cx - w / 2, cy - h / 2, w, h};
-	// sprite mode: the GPU draws it, scaled (linear) and blended over the screen, clipped as the screen is, at the
-	// tab-focus dim (the body under it is black, or a Backdrop game list's picture)
+	// sprite mode: the GPU draws it, scaled (linear) and blended over the screen, clipped as the screen is (the body
+	// under it is black, or a Backdrop game list's picture)
 	if (sprite_mode) {
 		if (uploadAllowed(s, draw_selected))
 			surfaceSprite(dst, s, NULL, r, a);
@@ -746,7 +745,7 @@ static SDL_Surface* carouselTile(const RowGeo* g, Entry* e, TileKind kind, int w
 		state = st == HOMEART_READY && pic ? 2 : (st == HOMEART_LOADING ? 1 : 0);
 	}
 	char key[ITEM_KEY];
-	// the lit look's ring (a game) or fill (a tool) is in the accent, a tool's content in its ink
+	// the lit look's fill (a tool) is in the accent, its content in its ink
 	SDL_Color ac = lit ? UI_accent() : (SDL_Color){0, 0, 0, 0};
 	SDL_Color ink = lit ? UI_onAccent() : (SDL_Color){0, 0, 0, 0};
 	snprintf(key, sizeof(key), "C|%d|%d|%d|%d|%02x%02x%02x%02x%02x%02x|%d|%u|%s|%s", w, h, (int)kind, lit, ac.r,
@@ -1336,17 +1335,16 @@ static void drawTileSurface(SDL_Surface* dst, SDL_Surface* s, SDL_Rect r, int a)
 }
 
 // A Carousel game tile as GPU sprites (sprite mode), no composed look: composing one (Tiles_draw: the rounded base,
-// border and ring) cost 9-13 ms on the Brick, and a held D-pad brings several new tiles in per step. The picture
-// (HomeArt_pin's, at the centre size) is drawn square with the black corner mask rounding it on the black ground, the
-// plain border and the lit ring over it, all at the darkening (over black: the same lerp the composed tile had). The
-// overlays are made once per tile size (the centre's and a neighbour's; an item changing size scales the centre's) and
-// accent, as the Grid's (gridview.c drawGameSprites).
+// border) cost 9-13 ms on the Brick, and a held D-pad brings several new tiles in per step. The picture (HomeArt_pin's,
+// at the centre size) is drawn square, grey (its drained copy) with the colour one fading in over it as it lights, the
+// black corner mask rounding it on the black ground and the edge over it, all at the darkening (over black: the same
+// lerp the composed tile had). No ring: the colour marks the selection. The overlays are made once per tile size (the
+// centre's and a neighbour's; an item changing size scales the centre's), as the Grid's (gridview.c drawGameSprites).
 typedef struct {
 	int w, h;
-	SDL_Color ring_c;
-	SDL_Surface *mask, *border, *ring;
+	SDL_Surface *mask, *border;
 	unsigned stamp;
-	bool built, ring_built; // made for w x h, the ring for ring_c (NULL: a remembered failure, not made every frame)
+	bool built; // made for w x h (NULL: a remembered failure, not made every frame)
 } TileOverlays;
 static TileOverlays tile_ov[2];
 static unsigned tile_ov_clock = 0;
@@ -1355,13 +1353,11 @@ static void tileOverlaysClear(void) {
 	for (int i = 0; i < 2; i++) {
 		GFX_freeSurfaceAndTexture(tile_ov[i].mask);
 		GFX_freeSurfaceAndTexture(tile_ov[i].border);
-		GFX_freeSurfaceAndTexture(tile_ov[i].ring);
 	}
 	memset(tile_ov, 0, sizeof(tile_ov));
 }
 
 static TileOverlays* tileOverlays(int w, int h) {
-	SDL_Color ac = UI_accent();
 	TileOverlays* o = NULL;
 	for (int i = 0; i < 2 && !o; i++)
 		if (tile_ov[i].built && tile_ov[i].w == w && tile_ov[i].h == h)
@@ -1370,7 +1366,6 @@ static TileOverlays* tileOverlays(int w, int h) {
 		o = tile_ov[0].stamp <= tile_ov[1].stamp ? &tile_ov[0] : &tile_ov[1];
 		GFX_freeSurfaceAndTexture(o->mask);
 		GFX_freeSurfaceAndTexture(o->border);
-		GFX_freeSurfaceAndTexture(o->ring);
 		memset(o, 0, sizeof(*o));
 		o->w = w, o->h = h;
 		o->built = true;
@@ -1380,12 +1375,6 @@ static TileOverlays* tileOverlays(int w, int h) {
 	o->stamp = ++tile_ov_clock;
 	if (!o->mask)
 		return NULL;
-	if (!o->ring_built || o->ring_c.r != ac.r || o->ring_c.g != ac.g || o->ring_c.b != ac.b) {
-		GFX_freeSurfaceAndTexture(o->ring);
-		o->ring = Tiles_ringOverlay(w, h, ac);
-		o->ring_c = ac;
-		o->ring_built = true;
-	}
 	return o;
 }
 
@@ -1394,6 +1383,7 @@ static bool carouselGameSprites(SDL_Surface* screen, const RowGeo* g, Entry* e, 
 								float lit) {
 	SDL_Surface* pic = NULL;
 	HomeArtState st = HomeArt_pin(e->path, g->full_w, g->full_h, 0, &pic); // valid until the next HomeArt_*
+	unsigned gen = HomeArt_lastGen();
 	bool ready = st == HOMEART_READY && pic;
 	if (!ready && st != HOMEART_LOADING)
 		return false;
@@ -1405,36 +1395,38 @@ static bool carouselGameSprites(SDL_Surface* screen, const RowGeo* g, Entry* e, 
 		return true;
 	// the overlays at this rest size, or the centre size's scaled while the item changes size
 	TileOverlays* o = tileOverlays(side ? g->side_w : g->full_w, side ? g->side_h : g->full_h);
-	float k = (float)w / (float)(side ? g->side_w : g->full_w);
 	SDL_Rect r = {cx - w / 2, cy - h / 2, w, h};
-	if (ready && !uploadAllowed(pic, lit >= 1.0f))
+	// unselected, its drained copy (grey at 25%); the colour fading in over it as it lights
+	SDL_Surface* grey = ready && lit < 1.0f ? HomeArt_drained(pic, gen, HOMEART_DRAIN_LEVEL) : NULL;
+	if (ready && !uploadAllowed(lit > 0.0f || !grey ? pic : grey, lit >= 1.0f))
 		ready = false; // its texture next frame: the black base and border meanwhile, as while it loads
-	if (ready)
-		surfaceSprite(screen, pic, NULL, r, c);
+	if (ready && grey && !uploadAllowed(grey, lit >= 1.0f))
+		grey = NULL; // the colour one alone at its lit amount meanwhile
+	if (ready && grey)
+		surfaceSprite(screen, grey, NULL, r, c);
+	if (ready && (lit > 0.0f || !grey))
+		surfaceSprite(screen, pic, NULL, r, grey ? (int)(lit * c + 0.5f) : c);
 	if (o && ready)
 		surfaceSprite(screen, o->mask, NULL, r, 255); // black corners over the black ground
-	if (o && o->border && lit < 1.0f)
-		surfaceSprite(screen, o->border, NULL, r, (int)(Tiles_borderAlpha() * (1.0f - lit) * c / 255.0f + 0.5f));
-	if (o && o->ring && lit > 0.0f) {
-		int ring = (int)((o->ring->w - o->w) / 2 * k + 0.5f);
-		surfaceSprite(screen, o->ring, NULL, (SDL_Rect){r.x - ring, r.y - ring, w + 2 * ring, h + 2 * ring},
-					  (int)(lit * c + 0.5f));
-	}
+	if (o && o->border)								  // the edge, on both looks
+		surfaceSprite(screen, o->border, NULL, r, (int)(Tiles_borderAlpha() * c / 255.0f + 0.5f));
 	return true;
 }
 
 // The same tile's pieces made ahead (between frames): the picture requested and uploaded, the overlays at its size.
 static void carouselGameWarm(const RowGeo* g, Entry* e, bool side) {
 	SDL_Surface* pic = NULL;
-	if (HomeArt_pin(e->path, g->full_w, g->full_h, 0, &pic) == HOMEART_READY && pic)
+	if (HomeArt_pin(e->path, g->full_w, g->full_h, 0, &pic) == HOMEART_READY && pic) {
+		SDL_Surface* grey = HomeArt_drained(pic, HomeArt_lastGen(), HOMEART_DRAIN_LEVEL);
 		PLAT_textureForSurface(pic);
+		if (grey)
+			PLAT_textureForSurface(grey);
+	}
 	TileOverlays* o = tileOverlays(side ? g->side_w : g->full_w, side ? g->side_h : g->full_h);
 	if (o) {
 		PLAT_textureForSurface(o->mask);
 		if (o->border)
 			PLAT_textureForSurface(o->border);
-		if (o->ring)
-			PLAT_textureForSurface(o->ring);
 	}
 }
 
@@ -1446,6 +1438,8 @@ static void carouselGameWarm(const RowGeo* g, Entry* e, bool side) {
 // crossfade at full strength and the black ground goes over them at the darkening (what UI_dimRect does here).
 static void drawCarouselItem(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, int cy,
 							 float scale, float darken, float d) {
+	if (kind == TILE_GAME || kind == TILE_TITLE)
+		darken = Row_drainedDarken(d); // its plain look's grey dims it: no shade over it but the far fade
 	Uint8 c = (Uint8)(255.0f * (1.0f - darken) + 0.5f);
 	if (c == 0)
 		return; // black on black
@@ -1517,8 +1511,10 @@ static SDL_Surface* sideArt(const RowGeo* g, Entry* e, SDL_Surface* art, unsigne
 	return itemStore(key, s);
 }
 
+// A Backdrop item d items from the row's position: a game's box art in colour on the selection, grey a step out (its
+// drained copy, full brightness, under the colour one fading in: nx-mobile's backdropSaturation).
 static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int cx, int cy,
-							 float scale, float alpha) {
+							 float scale, float alpha, float d) {
 	if (g->kind == ROW_BACKDROP_BOX) {
 		Uint8 a = (Uint8)(alpha * 255.0f + 0.5f);
 		if (kind == TILE_GAME) {
@@ -1529,8 +1525,20 @@ static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 			if (st == HOMEART_READY && art) {
 				// the shadow padding is the same on every side: the surface's centre is the art's
 				// (sprite mode: the GPU scales the art itself, no stretched copy to make and upload)
-				SDL_Surface* side =
-					!sprite_mode && fabsf(scale - g->sz.scale) < SCALE_EPS ? sideArt(g, e, art, gen) : NULL;
+				float sat = 1.0f - (d < 1.0f ? d : 1.0f);
+				SDL_Surface* grey = sat < 1.0f ? HomeArt_drained(art, gen, HOMEART_GREY_LEVEL) : NULL;
+				bool rest = !sprite_mode && fabsf(scale - g->sz.scale) < SCALE_EPS;
+				if (grey) {
+					SDL_Surface* side = rest ? sideArt(g, e, grey, gen) : NULL;
+					if (side)
+						blitCentred(screen, side, cx, cy, 1.0f, a, 255);
+					else
+						blitCentred(screen, grey, cx, cy, scale, a, 255);
+					if (sat <= 0.0f)
+						return;
+					a = (Uint8)(a * sat + 0.5f);
+				}
+				SDL_Surface* side = rest ? sideArt(g, e, art, gen) : NULL;
 				if (side)
 					blitCentred(screen, side, cx, cy, 1.0f, a, 255);
 				else
@@ -2076,9 +2084,8 @@ bool RowView_drawConsoleLogo(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 		return true;
 	SDL_Surface* src = m->small && m->small->w >= dw && m->small->h >= dh ? m->small : m->level;
 	SDL_Texture* t = PLAT_textureForSurface(src);
-	if (t) // the off-white is in the PNG; the tab-focus dim, clipped as the screen is
-		PLAT_spriteAdd(t, NULL, &(SDL_Rect){cx - dw / 2, cy - dh / 2, dw, dh}, (Uint8)(a * MenuTabs_contentAlpha() + 0.5f),
-					   &screen->clip_rect);
+	if (t) // the off-white is in the PNG; clipped as the screen is
+		PLAT_spriteAdd(t, NULL, &(SDL_Rect){cx - dw / 2, cy - dh / 2, dw, dh}, a, &screen->clip_rect);
 	return true;
 }
 
@@ -2273,8 +2280,7 @@ static void placeCount(const RowGeo* g, Entry* e, TileKind kind, int sel, bool s
 	cnt.sel = sel;
 }
 
-// The main-menu Carousel's "N games" for the selection: none while the count is unknown. It dims with the rest of
-// the content (contentdim) while the tab row has focus.
+// The main-menu Carousel's "N games" for the selection: none while the count is unknown.
 static void drawCount(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKind kind, int sel, const RowPlace* at,
 					  bool snap) {
 	if (g->kind != ROW_BACKDROP_LOGO && g->kind != ROW_BACKDROP_COLL) {
@@ -2966,7 +2972,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 	SDL_Rect prev_clip;
 	SDL_GetClipRect(screen, &prev_clip);
 	// a hidden page title's row and hint bar stay open: what reaches into them still shows
-	int vis_top = CFG_getPageTitle() ? bar : 0, vis_bottom = CFG_getButtonHints() ? screen->h - bar : screen->h;
+	int vis_top = CFG_getPageTitle() ? bar : 0, vis_bottom = MenuTabs_bottomBar() ? screen->h - bar : screen->h;
 	SDL_SetClipRect(screen, &(SDL_Rect){0, vis_top, screen->w, vis_bottom - vis_top});
 	PadSize pad_box = Pad_rowBox((float)g.full_h); // 3.0 x 1.95 the logo slot's height
 	int pad_w = (int)(pad_box.w + 0.5f), pad_h = (int)(pad_box.h + 0.5f);
@@ -3012,7 +3018,7 @@ void RowView_render(SDL_Surface* screen, int lastScreen) {
 			if (kind == ROW_BACKDROP_LOGO) // the focused console's controller, under its logo
 				RowView_drawPad(screen, e, k, pad_w, pad_h, cx, g.cy, it.scale, d);
 			draw_selected = i == sel;
-			drawBackdropItem(screen, &g, e, k, cx, float_sel ? carouselItemCy(&g, i, sel, d) : g.cy, it.scale, it.alpha);
+			drawBackdropItem(screen, &g, e, k, cx, float_sel ? carouselItemCy(&g, i, sel, d) : g.cy, it.scale, it.alpha, d);
 			draw_selected = false;
 			if (i != sel)
 				drawSideCount(screen, &g, e, k, cx, it.scale, it.alpha);
@@ -3108,15 +3114,9 @@ static bool prefetchItems(const RowGeo* g, int n, int sel, Uint32 deadline) {
 bool RowView_handleInput(unsigned long now, bool* dirty) {
 	if (StackView_active())
 		return StackView_handleInput(dirty); // the Vertical orientation: UP/DOWN step (LEFT/RIGHT: tab on the main menu)
-	// UP/DOWN don't move the selection (handled, so the List code below doesn't either); in the main menu a fresh UP
-	// focuses the tab row (the row is one row: any item is its top)
-	if (PAD_justRepeated(BTN_UP) || PAD_justRepeated(BTN_DOWN)) {
-		if (stack->count == 1 && PAD_justPressed(BTN_UP)) {
-			MenuTabs_setFocused(true);
-			*dirty = true;
-		}
+	// UP/DOWN don't move the selection (handled, so the List code below doesn't either): the row is one row
+	if (PAD_justRepeated(BTN_UP) || PAD_justRepeated(BTN_DOWN))
 		return true;
-	}
 	int btn, dir;
 	if (PAD_justRepeated(BTN_LEFT)) {
 		btn = BTN_LEFT;
@@ -3238,7 +3238,7 @@ void RowView_drawGameItem(SDL_Surface* screen, const RowGeo* g, Entry* e, TileKi
 	if (g->kind == ROW_CAROUSEL)
 		drawCarouselItem(screen, g, e, kind, cx, cy, scale, darken, d);
 	else
-		drawBackdropItem(screen, g, e, kind, cx, cy, scale, alpha);
+		drawBackdropItem(screen, g, e, kind, cx, cy, scale, alpha, d);
 }
 
 void RowView_prefetchItem(const RowGeo* g, Entry* e, TileKind kind, bool side, bool lit) {

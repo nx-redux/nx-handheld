@@ -86,9 +86,9 @@ enum { HOME_STYLE_GRID = 0,
 	   HOME_STYLE_LIST,
 	   HOME_STYLE_MINIMAL,
 	   HOME_STYLE_COUNT };
-#define HOMESTYLE_DEFAULT HOME_STYLE_GRID
+#define HOMESTYLE_DEFAULT HOME_STYLE_MINIMAL
 
-// The value to store (and how a stored value reads): an out-of-range value becomes Grid.
+// The value to store (and how a stored value reads): an out-of-range value becomes Minimal.
 static inline int MenuStyle_storeHome(int style) {
 	if (style < HOME_STYLE_GRID || style >= HOME_STYLE_COUNT)
 		return HOMESTYLE_DEFAULT;

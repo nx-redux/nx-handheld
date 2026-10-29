@@ -2,6 +2,7 @@
 #define HOMEART_H
 
 #include "sdl.h"
+#include "homeart_model.h" // HOMEART_DRAIN_LEVEL, HOMEART_GREY_LEVEL
 #include "types.h"
 #include <stdbool.h>
 
@@ -38,6 +39,10 @@ HomeArtState HomeArt_backdrop(const char* rom_path, int screen_w, int screen_h, 
 // 0 when it returned no slot. Fresh for every new slot, so it changes after HomeArt_forget even when the new surface
 // reuses the old pointer: put it in render-cache keys. UI thread only; read it right after the call it describes.
 unsigned HomeArt_lastGen(void);
+// pic drained (HomeArt_drain: grey at level/256), for an unselected picture drawn as a GPU sprite: a copy made once
+// per picture, its generation `gen` (HomeArt_lastGen of its lookup) and level, and kept in a small LRU (UI thread
+// only). Owned by that cache; valid until a later HomeArt_drained call evicts it: use it within the frame.
+SDL_Surface* HomeArt_drained(SDL_Surface* pic, unsigned gen, int level);
 // True once after any load finished since the last call (the caller redraws).
 bool HomeArt_checkAsyncLoaded(void);
 // A count of the finished loads and HomeArt_forget calls (never reset, any thread): a render cache that skips its

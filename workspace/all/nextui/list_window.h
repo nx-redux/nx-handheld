@@ -24,8 +24,6 @@
 
 // 0 .. min(total, rows). launcher pathToStack / openDirectory stale-restore fallback.
 void ListWindow_fromTop(int total, int rows, int* start, int* end);
-// max(0, total - rows) .. total. gamelist contentToBottom (and the List's wrap to the bottom in ListWindow_step).
-void ListWindow_toBottom(int total, int rows, int* start, int* end);
 // The window starts on sel, clamped to the list's end and to 0. See the reconciliation note above.
 void ListWindow_selectAtTop(int total, int rows, int sel, int* start, int* end);
 // Minimal scroll so sel shows: below the window it ends on sel, above it starts on sel, inside nothing moves.

@@ -1,15 +1,15 @@
-// Grid style geometry (dp floats): tile size, still (row-major, centred frame) vs sliding (column-major,
-// two per column) placement, the slide offset with its anchor and end clamps, and D-pad moves. Pure, host-tested.
+// Grid style geometry (dp floats): tile size, row-major placement in a centred frame of columns, the vertical scroll
+// offset (whole rows, the selection's row kept in view) and D-pad moves. Pure, host-tested.
 
 #include "grid_layout.h"
+#include "../common/nx_edge.h"
 #include <math.h>
 
 #define TILE_W_CAP 140.0f
 #define TILE_H_CAP 154.0f
 #define GAP 14.0f
-#define GUTTER 24.0f
-#define RING_ROOM 4.0f
-#define ANCHOR_FRAC 0.55f
+#define GUTTER NX_EDGE_DP		   // the side margins: the main menu's shared one (Home's cards, the tab row)
+#define RING_ROOM NX_BOTTOM_GAP_DP // the room at the body's top and bottom (nx_edge.h)
 
 static float maxf(float a, float b) {
 	return a > b ? a : b;
@@ -47,6 +47,7 @@ void GridLayout_computeFit(float screen_w, float body_top, float body_h, int n, 
 	g->gap = GAP * (gap_mul > 0 ? gap_mul : 1.0f);
 	g->gutter = GUTTER;
 	g->n = n < 0 ? 0 : n;
+	// two rows fill the body (the rows scroll under it, a row at a time)
 	g->tile_h = maxf(1.0f, minf(TILE_H_CAP, (body_h - 2 * RING_ROOM - g->gap) / 2) * (size_mul > 0 ? size_mul : 1.0f));
 	g->tile_w = g->tile_h * TILE_W_CAP / TILE_H_CAP * g->width_mul;
 	if (fit_cols >= 2) { // exactly fit_cols across, the two rows keeping the body's height
@@ -55,116 +56,83 @@ void GridLayout_computeFit(float screen_w, float body_top, float body_h, int n, 
 	}
 	int cols = g->centred ? fit_cols : (int)floorf((screen_w - 2 * GUTTER + g->gap) / (g->tile_w + g->gap));
 	// never one column for two or more items: a wide tile (Consoles, Collections) on a tall body would stack them,
-	// on one panel and not on another (their bars' height differs in dp). The tile shrinks, its shape kept, to two across.
-	if (cols < 2 && g->n >= 2) {
-		float two_w = (screen_w - 2 * GUTTER - g->gap) / 2;
-		if (two_w > 0 && two_w < g->tile_w) {
-			g->tile_h *= two_w / g->tile_w;
-			g->tile_w = two_w;
-		}
+	// on one panel and not on another (their bars' height differs in dp). Two across, stretched to the margins below
+	// (the height kept, so the rows still fill the body).
+	if (cols < 2 && g->n >= 2)
 		cols = 2;
-	}
 	g->cols = cols < 1 ? 1 : cols;
-	g->sliding = g->n > 2 * g->cols;
-	// a still grid centres the rows it fills (one row of tools sits at the body's centre); a sliding one keeps both
-	g->rows = (g->sliding || g->n > g->cols) ? 2 : 1;
+	// the columns span the screen between the margins exactly: the tiles take the width that's left over (their
+	// height kept), so every Grid's sides line up with the tab row's
+	if (!g->centred && g->n >= g->cols) {
+		g->tile_w = (screen_w - 2 * GUTTER - (g->cols - 1) * g->gap) / g->cols;
+		g->centred = true;
+	}
+	g->nrows = (g->n + g->cols - 1) / g->cols;
+	g->sliding = g->nrows > 2; // scrolls: more rows than the body shows
+	// the rows the body shows: one row of tools sits at the body's centre, two fill it
+	g->rows = g->nrows >= 2 ? 2 : 1;
 	float block_h = g->rows * g->tile_h + (g->rows - 1) * g->gap;
 	g->rows_top = maxf(body_top + RING_ROOM, body_top + (body_h - block_h) / 2);
-	g->frame_x0 = g->sliding ? 0 : (screen_w - (g->cols * g->tile_w + (g->cols - 1) * g->gap)) / 2;
+	g->frame_x0 = (screen_w - (g->cols * g->tile_w + (g->cols - 1) * g->gap)) / 2;
 }
 
 void GridLayout_cell(const GridLayout* g, int index, int* col, int* row) {
-	if (g->sliding) {
-		*col = index / 2;
-		*row = index % 2;
-	} else {
-		*col = index % g->cols;
-		*row = index / g->cols;
-	}
+	*col = index % g->cols;
+	*row = index / g->cols;
 }
 
 int GridLayout_index(const GridLayout* g, int col, int row) {
-	if (col < 0 || row < 0 || row > 1)
+	if (col < 0 || row < 0 || col >= g->cols)
 		return -1;
-	int i;
-	if (g->sliding)
-		i = col * 2 + row;
-	else {
-		if (col >= g->cols)
-			return -1;
-		i = row * g->cols + col;
-	}
+	int i = row * g->cols + col;
 	return i < g->n ? i : -1;
 }
 
-int GridLayout_wrap(const GridLayout* g, int index, GridMove edge) {
-	int n = g->n;
-	if (n <= 0)
-		return 0;
-	if (!g->sliding)
-		return edge == GRID_MOVE_EDGE_PREV ? n - 1 : 0;
-	if (index < 0)
-		index = 0;
-	if (index >= n)
-		index = n - 1;
-	int col, row;
-	GridLayout_cell(g, index, &col, &row);
-	int tc = edge == GRID_MOVE_EDGE_PREV ? GridLayout_columnCount(g) - 1 : 0;
-	int t = GridLayout_index(g, tc, row);
-	return t >= 0 ? t : GridLayout_index(g, tc, 0);
+int GridLayout_rowCount(const GridLayout* g) {
+	return g->nrows;
 }
 
-int GridLayout_columnCount(const GridLayout* g) {
-	return g->sliding ? (g->n + 1) / 2 : g->cols;
-}
-
-float GridLayout_offsetFor(const GridLayout* g, int col) {
+float GridLayout_offsetFor(const GridLayout* g, int row, float current) {
 	if (!g->sliding)
 		return 0;
-	float step = g->tile_w + g->gap;
-	// the selected column centred (GridLayout_computeFit), else ANCHOR_FRAC of the one before it showing
-	float raw = g->centred ? GUTTER + col * step - (g->screen_w - g->tile_w) / 2
-						   : col * step - (ANCHOR_FRAC * g->tile_w + g->gap);
-	int c = GridLayout_columnCount(g);
-	float hi = maxf(0, (c - 1) * step + g->tile_w - (g->screen_w - 2 * GUTTER));
-	return minf(hi, maxf(0, raw));
+	float step = g->tile_h + g->gap;
+	float hi = (g->nrows - g->rows) * step;
+	// the least scroll that shows the row: up to it when it's above, down to it when it's below (whole rows)
+	float lo_row = current / step, s = current;
+	if (row < lo_row)
+		s = row * step;
+	else if (row > lo_row + g->rows - 1)
+		s = (row - g->rows + 1) * step;
+	s = roundf(s / step) * step; // on a row, whatever the current offset was
+	return minf(hi, maxf(0, s));
 }
 
-float GridLayout_columnX(const GridLayout* g, int col, float offset) {
-	float base = g->sliding ? GUTTER : g->frame_x0;
-	return base + col * (g->tile_w + g->gap) - offset;
+float GridLayout_columnX(const GridLayout* g, int col) {
+	return g->frame_x0 + col * (g->tile_w + g->gap);
 }
 
-void GridLayout_visibleColumns(const GridLayout* g, float offset, int* first, int* last) {
-	int c = GridLayout_columnCount(g);
-	int f = c, l = -1;
-	// only the columns near the screen are tested (a 5000-game list has 2500): the range from the offset and the step,
-	// a column wider either side for float rounding, and the same test on each, so the result is exactly the full scan's
-	int lo = 0, hi = c - 1;
-	float step = g->tile_w + g->gap;
-	if (step > 0) {
-		float base = g->sliding ? GUTTER : g->frame_x0;
-		float a = floorf((offset - base - g->tile_w) / step) - 1, b = ceilf((offset - base + g->screen_w) / step) + 1;
-		if (a > lo) // NaN fails both tests: the full scan
-			lo = a < (float)c ? (int)a : c;
-		if (b < hi)
-			hi = b > -1.0f ? (int)b : -1;
-	}
-	for (int i = lo; i <= hi; i++) {
-		float x = GridLayout_columnX(g, i, offset);
-		if (x + g->tile_w > 0 && x < g->screen_w) {
-			if (i < f)
-				f = i;
-			l = i;
-		}
-	}
-	if (l < 0) { // nothing on screen (or no columns): an empty range
+float GridLayout_rowY(const GridLayout* g, int row, float offset) {
+	return g->rows_top + row * (g->tile_h + g->gap) - offset;
+}
+
+void GridLayout_visibleRows(const GridLayout* g, float offset, int* first, int* last) {
+	int r = g->nrows;
+	float step = g->tile_h + g->gap;
+	if (r <= 0 || step <= 0) {
 		*first = 0;
 		*last = -1;
 		return;
 	}
-	*first = f > 0 ? f - 1 : 0;
-	*last = l < c - 1 ? l + 1 : c - 1;
+	// the rows touching the body, one more each side (slid in during a scroll, composed ahead)
+	int f = (int)floorf((g->body_top - g->rows_top + offset - g->tile_h) / step) + 1;
+	int l = (int)floorf((g->body_top + g->body_h - g->rows_top + offset) / step);
+	f -= 1, l += 1;
+	*first = f < 0 ? 0 : f;
+	*last = l > r - 1 ? r - 1 : l;
+	if (*first > *last) {
+		*first = 0;
+		*last = -1;
+	}
 }
 
 GridMove GridLayout_move(const GridLayout* g, int* index, GridDir dir) {
@@ -185,69 +153,41 @@ GridMove GridLayout_move(const GridLayout* g, int* index, GridDir dir) {
 	GridLayout_cell(g, i, &col, &row);
 
 	if (dir == GRID_DIR_UP || dir == GRID_DIR_DOWN) {
-		int t = GridLayout_index(g, col, 1 - row);
-		if (t < 0) {
-			// still with two rows: the empty cell below falls back to the last tile; otherwise nothing to swap with
-			if (!g->sliding && n > g->cols && row == 0)
-				t = n - 1;
-			else
-				return GRID_MOVE_STAY;
-		}
+		int tr = row + (dir == GRID_DIR_UP ? -1 : 1);
+		if (tr < 0 || tr >= g->nrows)
+			return GRID_MOVE_STAY;
+		int t = GridLayout_index(g, col, tr);
+		if (t < 0) // a shorter last row: its last tile
+			t = n - 1;
 		if (t == i)
 			return GRID_MOVE_STAY;
 		*index = t;
 		return GRID_MOVE_MOVED;
 	}
 
-	int step = dir == GRID_DIR_LEFT ? -1 : 1;
-	if (!g->sliding) {
-		int t = i + step;
-		if (t < 0)
-			return GRID_MOVE_EDGE_PREV;
-		if (t >= n)
-			return GRID_MOVE_EDGE_NEXT;
-		*index = t;
-		return GRID_MOVE_MOVED;
-	}
-	int tc = col + step;
-	if (tc < 0)
-		return GRID_MOVE_EDGE_PREV;
-	if (tc >= GridLayout_columnCount(g))
-		return GRID_MOVE_EDGE_NEXT;
+	// LEFT/RIGHT along the row; past its first or last tile, the edge (the caller switches tab, or steps on)
+	int tc = col + (dir == GRID_DIR_LEFT ? -1 : 1);
 	int t = GridLayout_index(g, tc, row);
 	if (t < 0)
-		t = GridLayout_index(g, tc, 0);
+		return dir == GRID_DIR_LEFT ? GRID_MOVE_EDGE_PREV : GRID_MOVE_EDGE_NEXT;
 	*index = t;
 	return GRID_MOVE_MOVED;
 }
 
-static int clampIndex(const GridLayout* g, int index) {
-	if (index >= g->n)
-		index = g->n - 1;
-	return index < 0 ? 0 : index;
-}
-
-bool GridLayout_isTopRow(const GridLayout* g, int index) {
-	if (g->n <= 0)
-		return true;
-	int col, row;
-	GridLayout_cell(g, clampIndex(g, index), &col, &row);
-	return row == 0;
-}
-
-int GridLayout_bottomOf(const GridLayout* g, int index) {
-	if (g->n <= 0)
+int GridLayout_wrap(const GridLayout* g, int index, GridMove edge) {
+	int n = g->n;
+	if (n <= 0)
 		return 0;
-	int i = clampIndex(g, index);
+	if (index < 0)
+		index = 0;
+	if (index >= n)
+		index = n - 1;
 	int col, row;
-	GridLayout_cell(g, i, &col, &row);
-	int t = GridLayout_index(g, col, 1);
-	if (t >= 0)
-		return t;
-	// still with two rows: the empty cell under a short bottom row falls back to the last tile
-	if (!g->sliding && g->n > g->cols)
-		return g->n - 1;
-	return i;
+	GridLayout_cell(g, index, &col, &row);
+	if (edge == GRID_MOVE_EDGE_NEXT)
+		return row * g->cols; // the row's first tile
+	int last = row * g->cols + g->cols - 1;
+	return last < n ? last : n - 1; // the row's last tile
 }
 
 float GridLayout_tileK(const GridLayout* g) {

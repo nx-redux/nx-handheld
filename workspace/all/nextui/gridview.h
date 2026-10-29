@@ -9,13 +9,15 @@
 // band and the hint bar stay theirs.
 
 bool GridView_active(void); // GameList_currentStyle() == MENU_STYLE_GRID && !Home_active()
+// A game list's Grid header (Layouts > Top bar and Extra info shown) takes the title's line: the selected game has
+// achievements, its info fills both header lines. The top bar then draws no title.
+bool GridView_headerHidesTitle(void);
 // The body: plain black, the visible tiles, the cut-column shade and the edge fades (no hints).
 void GridView_render(SDL_Surface* screen, int lastScreen);
 // The D-pad only (moves, and at the root a fresh press past an end switches tab). Returns true when it handled a
 // D-pad press (sets *dirty, and *switched_tab when the tab changed); false for every other button.
 bool GridView_handleInput(unsigned long now, bool* dirty, bool* switched_tab);
 // UP on the tab row: select the bottom row's tile in the selection's column (GridLayout_bottomOf).
-void GridView_focusBottom(void);
 // The slide tween or the lit crossfade is running (one settled frame after each).
 bool GridView_animating(void);
 // Compose ahead (between frames: no redraw) the tiles the last frame's grid needs next, until `deadline` (SDL

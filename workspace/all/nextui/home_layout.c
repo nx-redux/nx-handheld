@@ -94,6 +94,12 @@ void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const 
 	l->strip_base[1] = bar + 73 * sk;
 	float y0 = bar + (l->strip_lines == 2 ? 103 * sk : l->strip_lines == 1 ? 71 * sk
 																		   : HOME_BOTTOM);
+	if (opts && opts->strip_base0 > 0 && l->strip_lines > 0) { // the strip in the top bar's row
+		l->strip_base[0] = opts->strip_base0;
+		l->strip_base[1] = opts->strip_base0 + 36 * sk;
+		float below = l->strip_base[l->strip_lines - 1] + 30 * sk;
+		y0 = below > bar + HOME_BOTTOM ? below : bar + HOME_BOTTOM;
+	}
 	l->top_y = y0;
 	l->pin_h = HOME_PIN_H;
 	l->k = l->wide ? wide_cols : 2;
@@ -109,7 +115,7 @@ void HomeLayout_computeOpts(float W, float H, float bar, int strip_lines, const 
 	// first page with a shorter top section)
 	const int srows = tool_rows;
 	int colgames = l->wide ? (ngames < HOME_WIDE_COL_GAMES ? ngames : HOME_WIDE_COL_GAMES) : 0;
-	float h = bottom - y0;
+	float h = H - bar - HOME_PAGE_BOTTOM - y0; // down to where the Grid's last row ends
 	l->top_h = h;
 	float sq = roundf((h - (srows - 1) * HOME_GAP) / srows), vgap = (h - srows * sq) / (srows - 1);
 	float x = R; // the next column's right edge, right to left
@@ -221,7 +227,7 @@ HomeMoveResult HomeLayout_move(const HomeLayout* l, HomeFocus* f, HomeDir dir) {
 			else if (i / k < (n - 1) / k)
 				f->pin = n - 1; // a shorter last row: its last pin
 			else
-				return HOME_MOVE_STAY;
+				return HOME_MOVE_STAY; // the last row: nothing under it
 			return HOME_MOVE_MOVED;
 		case HOME_DIR_UP:
 			if (i >= k)
@@ -244,28 +250,16 @@ HomeMoveResult HomeLayout_move(const HomeLayout* l, HomeFocus* f, HomeDir dir) {
 	case HOME_DIR_RIGHT:
 		return HOME_MOVE_EDGE_NEXT;
 	case HOME_DIR_UP:
-		return HOME_MOVE_TABS;
+		return HOME_MOVE_STAY;
 	case HOME_DIR_DOWN:
 		if (l->npins <= 0)
-			return HOME_MOVE_STAY;
+			return HOME_MOVE_STAY; // nothing under the top section
 		f->prev = f->top;
 		f->sec = HOME_SEC_PINS;
 		f->pin = rowUnder(l, l->top[f->top].r);
 		return HOME_MOVE_MOVED;
 	}
 	return HOME_MOVE_STAY;
-}
-
-void HomeLayout_fromTabs(const HomeLayout* l, HomeFocus* f) {
-	*f = HomeLayout_clampFocus(l, *f);
-	if (l->npins <= 0) {
-		f->sec = HOME_SEC_TOP;
-		return;
-	}
-	int n = l->npins, k = l->k;
-	f->prev = f->top;
-	f->pin = f->top == 0 ? (n - 1) / k * k : n - 1;
-	f->sec = HOME_SEC_PINS;
 }
 
 HomeFocus HomeLayout_clampFocus(const HomeLayout* l, HomeFocus f) {

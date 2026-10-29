@@ -7,7 +7,6 @@
 #include "imgloader.h"
 #include "launcher.h"
 #include "list_window.h"
-#include "menutabs.h"
 #include "types.h"
 #include "ui_keyboard.h"
 
@@ -30,7 +29,6 @@ bool Search_open(void) {
 	Content_setSearchQuery(query);
 	free(query);
 
-	MenuTabs_leaveFocus(); // B back to the root returns to the lit content (as openDirectory)
 	Directory* results = Directory_new(FAUX_SEARCH_PATH, 0);
 	ListWindow_fromTop(results->entries->count, GameList_rowCountAt(false), &results->start, &results->end);
 	Array_push(stack, results);

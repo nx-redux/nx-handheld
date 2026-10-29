@@ -409,6 +409,11 @@ void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y);
 // A button hint (glyph + label) at the UI scale: the button hint bar's.
 int GFX_getButtonWidth(char* hint, char* button);
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect);
+// A button hint with its glyph's shape alone (the art's name left off) shrunk to glyph_h px (never grown; a button with
+// no glyph art at the standard size),
+// from x: the label's line box centred on cy, a shrunk glyph standing on its baseline (glyph_h its capitals' height:
+// level with them). Returns its width; dst NULL only measures.
+int GFX_blitButtonScaled(char* hint, char* button, SDL_Surface* dst, int x, int cy, int glyph_h);
 // "Button layout" (Settings > System), read once per process at first poll.
 int PAD_layoutIsXbox(void);
 // Display label for a logical face/chord label ("A", "MENU+X", ...): the

@@ -3,6 +3,7 @@
 
 #include <math.h>
 #include "platform.h"
+#include "nx_edge.h"
 
 #define VOLUME_MIN 0
 #define VOLUME_MAX 20
@@ -165,7 +166,9 @@ enum {
 // the screen's (LIST-LAYOUT §10.1 had 14, which put the pill's rounded end off-screen). Page titles start there too.
 #define NX_LIST_INSET_DP 24
 #define NX_RICH_LIST_GAP_DP 14 // a rich list's thumbnail to its text (LIST-LAYOUT §10.2)
-#define NX_MENU_GUTTER_DP 24
+// The main menu's side margin (nx_edge.h NX_EDGE_DP, 16 dp): the tab row, Home, the Grid, the Carousel and Backdrop
+// captions, the Minimal's names, the List's pill edge, the game lists' page titles
+#define NX_MENU_GUTTER_DP NX_EDGE_DP
 
 ///////////////////////////////
 

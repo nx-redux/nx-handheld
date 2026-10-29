@@ -1,5 +1,8 @@
 #include "../../nextui/grid_layout.h"
 #include "../../nextui/row_model.h"
+#include "../nx_edge.h"
+
+#define E NX_EDGE_DP // the side margins (the tab row's)
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,129 +17,96 @@ static void make(float w, float h, int n, GridLayout* g) {
 
 static void device_vectors(void) {
 	GridLayout g;
+	// the columns the spec shape fits, the tiles then stretched across to the margins (their height kept)
 	make(478, 358, 20, &g); // Brick 3x
-	assert(near(g.tile_h, (358 - 2 * BAR - 22) / 2) && near(g.tile_w, g.tile_h * 140 / 154) && g.cols == 3);
-	make(896, 504, 20, &g); // SPS 2x: capped
-	assert(near(g.tile_h, 154) && near(g.tile_w, 140) && g.cols == 5);
+	assert(near(g.tile_h, (358 - 2 * BAR - 22) / 2) && g.cols == 3 && near(g.tile_w, (478 - 2 * E - 2 * 14) / 3));
+	make(896, 504, 20, &g); // SPS 2x: capped height
+	assert(near(g.tile_h, 154) && g.cols == 5 && near(g.tile_w, (896 - 2 * E - 4 * 14) / 5));
 	make(717, 538, 20, &g); // Brick 2x
 	assert(near(g.tile_h, 154) && g.cols == 4);
 	assert(near(g.rows_top, BAR + ((538 - 2 * BAR) - (2 * 154 + 14)) / 2)); // centred
 }
 
-static void still_placement(void) {
+// Row-major placement in a centred frame: the rows the body shows (two), scrolling past them a whole row at a time.
+static void rows_placement(void) {
 	GridLayout g;
 	int c, r;
-	make(896, 504, 7, &g); // 5 cols: still (7 <= 10), row-major
-	assert(!g.sliding);
+	make(896, 504, 7, &g); // 5 cols: two rows, no scroll
+	assert(g.cols == 5 && g.nrows == 2 && !g.sliding && g.rows == 2);
 	GridLayout_cell(&g, 4, &c, &r);
 	assert(c == 4 && r == 0);
 	GridLayout_cell(&g, 5, &c, &r);
 	assert(c == 0 && r == 1);
-	make(896, 504, 2, &g); // short row starts in the left column of the centred frame
-	assert(near(g.frame_x0, (896 - (5 * 140 + 4 * 14)) / 2));
-	make(896, 504, 10, &g);
-	assert(!g.sliding);
-	make(896, 504, 11, &g);
-	assert(g.sliding);
+	assert(GridLayout_index(&g, 2, 1) == -1 && GridLayout_index(&g, 1, 1) == 6 && GridLayout_index(&g, 5, 0) == -1);
+	assert(near(g.frame_x0, E) && near(GridLayout_columnX(&g, 4) + g.tile_w, 896 - E)); // margin to margin
+	assert(near(GridLayout_columnX(&g, 1), E + g.tile_w + 14));
+	make(896, 504, 3, &g); // a short single row: its natural width, centred
+	assert(near(g.tile_w, 140) && g.frame_x0 > E);
+	make(896, 504, 11, &g); // three rows: scrolls
+	assert(g.nrows == 3 && g.sliding && g.rows == 2 && GridLayout_rowCount(&g) == 3);
+	float step = g.tile_h + g.gap;
+	assert(near(GridLayout_rowY(&g, 1, 0), g.rows_top + step) && near(GridLayout_rowY(&g, 2, step), g.rows_top + step));
 }
 
-static void sliding_clamps_and_last_column(void) {
-	GridLayout g;
-	int c, r;
-	make(896, 504, 11, &g); // 6 columns, the last holds one tile
-	assert(GridLayout_columnCount(&g) == 6);
-	GridLayout_cell(&g, 3, &c, &r);
-	assert(c == 1 && r == 1);
-	assert(GridLayout_index(&g, 5, 1) == -1);
-	assert(near(GridLayout_columnX(&g, 0, GridLayout_offsetFor(&g, 0)), 24)); // first column on the gutter
-	float off = GridLayout_offsetFor(&g, 5);
-	assert(near(GridLayout_columnX(&g, 5, off) + 140, 896 - 24)); // last column on the far gutter
-	int i = 10;													  // the lone tile
-	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_STAY && i == 10);
-	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_EDGE_NEXT);
-	i = 9; // bottom of column 4 → RIGHT → column 5 has only a top: go there
-	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_MOVED && i == 10);
-	make(896, 504, 40, &g); // 20 columns: a middle column sits on the anchor (6 columns would clamp it)
-	float mid = GridLayout_offsetFor(&g, 3);
-	assert(near(GridLayout_columnX(&g, 3, mid), 24 + 0.55f * 140 + 14));
-}
-
-static void still_moves(void) {
+// The scroll: none while the rows all show; else the least that brings the selection's row in, in whole rows,
+// clamped to the last row's.
+static void scroll_offset(void) {
 	GridLayout g;
 	make(896, 504, 7, &g);
+	assert(GridLayout_offsetFor(&g, 1, 0) == 0);
+	make(896, 504, 40, &g); // 8 rows of 5
+	float step = g.tile_h + g.gap;
+	assert(near(GridLayout_offsetFor(&g, 0, 0), 0) && near(GridLayout_offsetFor(&g, 1, 0), 0));
+	assert(near(GridLayout_offsetFor(&g, 2, 0), step));				  // one row down: the next row under the shown two
+	assert(near(GridLayout_offsetFor(&g, 2, step), step));			  // shown: kept
+	assert(near(GridLayout_offsetFor(&g, 1, step), step));			  // shown (the top one): kept
+	assert(near(GridLayout_offsetFor(&g, 0, step), 0));				  // above: up to it
+	assert(near(GridLayout_offsetFor(&g, 7, 0), 6 * step));			  // the last row: the last two shown
+	assert(near(GridLayout_offsetFor(&g, 9, 0), 6 * step));			  // a stale row clamps to the end
+	assert(near(GridLayout_offsetFor(&g, 3, 1.4f * step), 2 * step)); // mid-scroll: back on a row
+}
+
+static void moves(void) {
+	GridLayout g;
+	make(896, 504, 12, &g); // 5 + 5 + 2
 	int i = 0;
+	assert(GridLayout_move(&g, &i, GRID_DIR_LEFT) == GRID_MOVE_EDGE_PREV && i == 0);
+	assert(GridLayout_move(&g, &i, GRID_DIR_UP) == GRID_MOVE_STAY && i == 0);
+	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_MOVED && i == 1);
+	i = 4; // the row's last: RIGHT is the edge (never the next row)
+	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_EDGE_NEXT && i == 4);
+	i = 5; // the second row's first: LEFT is the edge
 	assert(GridLayout_move(&g, &i, GRID_DIR_LEFT) == GRID_MOVE_EDGE_PREV);
-	i = 4;
-	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_MOVED && i == 5); // row order
 	i = 1;
 	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_MOVED && i == 6);
-	i = 3; // below col 3 is empty → the last tile
-	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_MOVED && i == 6);
-	i = 6;
-	assert(GridLayout_move(&g, &i, GRID_DIR_UP) == GRID_MOVE_MOVED && i == 1); // wrap within the column
+	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_MOVED && i == 11);
+	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_STAY && i == 11); // the last row
+	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_EDGE_NEXT);		 // the short row's last tile
+	i = 8;																		 // under col 3 the last row is empty: its last tile
+	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_MOVED && i == 11);
 	assert(GridLayout_move(&g, &i, GRID_DIR_UP) == GRID_MOVE_MOVED && i == 6);
-	i = 6;
-	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_EDGE_NEXT);
+	// no tab to switch to: a row's other end
+	assert(GridLayout_wrap(&g, 6, GRID_MOVE_EDGE_NEXT) == 5 && GridLayout_wrap(&g, 6, GRID_MOVE_EDGE_PREV) == 9);
+	assert(GridLayout_wrap(&g, 10, GRID_MOVE_EDGE_PREV) == 11 && GridLayout_wrap(&g, 99, GRID_MOVE_EDGE_NEXT) == 10);
 }
 
-static void visible_range(void) {
+// The rows touching the body, one more each side, clamped.
+static void visible_rows(void) {
 	GridLayout g;
-	make(896, 504, 400, &g); // 200 columns
+	make(896, 504, 400, &g); // 80 rows
+	float step = g.tile_h + g.gap;
 	int first, last;
-	GridLayout_visibleColumns(&g, GridLayout_offsetFor(&g, 100), &first, &last);
-	assert(first >= 97 && first <= 99 && last >= 105 && last <= 107); // on screen 99..105, +1 each side
-}
-
-// GridLayout_visibleColumns tests only the columns near the screen: the same range as the full scan it replaced, on
-// still and sliding grids, every anchored offset, offsets between and past the ends, and odd widths and gaps.
-static void visibleScan(const GridLayout* g, float offset, int* first, int* last) {
-	int c = GridLayout_columnCount(g);
-	int f = c, l = -1;
-	for (int i = 0; i < c; i++) {
-		float x = GridLayout_columnX(g, i, offset);
-		if (x + g->tile_w > 0 && x < g->screen_w) {
-			if (i < f)
-				f = i;
-			l = i;
-		}
-	}
-	if (l < 0) {
-		*first = 0;
-		*last = -1;
-		return;
-	}
-	*first = f > 0 ? f - 1 : 0;
-	*last = l < c - 1 ? l + 1 : c - 1;
-}
-
-static void visible_matches_scan(void) {
-	static const float screens[][2] = {{478, 358}, {896, 504}, {717, 538}, {1024, 576}, {320, 240}};
-	static const int ns[] = {0, 1, 2, 3, 7, 10, 11, 40, 401, 5000};
-	static const float muls[][2] = {{1.0f, 1.0f}, {1.5f, 1.0f}, {2.0f, 1.0f}, {1.37f, 0.6f}};
-	for (unsigned s = 0; s < sizeof(screens) / sizeof(screens[0]); s++)
-		for (unsigned k = 0; k < sizeof(ns) / sizeof(ns[0]); k++)
-			for (unsigned m = 0; m < sizeof(muls) / sizeof(muls[0]); m++) {
-				GridLayout g;
-				GridLayout_computeEx(screens[s][0], BAR, screens[s][1] - 2 * BAR, ns[k], muls[m][0], muls[m][1], &g);
-				int c = GridLayout_columnCount(&g);
-				float hi = GridLayout_offsetFor(&g, c - 1);
-				for (int col = -2; col <= c + 2; col += (c > 200 ? 37 : 1)) {
-					float offs[] = {GridLayout_offsetFor(&g, col), (col) * 13.7f, hi + col * 0.5f, -col * 21.3f};
-					for (unsigned o = 0; o < sizeof(offs) / sizeof(offs[0]); o++) {
-						int f0, l0, f1, l1;
-						visibleScan(&g, offs[o], &f0, &l0);
-						GridLayout_visibleColumns(&g, offs[o], &f1, &l1);
-						assert(f0 == f1 && l0 == l1);
-					}
-				}
-				int f0, l0, f1, l1;
-				visibleScan(&g, 1e9f, &f0, &l0);
-				GridLayout_visibleColumns(&g, 1e9f, &f1, &l1);
-				assert(f0 == f1 && l0 == l1);
-				visibleScan(&g, -1e9f, &f0, &l0);
-				GridLayout_visibleColumns(&g, -1e9f, &f1, &l1);
-				assert(f0 == f1 && l0 == l1);
-			}
+	// 40 and 41 shown; the rows peeking into the body's margins above and below them (the shown two are centred),
+	// and one more each side
+	GridLayout_visibleRows(&g, 40 * step, &first, &last);
+	assert(first == 38 && last == 43);
+	GridLayout_visibleRows(&g, 0, &first, &last);
+	assert(first == 0 && last == 3);
+	for (int r = first; r <= last; r++) // each one touches the body, or is the one past it
+		assert(GridLayout_rowY(&g, r, 0) < g.body_top + g.body_h + step && GridLayout_rowY(&g, r, 0) + g.tile_h > g.body_top - step);
+	make(896, 504, 3, &g); // one row
+	GridLayout_visibleRows(&g, 0, &first, &last);
+	assert(first == 0 && last == 0);
 }
 
 static void empty(void) {
@@ -144,35 +114,11 @@ static void empty(void) {
 	make(478, 358, 0, &g);
 	int i = 0;
 	assert(GridLayout_move(&g, &i, GRID_DIR_RIGHT) == GRID_MOVE_EDGE_NEXT); // nothing to move to: edge
+	assert(GridLayout_move(&g, &i, GRID_DIR_DOWN) == GRID_MOVE_STAY);
 	int first, last;
-	GridLayout_visibleColumns(&g, 0, &first, &last); // a still frame: its columns exist but hold nothing
-	for (int c = first; c <= last; c++)
-		assert(GridLayout_index(&g, c, 0) == -1 && GridLayout_index(&g, c, 1) == -1);
-	// columns all scrolled off screen: an empty range too, never the whole set
-	make(478, 358, 40, &g);
-	GridLayout_visibleColumns(&g, 100000.0f, &first, &last);
+	GridLayout_visibleRows(&g, 0, &first, &last);
 	assert(first == 0 && last == -1);
-}
-
-// The main menu's tab-row focus: UP from the top row enters it; UP on it wraps to the bottom.
-static void tab_focus_rows(void) {
-	GridLayout g;
-	make(896, 504, 7, &g); // still, 5 cols: 0-4 on top, 5-6 under
-	assert(GridLayout_isTopRow(&g, 0) && GridLayout_isTopRow(&g, 4));
-	assert(!GridLayout_isTopRow(&g, 5) && !GridLayout_isTopRow(&g, 6));
-	assert(GridLayout_bottomOf(&g, 1) == 6); // under col 1 is 6
-	assert(GridLayout_bottomOf(&g, 0) == 5);
-	assert(GridLayout_bottomOf(&g, 3) == 6); // empty under col 3: the last tile
-	assert(GridLayout_bottomOf(&g, 6) == 6);
-	make(896, 504, 3, &g); // still, one row: the bottom is the top
-	assert(GridLayout_isTopRow(&g, 2) && GridLayout_bottomOf(&g, 2) == 2 && GridLayout_bottomOf(&g, 0) == 0);
-	make(896, 504, 11, &g); // sliding, column-major, the last column holds one tile (10)
-	assert(GridLayout_isTopRow(&g, 0) && GridLayout_isTopRow(&g, 4) && !GridLayout_isTopRow(&g, 5));
-	assert(GridLayout_bottomOf(&g, 4) == 5 && GridLayout_bottomOf(&g, 0) == 1);
-	assert(GridLayout_bottomOf(&g, 10) == 10 && GridLayout_isTopRow(&g, 10));
-	assert(GridLayout_bottomOf(&g, 99) == 10); // a stale index clamps
-	make(478, 358, 0, &g);					   // no tiles
-	assert(GridLayout_isTopRow(&g, 0) && GridLayout_bottomOf(&g, 0) == 0);
+	assert(GridLayout_wrap(&g, 3, GRID_MOVE_EDGE_NEXT) == 0);
 }
 
 // The two screens in dp (px / (FIXED_SCALE × 30/42)): the Brick 1024×768 at 3, the Smart Pro S 1280×720 at 2.
@@ -216,14 +162,12 @@ static void still_centring(void) {
 // The selected tile's "N games" and a collection's name, at the Grid tile scale k (tile_w / 140).
 static void counts_and_names(void) {
 	GridLayout g;
-	make(BRICK_W, BRICK_H, 9, &g);
-	float kb = GridLayout_tileK(&g);
-	assert(fabsf(kb - 117.2727f / 140) < 0.001f); // 0.838
-	make(SPS_W, SPS_H, 9, &g);
-	float ks = GridLayout_tileK(&g);
-	assert(near(ks, 1.0f));
+	make(BRICK_W, BRICK_H, 9, &g); // k: the stretched tile's width over the spec's 140, never above 1
+	assert(near(GridLayout_tileK(&g) * 140, g.tile_w) || near(GridLayout_tileK(&g), 1.0f));
 	make(717, 538, 9, &g); // capped tile: never above 1
 	assert(near(GridLayout_tileK(&g), 1.0f));
+	// the sizes at a tile scale of 0.838 (a 117 dp tile) and 1
+	float kb = 117.2727f / 140, ks = 1.0f;
 	// Consoles 13 sp, Collections 14 sp, × k, floored at 10 sp
 	assert(fabsf(GridLayout_countSp(GRID_LOGO_COUNT_SP, kb) - 10.89f) < 0.01f);
 	assert(fabsf(GridLayout_countSp(GRID_COLL_COUNT_SP, kb) - 11.73f) < 0.01f);
@@ -247,16 +191,16 @@ static void consoles_wide(void) {
 	GridLayout n, w;
 	make(BRICK_W, BRICK_H, 9, &n);
 	GridLayout_computeWide(BRICK_W, BAR, BRICK_H - 2 * BAR, 9, 2.0f, &w);
-	// two wide tiles don't fit across the Brick at 3x: never one column, the tile shrinks (shape kept) to two across
-	assert(w.cols == 2 && w.sliding && near(w.tile_w, (BRICK_W - 2 * 24 - 14) / 2));
-	assert(near(w.tile_w / w.tile_h, 2 * n.tile_w / n.tile_h) && w.tile_w < 2 * n.tile_w);
+	// two wide tiles don't fit across the Brick at 3x: never one column, two across stretched to the margins, the
+	// height kept (the rows still fill the body)
+	assert(w.cols == 2 && w.sliding && near(w.tile_w, (BRICK_W - 2 * E - 14) / 2) && near(w.tile_h, n.tile_h));
 	assert(GridLayout_tileK(&w) < GridLayout_tileK(&n));
 	// the Brick Pro at 3x (its bars 2x-sized, so a taller body), two collections: side by side, not stacked
 	GridLayout_computeSized(BRICK_W, BAR * 2 / 3, BRICK_H - 2 * BAR * 2 / 3, 2, 2.0f, 2.0f / 3.0f, 0.85f, &w);
 	assert(w.cols == 2 && w.rows == 1 && !w.sliding);
 	make(SPS_W, SPS_H, 9, &n);
 	GridLayout_computeWide(SPS_W, BAR, SPS_H - 2 * BAR, 9, 2.0f, &w);
-	assert(near(w.tile_w, 280) && near(w.tile_h, n.tile_h) && w.sliding && w.cols == 2);
+	assert(near(w.tile_w, (SPS_W - 2 * E - 14) / 2) && near(w.tile_h, n.tile_h) && w.sliding && w.cols == 2);
 	assert(near(GridLayout_tileK(&w), 1.0f));
 	GridLayout_computeWide(SPS_W, BAR, SPS_H - 2 * BAR, 3, 2.0f, &w); // a still row of three: two columns, two rows
 	assert(!w.sliding && w.cols == 2 && w.rows == 2);
@@ -265,11 +209,7 @@ static void consoles_wide(void) {
 // A console without a logo draws as a collection tile (§8.4): the name from 20 sp × k, its count at Consoles' 13 sp × k
 // (floored at 10 sp) 4 dp under it, so the name's floor follows that smaller count.
 static void logoless_console(void) {
-	GridLayout g;
-	make(BRICK_W, BRICK_H, 9, &g);
-	float kb = GridLayout_tileK(&g);
-	make(SPS_W, SPS_H, 9, &g);
-	float ks = GridLayout_tileK(&g);
+	float kb = 117.2727f / 140, ks = 1.0f; // as counts_and_names: a 117 dp tile and a full one
 	float cb = GridLayout_countSp(GRID_LOGO_COUNT_SP, kb), cs = GridLayout_countSp(GRID_LOGO_COUNT_SP, ks);
 	assert(fabsf(cb - 10.89f) < 0.01f && near(cs, 13.0f));
 	float sb = GRID_COLL_NAME_SP * kb, ss = GRID_COLL_NAME_SP * ks;
@@ -377,31 +317,25 @@ static void logo_block_centred(void) {
 	assert(ly >= 43 - 0.01f && cy + 30 <= 230 - 43 + 0.01f);
 }
 
-// Game lists on the 4:3 panels (GRID_GAME_COLS 2): two columns across, the tiles widened at their height, the selected
-// column centred while sliding, the first and last pairs flush with the gutters; without fit_cols, as before (dp).
+// Game lists on the 4:3 panels (GRID_GAME_COLS 2): two columns across, the tiles widened at their height, flush with
+// the margins, the rows scrolling; without fit_cols the shape's columns, stretched to the margins too (dp).
 static void fit_two_columns(void) {
 	GridLayout a, f;
 	float body = 358 - 2 * BAR; // Brick 3x
 	GridLayout_computeSized(478, BAR, body, 40, 1.5f, 1.0f, 1.0f, &a);
 	GridLayout_computeFit(478, BAR, body, 40, 1.5f, 1.0f, 1.0f, 2, &f);
-	assert(!a.centred && a.cols == 2 && a.tile_w < (478 - 48 - 14) / 2.0f); // 2 1/2 across today
-	assert(f.centred && f.cols == 2 && near(f.tile_h, a.tile_h) && near(f.tile_w, (478 - 48 - 14) / 2.0f));
-	assert(f.sliding && f.rows == 2);
-	assert(near(GridLayout_columnX(&f, 0, GridLayout_offsetFor(&f, 0)), 24)); // the first pair flush left
-	float off = GridLayout_offsetFor(&f, 5);
-	assert(near(GridLayout_columnX(&f, 5, off) + f.tile_w / 2, 478 / 2.0f));					   // centred
-	assert(GridLayout_columnX(&f, 4, off) + f.tile_w > 0 && GridLayout_columnX(&f, 6, off) < 478); // neighbours peek in
-	int last = GridLayout_columnCount(&f) - 1;
-	off = GridLayout_offsetFor(&f, last);
-	assert(near(GridLayout_columnX(&f, last, off) + f.tile_w, 478 - 24)); // the last pair flush right
+	assert(a.cols == 2 && near(a.tile_w, (478 - 2 * E - 14) / 2.0f)); // the shape's 2 across, stretched to the margins
+	assert(f.centred && f.cols == 2 && near(f.tile_h, a.tile_h) && near(f.tile_w, (478 - 2 * E - 14) / 2.0f));
+	assert(f.sliding && f.rows == 2 && f.nrows == 20);
+	assert(near(GridLayout_columnX(&f, 0), E) && near(GridLayout_columnX(&f, 1) + f.tile_w, 478 - E)); // flush
 	// Consoles' shape (2x wide) narrowed to the same two across, at the same height as a game list's
 	GridLayout c;
 	GridLayout_computeFit(478, BAR, body, 40, 2.0f, 1.0f, 1.0f, 2, &c);
 	assert(c.centred && c.cols == 2 && near(c.tile_w, f.tile_w) && near(c.tile_h, f.tile_h));
-	// none asked: untouched
+	// none asked: the shape's columns, stretched the same way
 	GridLayout_computeFit(896, BAR, 504 - 2 * BAR, 40, 1.5f, 1.0f, 1.0f, 0, &f);
 	GridLayout_computeSized(896, BAR, 504 - 2 * BAR, 40, 1.5f, 1.0f, 1.0f, &a);
-	assert(!f.centred && f.cols == a.cols && near(f.tile_w, a.tile_w));
+	assert(f.cols == a.cols && near(f.tile_w, a.tile_w) && near(GridLayout_columnX(&f, 0), E));
 }
 
 int main(void) {
@@ -415,12 +349,10 @@ int main(void) {
 	collection_text();
 	game_list_centring();
 	count_fits_tile();
-	tab_focus_rows();
-	still_placement();
-	sliding_clamps_and_last_column();
-	still_moves();
-	visible_range();
-	visible_matches_scan();
+	rows_placement();
+	scroll_offset();
+	moves();
+	visible_rows();
 	empty();
 	printf("test_grid_layout: ok\n");
 	return 0;

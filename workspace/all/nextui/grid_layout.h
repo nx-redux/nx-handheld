@@ -5,16 +5,20 @@
 
 // grid_layout.h — Grid geometry (dp), still/sliding placement, slide offset, moves. SDL-free.
 typedef struct {
-	float screen_w, body_top, body_h; // body = between the header and the hint bar
+	float screen_w, body_top, body_h; // body = between the top bar and the bottom bar
 	float tile_w, tile_h, gap, gutter;
 	float width_mul; // tile_w over the spec shape's (Consoles and Collections 2, game lists 1.5); text scales by the spec
 	int cols, n;
-	bool sliding;
-	int rows;		// the rows in use: a sliding grid 2; a still one 1 (n <= cols) or 2
-	float rows_top; // y of the top row: the rows in use centred in the body as a block
-	float frame_x0; // still: x of column 0 (frame centred); sliding: unused
-	bool centred;	// GridLayout_computeFit's columns: a sliding grid keeps the selected column centred
+	int nrows;		// ceil(n / cols): the rows, row-major
+	bool sliding;	// more rows than the body shows: the rows scroll up and down, a whole row at a time
+	int rows;		// the rows the body shows: 1 (n <= cols) or 2
+	float rows_top; // y of the top shown row (offset 0): the shown rows centred in the body as a block
+	float frame_x0; // x of column 0: the columns centred across
+	bool centred;	// GridLayout_computeFit's columns (exactly fit_cols across)
 } GridLayout;
+
+// The tiles fill the body two rows high (row-major, the columns centred across); with more rows than that the rows
+// scroll vertically (nx-mobile's Grid: rows fill the band, snap to a row, columns follow the width).
 void GridLayout_compute(float screen_w, float body_top, float body_h, int n, GridLayout* out);
 // The same with tiles width_mul times the spec shape's width (height unchanged).
 void GridLayout_computeWide(float screen_w, float body_top, float body_h, int n, float width_mul, GridLayout* out);
@@ -25,19 +29,20 @@ void GridLayout_computeEx(float screen_w, float body_top, float body_h, int n, f
 void GridLayout_computeSized(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
 							 float size_mul, GridLayout* out);
 // The same with the tiles' width set (their height kept) so exactly fit_cols columns span the screen between the
-// gutters (0: as many as the shape fits). A sliding grid then centres the selected column, a slice of each neighbour
-// showing, the ends flush with the gutters.
+// gutters (0: as many as the shape fits).
 void GridLayout_computeFit(float screen_w, float body_top, float body_h, int n, float width_mul, float gap_mul,
 						   float size_mul, int fit_cols, GridLayout* out);
-void GridLayout_cell(const GridLayout* g, int index, int* col, int* row); // still: row-major; sliding: column-major
+void GridLayout_cell(const GridLayout* g, int index, int* col, int* row); // row-major
 int GridLayout_index(const GridLayout* g, int col, int row);			  // -1 when empty
-int GridLayout_columnCount(const GridLayout* g);						  // sliding: ceil(n/2); still: cols
-// Sliding: the content x-offset (dp) that anchors `col`, clamped to the ends. Still: 0.
-float GridLayout_offsetFor(const GridLayout* g, int col);
-// x (dp, screen) of a column's left edge for a given content offset.
-float GridLayout_columnX(const GridLayout* g, int col, float offset);
-// The on-screen columns +1 each side, clamped; loop `for (c = first; c <= last; c++)`. Empty (0, -1) when none.
-void GridLayout_visibleColumns(const GridLayout* g, float offset, int* first, int* last);
+int GridLayout_rowCount(const GridLayout* g);
+// The scroll (dp, whole rows) that shows `row`, moved from `current` as little as it takes; 0 when the rows all show.
+float GridLayout_offsetFor(const GridLayout* g, int row, float current);
+// x (dp, screen) of a column's left edge.
+float GridLayout_columnX(const GridLayout* g, int col);
+// y (dp, screen) of a row's top for a given scroll.
+float GridLayout_rowY(const GridLayout* g, int row, float offset);
+// The rows touching the body +1 each side, clamped; loop `for (r = first; r <= last; r++)`. Empty (0, -1) when none.
+void GridLayout_visibleRows(const GridLayout* g, float offset, int* first, int* last);
 typedef enum { GRID_DIR_UP,
 			   GRID_DIR_DOWN,
 			   GRID_DIR_LEFT,
@@ -46,21 +51,14 @@ typedef enum { GRID_MOVE_STAY,
 			   GRID_MOVE_MOVED,
 			   GRID_MOVE_EDGE_PREV,
 			   GRID_MOVE_EDGE_NEXT } GridMove;
+// UP/DOWN a row in the column (a shorter last row: its last tile; past the first or last row: STAY); LEFT/RIGHT along
+// the row, past its first or last tile the edge (GRID_MOVE_EDGE_PREV / _NEXT: the main menu switches tab).
 GridMove GridLayout_move(const GridLayout* g, int* index, GridDir dir);
-// Past an end (GRID_MOVE_EDGE_PREV / _NEXT) with no tab to switch to: the tile at the other end. Still: the last or the
-// first tile; sliding: the same row in the last or the first column (its top when that row is empty). 0 with no tiles.
+// Past a row's end with no tab to switch to: the other end of the same row. 0 with no tiles.
 int GridLayout_wrap(const GridLayout* g, int index, GridMove edge);
-// The tile is in the top row (row 0; a sliding grid's column top). True with no tiles: the main menu's UP from the top of
-// a tab's content focuses the tab row.
-bool GridLayout_isTopRow(const GridLayout* g, int index);
-// UP on the tab row wraps here: the bottom row in the tile's column, else the last tile (still); the bottom of its
-// column (sliding). A one-row grid keeps the tile. Clamps a stale index; 0 with no tiles.
-int GridLayout_bottomOf(const GridLayout* g, int index);
-
 // The main-menu tiles' selected look (sub-project 8, "Logo"): the tile stays dark with a 1.5 dp outline at 70% of the
 // accent, its logo / tool icon / name in the accent; no fill. Game tiles keep their 3 dp accent ring.
 #define GRID_SEL_OUTLINE_DP 1.5f
-#define GRID_SEL_OUTLINE_ALPHA 179 // 70%
 // "N games" on the selected tile, in the accent: Consoles 13 sp, 6 dp under the logo as drawn; Collections 14 sp, 4 dp
 // under the name. Sizes × the tile scale (GridLayout_countSp); the gaps are unscaled (as the Carousel's).
 #define GRID_LOGO_COUNT_SP 13.0f

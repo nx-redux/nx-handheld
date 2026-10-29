@@ -26,8 +26,8 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 					 IndicatorType show_setting, SDL_Surface* blackBG);
 
 // Draw the info band (fade, scroll arrows, the selected row's info text) onto LAYER_OVERLAY (above the
-// thumbnail layer). GameList_render draws the band itself (inside the tab-focus dim); the main loop calls this
-// after a page slide, which clears that layer. Draws nothing while the content is dimmed or the context menu is open.
+// thumbnail layer). GameList_render draws the band itself; the main loop calls this after a page slide, which clears
+// that layer. Draws nothing while the context menu is open.
 void GameList_renderInfoLayer(void);
 // The main-menu tab whose look the current list takes (MenuTabId), or -1 for a game list (or folder): the current tab
 // at the root, or the hidden tab whose list the context menu pushed over it (launcher.c pushTabOverTab), which keeps

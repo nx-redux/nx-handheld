@@ -2019,13 +2019,13 @@ static void build_menu_tree(const DeviceInfo* dev) {
 #undef LAYOUTS_ORIENT_ROW
 
 	LAYOUTS_CYCLE_ROW(
-		"Extra info", "Play time, achievements and Home's monthly stats, in the menus and the Game Switcher.",
+		"Extra info", "A game's play time and achievements, in the menus and the Game Switcher.",
 		hide_show_labels, 2, on_off_values, get_extra_info, set_extra_info, reset_extra_info);
 	LAYOUTS_CYCLE_ROW(
-		"Page title", "The tabs and a game list's title. Hidden, L1/R1 still switch tabs.",
+		"Top bar", "Page titles, Home's stats and the console's name. The status icons always show.",
 		hide_show_labels, 2, on_off_values, get_page_title, set_page_title, reset_page_title);
 	LAYOUTS_CYCLE_ROW(
-		"Button hints", "Hidden, List game lists and the Game Switcher show play time and achievements.",
+		"Bottom bar", "The tabs and the button hints. Hidden, L1/R1 still switch tabs; Lists show play time there.",
 		hide_show_labels, 2, on_off_values, get_button_hints, set_button_hints, reset_button_hints);
 	LAYOUTS_CYCLE_ROW(
 		"Default view", "The initial view to show on boot",

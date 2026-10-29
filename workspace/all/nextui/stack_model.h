@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 
+#include "../common/nx_edge.h"
+
 // stack_model.h — the Vertical orientation's stack (LIST-LAYOUT §8f.2): the horizontal row (row_model.h) stood on end,
 // the same continuous position with offsets on Y. Geometry in dp, the d-pad's rules, and nothing else. SDL-free.
 //
@@ -15,10 +17,10 @@ typedef enum { STACK_MAIN_CONSOLES, // the logo slot
 			   STACK_GAME_BACKDROP,				// box art over the picture (§8f.5)
 			   STACK_GAME_CAROUSEL } StackKind; // the game tiles on black (§8f.6)
 
-#define STACK_GUTTER_DP 24.0f	 // a slot's width is held to body width − 2 · this
-#define STACK_EDGE_FADE_DP 20.0f // to transparent at the body's top and bottom (plain-black stacks)
-#define STACK_SLIDE_MS 300		 // the position's tween (UI_easeStandard), as the row's
-#define STACK_HIDE_D 4.0f		 // items fade out over 3..4 steps and are hidden from 4 on
+#define STACK_GUTTER_DP NX_EDGE_DP // a slot's width is held to body width − 2 · this (the side margin, 16 dp)
+#define STACK_EDGE_FADE_DP 20.0f   // to transparent at the body's top and bottom (plain-black stacks)
+#define STACK_SLIDE_MS 300		   // the position's tween (UI_easeStandard), as the row's
+#define STACK_HIDE_D 4.0f		   // items fade out over 3..4 steps and are hidden from 4 on
 
 // One stack's sizes (dp): the selected slot w × h, the neighbour scale, the gap between slots, and cap, the room kept
 // under the selection (the selection and what hangs under it centred as one block). extra_up and extra_down: the
@@ -30,23 +32,23 @@ typedef struct {
 	float side_alpha; // the neighbours' alpha × this, eased in over the first step (Consoles 0.65); 0: no extra fade
 } StackSizes;
 
-// The main-menu Carousel-Vertical's slots (§8f.3), the width held to body_w − 2 · 24 dp. Consoles is sized by the
+// The main-menu Carousel-Vertical's slots (§8f.3), the width held to body_w − 2 · the 16 dp side margin. Consoles is sized by the
 // screen alone, like the horizontal Carousel's logo slot (u = body_w / 960, so its px are the same at every UI scale):
 // 490 u × 149 u, s 0.5, gap max(30 u, 16), cap 26, neighbours at 0.65 × the frameless fade. Collections min(400, ·) × 100, s 0.5,
 // gap 14; Tools 150 × 140, s 0.6, gap 10 (dp, unscaled).
 StackSizes Stack_mainSizes(StackKind k, float body_w);
 
 // The game-list stacks' side arrangement (§8f.4, landscape family): h = round(want), w = round(h · ar), the stack's
-// centre x = round(0.32 · width), the caption's left edge cap_x = x + w/2 + 32, its right margin 24. The guard keeps
-// the caption at least 40% of the width: with R = width − 24 − 32 − 0.4 · width, a w > R − gutter becomes
+// centre x = round(0.32 · width), the caption's left edge cap_x = x + w/2 + 32, its right margin the 16 dp side margin. The guard keeps
+// the caption at least 40% of the width: with R = width − 16 − 32 − 0.4 · width, a w > R − gutter becomes
 // floor(R − gutter) and h = round(w / ar); x is clamped to [gutter + w/2, R − w/2]. All dp; ar = ar_w : ar_h (worked
 // in double, as the mockup's JavaScript: 234 · 340/240 = 331.5 rounds up).
 // Stack_gameSizes then gives both stacks equal side margins M = STACK_CAROUSEL_MARGIN_DP (48), held to what keeps the
-// caption at 40% of the width and never under the 24 dp gutter: the stack's left edge at M (x = M + w/2), the
+// caption at 40% of the width and never under the 16 dp side margin: the stack's left edge at M (x = M + w/2), the
 // caption's right margin M.
 #define STACK_SIDE_X_SHARE 0.32f
 #define STACK_SIDE_CAP_GAP_DP 32.0f
-#define STACK_SIDE_CAP_MARGIN_DP 24.0f
+#define STACK_SIDE_CAP_MARGIN_DP NX_EDGE_DP
 #define STACK_SIDE_CAP_MIN_SHARE 0.4f
 #define STACK_CAROUSEL_MARGIN_DP 48.0f // a game-list stack's left margin = its caption's right margin, at most
 #define STACK_CAPTION_LINE_GAP_DP 3.0f // between the side caption's rows
@@ -55,7 +57,7 @@ typedef struct {
 	float x;			  // the stack's centre, from the screen's left
 	float cap_x, cap_w;	  // the caption's left edge and width (to the right margin)
 	bool guarded;		  // the 40% guard took the width
-	float margin;		  // the caption's right margin (dp): 24, a game list's its stack's left margin
+	float margin;		  // the caption's right margin (dp): the 16 dp side margin, a game list's its stack's left margin
 } StackSide;
 StackSide Stack_sideGeom(float want, int ar_w, int ar_h, float width);
 // The caption's left edge on screen (px), from the drawn stack: the stack's centre cx_px + its selected item's half
@@ -69,7 +71,7 @@ void Stack_mirrorSide(int screen_w, int* cx_px, int* cap_x_px, int* cap_w_px, in
 
 // Equal side margins M (the game lists' Carousel and Backdrop): the stack's left edge at M (x = M + w/2), the
 // caption's right margin M; M = STACK_CAROUSEL_MARGIN_DP, held to what keeps the caption at 40% of the width and
-// never under the 24 dp gutter.
+// never under the 16 dp side margin.
 void Stack_equalMargins(StackSide* sd, float width);
 
 // A game-list stack's wanted height (dp): Backdrop clamp(0.58 · body, 110, 320), Carousel clamp(0.55 · body, 100, 240).
@@ -123,16 +125,15 @@ float Stack_edgeAlpha(float y, float body_h, float fade);
 int Stack_round(float v);
 
 // The d-pad (§8f.2). UP/DOWN step one item; past an end a fresh press wraps around (UP on the first item to the last,
-// DOWN on the last to the first, as the List; 2026-10-06, UP no longer goes to the tab row), a held key stops. On the
-// main menu an empty tab's UP goes to the tab row on a fresh press, and LEFT/RIGHT switch tab on a fresh press (held:
-// nothing; L1/R1 stay the root's own). In a game list LEFT/RIGHT do nothing.
+// DOWN on the last to the first, as the List), a held key stops; an empty tab's UP/DOWN do nothing. On the main menu
+// LEFT/RIGHT switch tab on a fresh press (held: nothing; L1/R1 stay the root's own). In a game list LEFT/RIGHT do
+// nothing.
 typedef enum { STACK_KEY_UP,
 			   STACK_KEY_DOWN,
 			   STACK_KEY_LEFT,
 			   STACK_KEY_RIGHT } StackKey;
 typedef enum { STACK_NAV_NONE,		// nothing moves (the key is still the stack's)
 			   STACK_NAV_MOVE,		// the selection moves to .sel
-			   STACK_NAV_TAB_ROW,	// focus goes to the tab row
 			   STACK_NAV_SWITCH_TAB // the tab steps by .dir (−1 / +1)
 } StackNavAction;
 typedef struct {
@@ -141,8 +142,5 @@ typedef struct {
 	int dir; // SWITCH_TAB: −1 or +1
 } StackNav;
 StackNav Stack_navigate(int n, int sel, StackKey key, bool fresh, bool main_menu);
-
-// UP on the tab row wraps to the stack's last item (§5, as the List): n − 1, or 0 for an empty tab.
-int Stack_fromTabRow(int n);
 
 #endif

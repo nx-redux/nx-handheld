@@ -17,36 +17,37 @@ static int rectIs(HomeRect r, float x, float y, float w, float h) {
 
 static void brick_strip_and_tools(void) {
 	HomeLayout l;
-	// two strip lines, 3 tools, 2 pins: the top section down to the bottom whatever the pins (187..650, 463), its
-	// squares four rows of round(373 / 4) = 93 (30.3 apart) at x 880, Continue 799 wide
+	// two strip lines, 3 tools, 2 pins: the top section down to 13 over the hint bar whatever the pins (187..671, 484),
+	// its squares four rows of round(394 / 4) = 99 (29.3 apart) at x 874, Continue 793 wide
 	HomeLayout_compute(1024, 768, BAR, 2, 2, 3, &l);
 	assert(!l.wide && l.k == 2 && near(l.strip_x, 54) && near(l.strip_base[0], 121) && near(l.strip_base[1], 157));
-	assert(near(l.top_y, 187) && near(l.top_h, 463) && near(l.square, 93) && near(l.glyph, 54));
-	assert(l.ntop == 4 && l.top[0].kind == HOME_TILE_CONTINUE && rectIs(l.top[0].r, 51, 187, 799, 463));
-	assert(l.top[1].kind == HOME_TILE_TOOL && rectIs(l.top[1].r, 880, 187, 93, 93));
-	assert(near(l.top[2].r.y, 187 + 93 + 91.0f / 3) && near(l.top[3].r.y, 187 + 2 * (93 + 91.0f / 3)));
+	assert(near(l.top_y, 187) && near(l.top_h, 484) && near(l.square, 99) && near(l.glyph, 57));
+	assert(l.ntop == 4 && l.top[0].kind == HOME_TILE_CONTINUE && rectIs(l.top[0].r, 51, 187, 793, 484));
+	assert(l.top[1].kind == HOME_TILE_TOOL && rectIs(l.top[1].r, 874, 187, 99, 99));
+	assert(near(l.top[2].r.y, 187 + 99 + 88.0f / 3) && near(l.top[3].r.y, 187 + 2 * (99 + 88.0f / 3)));
 	// the pins below it, past the screen's end: two 446 wide at x 51 and 527, y 684 (the hint bar's top, 34 under 650), 249 tall: two rows
 	// (34 apart) from 118 (34 under the tab row) to 650
 	assert(l.npins == 2 && rectIs(l.pins[0].r, 51, 684, 446, 249) && rectIs(l.pins[1].r, 527, 684, 446, 249));
 	assert(near(l.page_h, 684 + 249 + 34 + BAR));
-	// one strip line: baseline 124, top 155..650 (495), squares 101 at x 872, Continue 791
+	// one strip line: baseline 124, top 155..671 (516), squares round(426 / 4) = 107 at x 866, Continue 785
 	HomeLayout_compute(1024, 768, BAR, 1, 2, 3, &l);
-	assert(near(l.strip_base[0], 124) && near(l.top_h, 495) && near(l.square, 101));
-	assert(rectIs(l.top[0].r, 51, 155, 791, 495) && rectIs(l.top[1].r, 872, 155, 101, 101));
+	assert(near(l.strip_base[0], 124) && near(l.top_h, 516) && near(l.square, 107));
+	assert(rectIs(l.top[0].r, 51, 155, 785, 516) && rectIs(l.top[1].r, 866, 155, 107, 107));
 	// no tools: Continue the full 922
 	HomeLayout_compute(1024, 768, BAR, 2, 2, 0, &l);
-	assert(l.ntop == 1 && rectIs(l.top[0].r, 51, 187, 922, 463) && l.square == 0);
-	// 1 tool: from the top; 4 tools: one column of 4; 5 tools: a second column, the first full, Continue 676
+	assert(l.ntop == 1 && rectIs(l.top[0].r, 51, 187, 922, 484) && l.square == 0);
+	// 1 tool: from the top; 4 tools: one column of 4 (the 4th 572..671); 5 tools: a second column (x 745), the first
+	// full, Continue 664
 	HomeLayout_compute(1024, 768, BAR, 2, 2, 1, &l);
-	assert(l.ntop == 2 && rectIs(l.top[1].r, 880, 187, 93, 93));
+	assert(l.ntop == 2 && rectIs(l.top[1].r, 874, 187, 99, 99));
 	HomeLayout_compute(1024, 768, BAR, 2, 2, 4, &l);
-	assert(l.ntop == 5 && rectIs(l.top[4].r, 880, 557, 93, 93));
+	assert(l.ntop == 5 && rectIs(l.top[4].r, 874, 572, 99, 99));
 	HomeLayout_compute(1024, 768, BAR, 2, 2, 5, &l);
-	assert(l.ntop == 6 && rectIs(l.top[0].r, 51, 187, 676, 463) && rectIs(l.top[1].r, 757, 187, 93, 93));
-	assert(l.top[5].kind == HOME_TILE_TOOL && l.top[5].ref == 4 && rectIs(l.top[5].r, 880, 187, 93, 93));
-	// no strip (fresh): the top from 118 (HOME_BOTTOM under the bar, as the bottom over it); no pins: down to 650
+	assert(l.ntop == 6 && rectIs(l.top[0].r, 51, 187, 664, 484) && rectIs(l.top[1].r, 745, 187, 99, 99));
+	assert(l.top[5].kind == HOME_TILE_TOOL && l.top[5].ref == 4 && rectIs(l.top[5].r, 874, 187, 99, 99));
+	// no strip (fresh): the top from 118 (HOME_BOTTOM under the bar); no pins: down to 671 (13 over the hint bar)
 	HomeLayout_compute(1024, 768, BAR, 0, 0, 0, &l);
-	assert(near(l.top_y, 118) && near(l.top_h, 650 - 118) && l.npins == 0);
+	assert(near(l.top_y, 118) && near(l.top_h, 671 - 118) && l.npins == 0);
 	// more pins: rows of two from 684, the page grows
 	HomeLayout_compute(1024, 768, BAR, 2, 5, 0, &l);
 	assert(l.npins == 5 && rectIs(l.pins[2].r, 51, 967, 446, 249) && rectIs(l.pins[4].r, 51, 1250, 446, 249));
@@ -55,27 +56,27 @@ static void brick_strip_and_tools(void) {
 
 static void sps_grid(void) {
 	HomeLayout l;
-	// 1920 x 1080: the top section down to the bottom (187..962, 775) as with fewer games; 3 tools one column of
-	// round(685 / 4) = 171 squares flush right (x 1698); the first two games a column 40% of the 1617 left (646.8)
-	// wide left of them, stacked (372.5 each); Continue the rest (940.2)
+	// 1920 x 1080: the top section down to 13 over the hint bar (187..983, 796) as with fewer games; 3 tools one column
+	// of round(706 / 4) = 177 squares flush right (x 1692); the first two games a column 40% of the 1611 left (644.4)
+	// wide left of them, stacked (383 each); Continue the rest (936.6)
 	HomeLayout_compute(1920, 1080, BAR, 2, 10, 3, &l);
-	assert(l.wide && l.k == 4 && near(l.top_y, 187) && near(l.top_h, 775) && near(l.strip_right, 1868));
-	assert(l.ntop == 6 && near(l.square, 171) && rectIs(l.top[0].r, 51, 187, 940.2f, 775));
-	assert(l.top[1].kind == HOME_TILE_GAME && l.top[1].ref == 0 && rectIs(l.top[1].r, 1021.2f, 187, 646.8f, 372.5f));
-	assert(l.top[2].ref == 1 && rectIs(l.top[2].r, 1021.2f, 589.5f, 646.8f, 372.5f));
-	assert(l.top[3].kind == HOME_TILE_TOOL && rectIs(l.top[3].r, 1698, 187, 171, 171));
+	assert(l.wide && l.k == 4 && near(l.top_y, 187) && near(l.top_h, 796) && near(l.strip_right, 1868));
+	assert(l.ntop == 6 && near(l.square, 177) && rectIs(l.top[0].r, 51, 187, 936.6f, 796));
+	assert(l.top[1].kind == HOME_TILE_GAME && l.top[1].ref == 0 && rectIs(l.top[1].r, 1017.6f, 187, 644.4f, 383));
+	assert(l.top[2].ref == 1 && rectIs(l.top[2].r, 1017.6f, 600, 644.4f, 383));
+	assert(l.top[3].kind == HOME_TILE_TOOL && rectIs(l.top[3].r, 1692, 187, 177, 177));
 	// the other eight games rows of four 432 wide below it, past the screen's end: from 996 (the hint bar's top), 405
 	// tall (two rows, 34 apart, from 118 to 962)
 	assert(l.npins == 8 && l.pins[0].ref == 2 && rectIs(l.pins[0].r, 51, 996, 432, 405));
 	assert(rectIs(l.pins[3].r, 1437, 996, 432, 405) && rectIs(l.pins[4].r, 51, 1435, 432, 405));
 	assert(near(l.page_h, 1435 + 405 + 34 + BAR));
-	// 5 tools: a second column (x 1497, the first full), the games column (566.4) and Continue (819.6) left of it
+	// 5 tools: a second column (x 1485, the first full), the games column (561.6) and Continue (812.4) left of it
 	HomeLayout_compute(1920, 1080, BAR, 2, 10, 5, &l);
-	assert(l.ntop == 8 && rectIs(l.top[0].r, 51, 187, 819.6f, 775) && rectIs(l.top[1].r, 900.6f, 187, 566.4f, 372.5f));
-	assert(rectIs(l.top[3].r, 1497, 187, 171, 171) && rectIs(l.top[7].r, 1698, 187, 171, 171));
+	assert(l.ntop == 8 && rectIs(l.top[0].r, 51, 187, 812.4f, 796) && rectIs(l.top[1].r, 893.4f, 187, 561.6f, 383));
+	assert(rectIs(l.top[3].r, 1485, 187, 177, 177) && rectIs(l.top[7].r, 1692, 187, 177, 177));
 	// no tools: the games column flush right, Continue the rest
 	HomeLayout_compute(1920, 1080, BAR, 2, 10, 0, &l);
-	assert(l.ntop == 3 && rectIs(l.top[1].r, 1869 - 727.2f, 187, 727.2f, 372.5f) && l.npins == 8);
+	assert(l.ntop == 3 && rectIs(l.top[1].r, 1869 - 727.2f, 187, 727.2f, 383) && l.npins == 8);
 }
 
 static void top_moves(void) {
@@ -88,23 +89,35 @@ static void top_moves(void) {
 	// back LEFT to Continue, then RIGHT returns to the square left
 	assert(HomeLayout_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_MOVED && f.top == 0);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_MOVED && f.top == 2);
-	// past the right edge: the next tab; UP from the top square: the tab row
+	// past the right edge: the next tab; UP from the top square: nothing (the tab row is in the bottom bar)
 	assert(HomeLayout_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_EDGE_NEXT);
 	f.top = 1;
-	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_TABS);
+	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_STAY);
 	f.top = 0;
 	assert(HomeLayout_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_EDGE_PREV);
-	// DOWN: the first-row pin under the centre (Continue's centre 457.5 is nearer the left pin's 274 than 750? no: 750)
+	// DOWN: the first-row pin under the centre (Continue's centre 447.5 is nearer the left pin's 274 than the right's 750)
 	f = (HomeFocus){HOME_SEC_TOP, 0, 0, -1};
 	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.sec == HOME_SEC_PINS && f.pin == 0);
 	f = (HomeFocus){HOME_SEC_TOP, 3, 0, -1};
 	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.sec == HOME_SEC_PINS && f.pin == 1);
 	// UP from the first row: the top tile last on
 	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_MOVED && f.sec == HOME_SEC_TOP && f.top == 3);
-	// no pins: DOWN stays
+	// no pins: DOWN stays (nothing under the top section)
 	HomeLayout_compute(1024, 768, BAR, 2, 0, 0, &l);
 	f = (HomeFocus){HOME_SEC_TOP, 0, 0, -1};
-	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.sec == HOME_SEC_TOP);
+	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.sec == HOME_SEC_TOP && f.top == 0);
+}
+
+// The tab row in the bottom bar: the strip in the top bar's row (its first baseline given), the top section under it.
+static void strip_in_bar(void) {
+	HomeLayout a, b;
+	HomeLayoutOpts o = {0};
+	HomeLayout_computeOpts(1536, 1152, BAR, 2, &o, 2, 4, &a);
+	o.strip_base0 = 70;
+	HomeLayout_computeOpts(1536, 1152, BAR, 2, &o, 2, 4, &b);
+	assert(b.strip_base[0] == 70 && b.strip_base[1] == 106 && b.top_y == 136 && b.top_y < a.top_y);
+	HomeLayout_computeOpts(1536, 1152, BAR, 0, &o, 2, 4, &b); // no strip: unchanged
+	assert(b.top_y == BAR + HOME_BOTTOM);
 }
 
 static void pin_moves(void) {
@@ -117,12 +130,12 @@ static void pin_moves(void) {
 	assert(HomeLayout_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_MOVED && f.pin == 2);
 	// DOWN into the shorter last row: its last pin; DOWN on the last row stays
 	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.pin == 5);
-	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY);
+	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.sec == HOME_SEC_PINS && f.pin == 5);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_EDGE_NEXT);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_MOVED && f.pin == 1);
 	f.pin = 0;
 	assert(HomeLayout_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_EDGE_PREV);
-	// DOWN from a square (centre 1783.5) lands under it: pin 3 (centre 1653)
+	// DOWN from a square (centre 1780.5) lands under it: pin 3 (centre 1653)
 	HomeLayout_compute(1920, 1080, BAR, 2, 8, 2, &l);
 	f = (HomeFocus){HOME_SEC_TOP, 4, 0, -1};
 	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.pin == 3);
@@ -133,22 +146,11 @@ static void pin_moves(void) {
 	assert(HomeLayout_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_MOVED && f.top == 0);
 }
 
-static void from_tabs_and_clamp(void) {
+static void clamp_focus(void) {
 	HomeLayout l;
-	HomeLayout_compute(1920, 1080, BAR, 2, 8, 1, &l); // the column's 2, rows 4 + 2, one tool
-	HomeFocus f = {HOME_SEC_TOP, 0, 0, -1};
-	HomeLayout_fromTabs(&l, &f); // from Continue: the last row's first pin
-	assert(f.sec == HOME_SEC_PINS && f.pin == 4);
-	f = (HomeFocus){HOME_SEC_TOP, 1, 0, -1};
-	HomeLayout_fromTabs(&l, &f); // from another top tile: the last pin
-	assert(f.pin == 5);
-	HomeLayout_compute(1024, 768, BAR, 2, 0, 0, &l);
-	f = (HomeFocus){HOME_SEC_TOP, 0, 0, -1};
-	HomeLayout_fromTabs(&l, &f);
-	assert(f.sec == HOME_SEC_TOP);
 	// clamping after a rebuild with fewer tiles
 	HomeLayout_compute(1024, 768, BAR, 2, 1, 1, &l);
-	f = HomeLayout_clampFocus(&l, (HomeFocus){HOME_SEC_PINS, 5, 7, 9});
+	HomeFocus f = HomeLayout_clampFocus(&l, (HomeFocus){HOME_SEC_PINS, 5, 7, 9});
 	assert(f.top == 1 && f.pin == 0 && f.prev == -1 && f.sec == HOME_SEC_PINS);
 }
 
@@ -186,99 +188,99 @@ static void strip_keeps_large_size(void) {
 // The Small UI scale (strip_k 1.5): the top section and its squares as at the Large scale, the pin rows below it.
 static void small_scale_tools_and_pins(void) {
 	HomeLayout l;
-	// the Brick at 2x: 1536 x 1152 Brick px, bar 126; strip top 280.5; the top down to the bottom (992, 711.5) with
-	// four rows of 155 squares whatever the pins; the pin rows from 1026 (the hint bar's top), 399 tall: two rows (34
+	// the Brick at 2x: 1536 x 1152 Brick px, bar 126; strip top 280.5; the top down to 13 over the hint bar (1013,
+	// 732.5) with four rows of round(642.5 / 4) = 161 squares whatever the pins; the pin rows from 1026 (the hint bar's top), 399 tall: two rows (34
 	// apart) from 160 (34 under the tab row) to the bottom
 	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 2, 3, &l);
-	assert(near(l.square, 155) && near(l.glyph, 90) && near(l.top_y, 280.5f) && near(l.top_h, 711.5f));
-	assert(rectIs(l.top[1].r, 1536 - 51 - 155, 280.5f, 155, 155) && near(l.top[2].r.y, 466));
+	assert(near(l.square, 161) && near(l.glyph, 93) && near(l.top_y, 280.5f) && near(l.top_h, 732.5f));
+	assert(rectIs(l.top[1].r, 1536 - 51 - 161, 280.5f, 161, 161) && near(l.top[2].r.y, 471));
 	assert(near(l.pin_h, 399) && rectIs(l.pins[0].r, 51, 1026, 702, 399) && near(l.page_h, 1585));
 	// no tools: the same pin rows
 	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 4, 0, &l);
 	assert(near(l.pin_h, 399) && rectIs(l.pins[2].r, 51, 1026 + 399 + HOME_BOTTOM, 702, 399));
 }
 
-// The wide layout with at most 2 pinned games: no pin rows, the top section down to the bottom (962). The tools four
+// The wide layout with at most 2 pinned games: no pin rows, the top section down to 13 over the hint bar (983). The tools four
 // rows of squares filling it, a column at a time, flush right; the games a column left of them, stacked, six squares
 // wide but at most 40% of what the tools leave; Continue the rest.
 static void wide_few_games(void) {
 	HomeLayout l;
-	float d = 171 + 91.0f / 3; // Large: top 187..962 (775); squares round(685 / 4) = 171, the rows 30.33 apart
+	float d = 177 + 88.0f / 3; // Large: top 187..983 (796); squares round(706 / 4) = 177, the rows 29.33 apart
 	HomeLayout_compute(1920, 1080, BAR, 2, 0, 0, &l);
-	assert(l.wide && l.npins == 0 && near(l.top_h, 775) && l.ntop == 1 && rectIs(l.top[0].r, 51, 187, 1818, 775));
+	assert(l.wide && l.npins == 0 && near(l.top_h, 796) && l.ntop == 1 && rectIs(l.top[0].r, 51, 187, 1818, 796));
 	assert(near(l.page_h, 1080));
 	// 3 tools: one column flush right from the top, Continue up to 30 before it; glyph 58%
 	HomeLayout_compute(1920, 1080, BAR, 2, 0, 3, &l);
-	assert(near(l.square, 171) && near(l.glyph, 99) && l.ntop == 4);
-	assert(rectIs(l.top[0].r, 51, 187, 1617, 775) && rectIs(l.top[1].r, 1698, 187, 171, 171));
-	assert(rectIs(l.top[3].r, 1698, 187 + 2 * d, 171, 171));
-	// 4 tools fill the column; the 4th at the bottom (962)
+	assert(near(l.square, 177) && near(l.glyph, 103) && l.ntop == 4);
+	assert(rectIs(l.top[0].r, 51, 187, 1611, 796) && rectIs(l.top[1].r, 1692, 187, 177, 177));
+	assert(rectIs(l.top[3].r, 1692, 187 + 2 * d, 177, 177));
+	// 4 tools fill the column; the 4th at the bottom (806..983)
 	HomeLayout_compute(1920, 1080, BAR, 2, 0, 4, &l);
-	assert(l.ntop == 5 && rectIs(l.top[4].r, 1698, 791, 171, 171) && rectIs(l.top[0].r, 51, 187, 1617, 775));
-	// 1 game, 6 tools: two columns from 1497 (4 + 2), the game 40% of the 1416 left (566.4) full height, Continue 819.6
+	assert(l.ntop == 5 && rectIs(l.top[4].r, 1692, 806, 177, 177) && rectIs(l.top[0].r, 51, 187, 1611, 796));
+	// 1 game, 6 tools: two columns from 1485 (4 + 2), the game 40% of the 1404 left (561.6) full height, Continue 812.4
 	HomeLayout_compute(1920, 1080, BAR, 2, 1, 6, &l);
 	assert(l.ntop == 8 && l.npins == 0);
-	assert(rectIs(l.top[0].r, 51, 187, 819.6f, 775));
-	assert(l.top[1].kind == HOME_TILE_GAME && l.top[1].ref == 0 && rectIs(l.top[1].r, 900.6f, 187, 566.4f, 775));
-	assert(l.top[2].kind == HOME_TILE_TOOL && l.top[2].ref == 0 && rectIs(l.top[2].r, 1497, 187, 171, 171));
-	assert(rectIs(l.top[5].r, 1497, 791, 171, 171) && rectIs(l.top[6].r, 1698, 187, 171, 171));
-	assert(l.top[7].kind == HOME_TILE_TOOL && l.top[7].ref == 5 && rectIs(l.top[7].r, 1698, 187 + d, 171, 171));
-	// 2 games, no tools: stacked at the right, 40% of the 1818 (727.2) wide, each (775 − 30) / 2 tall
+	assert(rectIs(l.top[0].r, 51, 187, 812.4f, 796));
+	assert(l.top[1].kind == HOME_TILE_GAME && l.top[1].ref == 0 && rectIs(l.top[1].r, 893.4f, 187, 561.6f, 796));
+	assert(l.top[2].kind == HOME_TILE_TOOL && l.top[2].ref == 0 && rectIs(l.top[2].r, 1485, 187, 177, 177));
+	assert(rectIs(l.top[5].r, 1485, 806, 177, 177) && rectIs(l.top[6].r, 1692, 187, 177, 177));
+	assert(l.top[7].kind == HOME_TILE_TOOL && l.top[7].ref == 5 && rectIs(l.top[7].r, 1692, 187 + d, 177, 177));
+	// 2 games, no tools: stacked at the right, 40% of the 1818 (727.2) wide, each (796 − 30) / 2 = 383 tall
 	HomeLayout_compute(1920, 1080, BAR, 2, 2, 0, &l);
-	assert(l.ntop == 3 && rectIs(l.top[0].r, 51, 187, 1060.8f, 775));
-	assert(rectIs(l.top[1].r, 1141.8f, 187, 727.2f, 372.5f) && rectIs(l.top[2].r, 1141.8f, 589.5f, 727.2f, 372.5f));
+	assert(l.ntop == 3 && rectIs(l.top[0].r, 51, 187, 1060.8f, 796));
+	assert(rectIs(l.top[1].r, 1141.8f, 187, 727.2f, 383) && rectIs(l.top[2].r, 1141.8f, 600, 727.2f, 383));
 	assert(l.top[2].kind == HOME_TILE_GAME && l.top[2].ref == 1);
-	// 2 games, 10 tools: three columns from 1296, the games 486 wide from 780, Continue 699; Continue + 2 + 10 = 13 top
-	// tiles
+	// 2 games, 10 tools: three columns from 1278, the games 40% of the 1197 left (478.8) wide from 769.2, Continue
+	// 688.2; Continue + 2 + 10 = 13 top tiles
 	HomeLayout_compute(1920, 1080, BAR, 2, 2, 10, &l);
-	assert(l.ntop == 13 && rectIs(l.top[0].r, 51, 187, 699, 775) && rectIs(l.top[1].r, 780, 187, 486, 372.5f));
-	assert(rectIs(l.top[3].r, 1296, 187, 171, 171) && l.top[12].kind == HOME_TILE_TOOL && rectIs(l.top[12].r, 1698, 187 + d, 171, 171));
+	assert(l.ntop == 13 && rectIs(l.top[0].r, 51, 187, 688.2f, 796) && rectIs(l.top[1].r, 769.2f, 187, 478.8f, 383));
+	assert(rectIs(l.top[3].r, 1278, 187, 177, 177) && l.top[12].kind == HOME_TILE_TOOL && rectIs(l.top[12].r, 1692, 187 + d, 177, 177));
 	// 14 tools: the twelve that fit
 	HomeLayout_compute(1920, 1080, BAR, 2, 0, 14, &l);
-	assert(l.ntop == 13 && l.top[12].kind == HOME_TILE_TOOL && l.top[12].ref == 11 && rectIs(l.top[12].r, 1698, 791, 171, 171));
-	// Small, 9 tools, no games: three columns of 158 from 1335, Continue 1254
+	assert(l.ntop == 13 && l.top[12].kind == HOME_TILE_TOOL && l.top[12].ref == 11 && rectIs(l.top[12].r, 1692, 806, 177, 177));
+	// Small, 9 tools, no games: three columns of 164 from 1317, Continue 1236
 	HomeLayout_computeStrip(1920, 1080, 84, 2, 1.5f, 0, 9, &l);
-	assert(l.ntop == 10 && rectIs(l.top[0].r, 51, 238.5f, 1254, 723.5f) && rectIs(l.top[9].r, 1711, 238.5f, 158, 158));
-	// Small (strip_k 1.5): top 238.5..962 (723.5); squares round(633.5 / 4) = 158, 30.5 apart down; the game 652 wide
+	assert(l.ntop == 10 && rectIs(l.top[0].r, 51, 238.5f, 1236, 744.5f) && rectIs(l.top[9].r, 1705, 238.5f, 164, 164));
+	// Small (strip_k 1.5): top 238.5..983 (744.5); squares round(654.5 / 4) = 164, 29.5 apart down; the game 40% of the
+	// 1624 left (649.6) wide
 	HomeLayout_computeStrip(1920, 1080, 84, 2, 1.5f, 1, 3, &l);
-	assert(near(l.top_h, 723.5f) && near(l.square, 158) && near(l.glyph, 92));
-	assert(rectIs(l.top[2].r, 1711, 238.5f, 158, 158) && rectIs(l.top[4].r, 1711, 238.5f + 2 * 188.5f, 158, 158));
-	assert(rectIs(l.top[1].r, 1029, 238.5f, 652, 723.5f) && rectIs(l.top[0].r, 51, 238.5f, 948, 723.5f));
+	assert(near(l.top_h, 744.5f) && near(l.square, 164) && near(l.glyph, 95));
+	assert(rectIs(l.top[2].r, 1705, 238.5f, 164, 164) && rectIs(l.top[4].r, 1705, 238.5f + 2 * 193.5f, 164, 164));
+	assert(rectIs(l.top[1].r, 1025.4f, 238.5f, 649.6f, 744.5f) && rectIs(l.top[0].r, 51, 238.5f, 944.4f, 744.5f));
 	// 3 games: the same top section (the column's two), the third a row below it
 	HomeLayout_compute(1920, 1080, BAR, 2, 3, 3, &l);
-	assert(l.npins == 1 && l.pins[0].ref == 2 && near(l.top_h, 775) && l.ntop == 6);
+	assert(l.npins == 1 && l.pins[0].ref == 2 && near(l.top_h, 796) && l.ntop == 6);
 }
 
 // D-pad across the wide few-games top: Continue → the games → the tools, UP/DOWN within the game column, DOWN at the
-// bottom stays (no rows), UP from the tab row lands in the top section.
+// bottom stays (no rows).
 static void wide_few_games_moves(void) {
 	HomeLayout l;
 	HomeLayout_compute(1920, 1080, BAR, 2, 2, 6, &l); // Continue, games 1-2, tools 3-8
 	HomeFocus f = {HOME_SEC_TOP, 0, 0, -1};
 	assert(HomeLayout_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_MOVED && f.top == 1);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.top == 2);
-	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.sec == HOME_SEC_TOP);
+	assert(HomeLayout_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.sec == HOME_SEC_TOP && f.top == 2);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_MOVED && l.top[f.top].kind == HOME_TILE_TOOL);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_MOVED && f.top == 2);
 	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_MOVED && f.top == 1);
-	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_TABS);
-	HomeLayout_fromTabs(&l, &f);
-	assert(f.sec == HOME_SEC_TOP);
+	assert(HomeLayout_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_STAY);
 }
 
-// The Brick at Home's Small scale (1536 x 1152 Brick px, bar 126): no games, the top down to the bottom (992) with the
-// tools four rows of 155 squares, two columns for 8; with games three rows of 119, up to three columns over the pin row.
+// The Brick at Home's Small scale (1536 x 1152 Brick px, bar 126): no games, the top down to 13 over the hint bar
+// (1013) with the tools four rows of 161 squares, two columns for 8; with games the same top section, up to three
+// columns, the pin rows below it.
 static void brick_small_tools(void) {
 	HomeLayout l;
 	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 0, 8, &l);
-	assert(near(l.top_h, 711.5f) && near(l.square, 155) && near(l.glyph, 90) && l.npins == 0 && l.ntop == 9);
-	assert(rectIs(l.top[0].r, 51, 280.5f, 1064, 711.5f) && rectIs(l.top[1].r, 1145, 280.5f, 155, 155));
-	assert(rectIs(l.top[8].r, 1330, 280.5f + 3 * 185.5f, 155, 155));
+	assert(near(l.top_h, 732.5f) && near(l.square, 161) && near(l.glyph, 93) && l.npins == 0 && l.ntop == 9);
+	assert(rectIs(l.top[0].r, 51, 280.5f, 1052, 732.5f) && rectIs(l.top[1].r, 1133, 280.5f, 161, 161));
+	assert(rectIs(l.top[8].r, 1324, 280.5f + 3 * 190.5f, 161, 161));
 	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 0, 0, &l); // nothing pinned: Continue fills it
-	assert(l.ntop == 1 && rectIs(l.top[0].r, 51, 280.5f, 1434, 711.5f));
+	assert(l.ntop == 1 && rectIs(l.top[0].r, 51, 280.5f, 1434, 732.5f));
 	HomeLayout_computeStrip(1536, 1152, 126, 2, 1.5f, 2, 9, &l); // pinned games too: the same top section
-	assert(near(l.top_h, 711.5f) && l.ntop == 10 && rectIs(l.top[0].r, 51, 280.5f, 879, 711.5f));
-	assert(rectIs(l.top[1].r, 960, 280.5f, 155, 155) && rectIs(l.top[9].r, 1330, 280.5f, 155, 155));
+	assert(near(l.top_h, 732.5f) && l.ntop == 10 && rectIs(l.top[0].r, 51, 280.5f, 861, 732.5f));
+	assert(rectIs(l.top[1].r, 942, 280.5f, 161, 161) && rectIs(l.top[9].r, 1324, 280.5f, 161, 161));
 	assert(l.npins == 2 && near(l.pins[0].r.y, 1026));
 }
 
@@ -375,6 +377,7 @@ static void wide_pins_option(void) {
 }
 
 int main(void) {
+	strip_in_bar();
 	wide_pins_option();
 	tool_rows_option();
 	strip_text_factor();
@@ -389,7 +392,7 @@ int main(void) {
 	sps_grid();
 	top_moves();
 	pin_moves();
-	from_tabs_and_clamp();
+	clamp_focus();
 	scroll();
 	printf("test_home_layout: all passed\n");
 	return 0;

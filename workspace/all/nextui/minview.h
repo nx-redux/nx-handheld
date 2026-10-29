@@ -28,8 +28,6 @@ bool MinView_afterOpen(bool opened_list);
 // title now drops back into its row (the parent is a Minimal one too), so the caller drops the slide.
 void MinView_beforeBack(void);
 bool MinView_afterBack(void);
-// UP on the tab row: select the last name.
-void MinView_focusBottom(void);
 // The slide or the open band is running (one settled frame after the slide).
 bool MinView_animating(void);
 // Free the cached names.

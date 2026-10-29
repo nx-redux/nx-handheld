@@ -6,7 +6,6 @@
 #include "api.h"
 #include "config.h"
 #include "defines.h"
-#include "menutabs.h"
 #include "ui_accent.h"
 #include "ui_ease.h"
 #include "ui_fade.h"
@@ -136,7 +135,7 @@ SDL_Surface* MinDraw_lines(const MinMetrics* m, char lines[][MIN_LINE_MAX], int 
 
 void MinDraw_blit(SDL_Surface* s, SDL_Rect r, float alpha, const SDL_Rect* clip, Uint8 shade, bool sprite,
 				  SDL_Surface* dst) {
-	int a = (int)(alpha * MenuTabs_contentAlpha() * 255.0f + 0.5f);
+	int a = (int)(alpha * 255.0f + 0.5f);
 	if (!s || a <= 0)
 		return;
 	if (a > 255)

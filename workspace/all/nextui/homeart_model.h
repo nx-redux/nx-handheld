@@ -53,4 +53,12 @@ typedef enum {
 
 HomeArtListKind HomeArt_parseListPath(const char* path, char* preview, size_t preview_size, const char** rom);
 
+// An unselected game's picture (nx-mobile's "drained" look): each pixel of the w×h block (pitch_words a row) in place
+// to its Rec. 709 luminance times level/256 (256: grey at full brightness; 64: grey at 25%, as a 25% picture over
+// black), alpha kept. A premultiplied pixel stays premultiplied (the grey of a premultiplied colour is the
+// premultiplied grey).
+#define HOMEART_DRAIN_LEVEL 64 // an unselected game's picture: grey at 25% (nx-mobile's DRAIN_PICTURE_ALPHA)
+#define HOMEART_GREY_LEVEL 256 // a Backdrop's unselected box art: grey at full brightness (backdropSaturation)
+void HomeArt_drain(unsigned* px, int w, int h, int pitch_words, int level);
+
 #endif // HOMEART_MODEL_H

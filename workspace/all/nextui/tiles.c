@@ -8,6 +8,7 @@
 #include "defines.h"
 #include "ui_text_sizes.h"
 #include "grid_layout.h"
+#include "homeart_model.h" // HomeArt_drain
 #include "infoband.h"
 #include "menuart.h"
 #include "row_model.h"
@@ -23,14 +24,17 @@
 #include <strings.h>
 
 #define TILE_RADIUS_DP 14.0f
-#define TILE_RING_DP 3.0f
 #define TILE_BORDER_DP 1.0f
-#define TILE_BORDER_ALPHA 20 // white at 8%
+#define GAME_EDGE_DP 2.0f	 // a game tile's edge, on both looks: its rounded shape off a dark picture (no ring)
+#define GAME_DIM_ALPHA 97	 // a plain game tile's text, and a plain Grid tile's content: 38% (nx-mobile's inkDim)
+#define TILE_BORDER_ALPHA 36 // white at 14%: a subtle grey edge on every tile
 #define TILE_PLAIN_ALPHA 209 // content at 82% (100% lit)
 
 #define LOGO_INSET_X_DP 22.0f
 #define LOGO_INSET_Y_DP 30.0f
 #define TOOL_ICON_DP 46.0f
+#define TOOL_ICON_INK_K 0.8f // a tool icon's pixels this share of its old box tall, on every tile (Tiles_toolIconSized)
+#define TOOL_ICON_MAX_W 1.5f // and never wider than this many times that height (a wide one shrinks, centred)
 #define TOOL_GAP_DP 12.0f
 #define TOOL_PAD_DP 12.0f
 #define TOOL_TEXT_SP 14.0f
@@ -207,7 +211,8 @@ static void cutCorners(SDL_Surface* s, int rad) {
 		SDL_UnlockSurface(s);
 }
 
-static void drawPicture(SDL_Surface* dst, SDL_Rect r, int rad, SDL_Surface* pic) {
+// The picture, drained (grey at 25%: the plain look) or in colour.
+static void drawPicture(SDL_Surface* dst, SDL_Rect r, int rad, SDL_Surface* pic, bool drained) {
 	if (!scratch || scratch->w != r.w || scratch->h != r.h) {
 		if (scratch)
 			GFX_freeSurfaceAndTexture(scratch);
@@ -222,6 +227,8 @@ static void drawPicture(SDL_Surface* dst, SDL_Rect r, int rad, SDL_Surface* pic)
 		SDL_BlitSurface(pic, NULL, scratch, NULL);
 	else
 		SDL_BlitScaled(pic, NULL, scratch, NULL); // the caller should pass it pre-cropped; never leave a gap
+	if (drained)
+		HomeArt_drain(scratch->pixels, r.w, r.h, scratch->pitch / 4, HOMEART_DRAIN_LEVEL);
 	cutCorners(scratch, rad);
 	SDL_SetSurfaceBlendMode(scratch, SDL_BLENDMODE_BLEND);
 	SDL_BlitSurface(scratch, NULL, dst, &(SDL_Rect){r.x, r.y, r.w, r.h});
@@ -344,6 +351,85 @@ static void blitTextShadowed(SDL_Surface* dst, TTF_Font* f, const char* text, in
 }
 
 // Lines centred on cx, the block's top at y.
+// Visual centring: what a block shows, not its boxes. A line's ink starts at its capitals' top (capTop px under the
+// line box's top) and is taken to end at its baseline (descenders hang under, as a word's centre is read).
+static int capTop(TTF_Font* f) {
+	int miny, maxy;
+	if (TTF_GlyphMetrics(f, 'H', NULL, NULL, &miny, &maxy, NULL) == 0 && maxy > 0)
+		return TTF_FontAscent(f) - maxy;
+	return TTF_FontAscent(f) * 3 / 10;
+}
+
+// The rows an icon's pixels cover (alpha over 1/16): [*top, *bottom). The whole surface when it can't tell.
+static void inkRows(SDL_Surface* s, int* top, int* bottom) {
+	*top = 0, *bottom = s->h;
+	if (s->format->BytesPerPixel != 4 || !s->format->Amask || SDL_MUSTLOCK(s))
+		return;
+	int t = -1, b = -1;
+	for (int y = 0; y < s->h; y++) {
+		const Uint32* row = (const Uint32*)((const Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < s->w; x++)
+			if (((row[x] & s->format->Amask) >> s->format->Ashift) > 16) {
+				if (t < 0)
+					t = y;
+				b = y + 1;
+				break;
+			}
+	}
+	if (t >= 0)
+		*top = t, *bottom = b;
+}
+
+// The rect an icon's pixels cover (alpha over 1/16); the whole surface when it can't tell, empty when it's clear.
+static void inkBounds(SDL_Surface* s, SDL_Rect* out) {
+	*out = (SDL_Rect){0, 0, s->w, s->h};
+	if (s->format->BytesPerPixel != 4 || !s->format->Amask || SDL_MUSTLOCK(s))
+		return;
+	int x0 = s->w, y0 = s->h, x1 = -1, y1 = -1;
+	for (int y = 0; y < s->h; y++) {
+		const Uint32* row = (const Uint32*)((const Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < s->w; x++)
+			if (((row[x] & s->format->Amask) >> s->format->Ashift) > 16) {
+				if (x < x0)
+					x0 = x;
+				if (x > x1)
+					x1 = x;
+				if (y < y0)
+					y0 = y;
+				y1 = y;
+			}
+	}
+	*out = x1 < 0 ? (SDL_Rect){0, 0, 0, 0} : (SDL_Rect){x0, y0, x1 - x0 + 1, y1 - y0 + 1};
+}
+
+SDL_Surface* Tiles_toolIconSized(const char* file, int ink_h, SDL_Rect* ink) {
+	*ink = (SDL_Rect){0, 0, 0, 0};
+	if (!file || ink_h <= 0)
+		return NULL;
+	// measured at the slot's size, then decoded again at the size that makes its pixels ink_h tall (or max_w wide)
+	SDL_Surface* probe = MenuArt_get(file, ink_h, ink_h);
+	if (!probe)
+		return NULL;
+	SDL_Rect b;
+	inkBounds(probe, &b);
+	if (b.w <= 0 || b.h <= 0) {
+		*ink = b;
+		return probe;
+	}
+	int max_w = (int)(ink_h * TOOL_ICON_MAX_W + 0.5f);
+	float k = (float)ink_h / b.h;
+	if (b.w * k > max_w)
+		k = (float)max_w / b.w;
+	int w = (int)(probe->w * k + 0.5f), h = (int)(probe->h * k + 0.5f);
+	SDL_Surface* sized = w > 0 && h > 0 ? MenuArt_get(file, w, h) : NULL;
+	if (!sized) {
+		*ink = b;
+		return probe; // its own size: still in its slot
+	}
+	inkBounds(sized, ink);
+	return sized;
+}
+
 static void blitLinesCentred(SDL_Surface* dst, TTF_Font* f, const Lines* l, int cx, int y, SDL_Color c, Uint8 a) {
 	int lh = TTF_FontHeight(f);
 	for (int i = 0; i < l->n; i++)
@@ -471,6 +557,27 @@ static void drawNameTile(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float 
 	// the text block centred in what's left under the emblem: the emblem's top then lands on name_y, so emblem, name
 	// and count are centred together
 	GridCollText lay = GridLayout_collText(r.h - top, step > 0 && nh > 0 ? nh / step : 1, step, gap, count_h);
+	// centred by what it shows: from the emblem's pixels (or the name's capitals) to the count's baseline (its line is
+	// kept while the count is unknown, so nothing moves when it arrives), else the name's last baseline
+	{
+		int n = step > 0 && nh > 0 ? nh / step : 1, fh = TTF_FontHeight(f), lead = (step - fh) / 2;
+		int it = 0, ib = 0;
+		if (icon)
+			inkRows(icon, &it, &ib);
+		int vt = icon ? lay.name_y + it : top + lay.name_y + lead + capTop(f);
+		int vb = top + lay.name_y + (n - 1) * step + lead + TTF_FontAscent(f);
+		if (count_a && count_h > 0) {
+			TTF_Font* fc2 = UIFont_get(count_sp, false);
+			if (fc2)
+				vb = top + lay.count_y + TTF_FontAscent(fc2);
+			f = UIFont_get(sp, false); // the name's font again (only good until the next UIFont_get)
+			if (!f)
+				return;
+		}
+		int shift = (r.h - (vb - vt)) / 2 - vt;
+		lay.name_y += shift;
+		lay.count_y += shift;
+	}
 	if (icon) {
 		SDL_SetSurfaceColorMod(icon, c.r, c.g, c.b);
 		SDL_SetSurfaceAlphaMod(icon, a);
@@ -505,7 +612,10 @@ static TTF_Font* carouselToolFont(int tile_w, int avail) {
 static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, SDL_Color c, Uint8 a) {
 	int pad = NX_DPF(TOOL_PAD_DP * s);
 	int icon_px = t->carousel ? (int)(r.h * CAROUSEL_TOOL_ICON_SHARE + 0.5f) : NX_DPF(TOOL_ICON_DP * s);
-	SDL_Surface* icon = t->icon_file ? MenuArt_get(t->icon_file, icon_px, icon_px) : NULL;
+	// the icon by what it shows: its pixels one height on every tile (Tiles_toolIconSized), a wide one capped and centred
+	int slot_h = (int)(icon_px * TOOL_ICON_INK_K + 0.5f);
+	SDL_Rect ink = {0, 0, 0, 0};
+	SDL_Surface* icon = t->icon_file ? Tiles_toolIconSized(t->icon_file, slot_h, &ink) : NULL;
 	// fonts after MenuArt_get: a font pointer is only good until the next UIFont_get
 	char name[LINE_MAX];
 	snprintf(name, sizeof(name), "%s", t->name ? t->name : "");
@@ -527,20 +637,23 @@ static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 	Lines l = {.n = 0};
 	if (f)
 		layoutLines(f, name, r.w - 2 * pad, 2, true, &l);
-	int lh = f ? TTF_FontHeight(f) : 0;
-	int gap = (icon && l.n) ? NX_DPF(TOOL_GAP_DP * s) : 0;
-	int group_h = (icon ? icon->h : 0) + gap + l.n * lh;
-	int y = r.y + (r.h - group_h) / 2;
-	if (icon) {
+	int gap = (t->icon_file && l.n) ? NX_DPF(TOOL_GAP_DP * s) : 0; // the slot stays while its icon loads
+	// One layout on every tile: the icon's slot (slot_h, the icons' pixels that tall), the gap, then the name's first
+	// line, its capitals' top to its baseline, centred in the tile as one block; a second line of the name grows down
+	// from there, so every tile's first line sits at the same height (and every icon's bottom).
+	int cap = l.n ? capTop(f) : 0, asc = l.n ? TTF_FontAscent(f) : 0;
+	int block = (t->icon_file ? slot_h : 0) + gap + (l.n ? asc - cap : 0);
+	int top = r.y + (r.h - block) / 2; // the slot's top (no icon file: the name's capitals)
+	if (icon && ink.w > 0 && ink.h > 0) {
 		SDL_SetSurfaceColorMod(icon, c.r, c.g, c.b);
 		SDL_SetSurfaceAlphaMod(icon, a);
-		SDL_BlitSurface(icon, NULL, dst, &(SDL_Rect){r.x + (r.w - icon->w) / 2, y, icon->w, icon->h});
+		// its pixels centred in the slot (a capped wide one is shorter: centred, the slot keeps its height)
+		SDL_BlitSurface(icon, &ink, dst, &(SDL_Rect){r.x + (r.w - ink.w) / 2, top + (slot_h - ink.h) / 2, ink.w, ink.h});
 		SDL_SetSurfaceColorMod(icon, 255, 255, 255);
 		SDL_SetSurfaceAlphaMod(icon, 255);
-		y += icon->h + gap;
 	}
 	if (l.n)
-		blitLinesCentred(dst, f, &l, r.x + r.w / 2, y, c, a);
+		blitLinesCentred(dst, f, &l, r.x + r.w / 2, top + (t->icon_file ? slot_h + gap : 0) - cap, c, a);
 }
 
 // Console logo, inset 22 dp at the sides and 30 dp top and bottom (scaled with the tile); the name when
@@ -573,36 +686,13 @@ SDL_Surface* Tiles_borderOverlay(int w, int h) {
 		return NULL;
 	SDL_FillRect(s, NULL, 0);
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
-	int b = NX_DPF(TILE_BORDER_DP);
+	int b = NX_DPF(GAME_EDGE_DP);
 	blitShape(s, SHAPE_OUTLINE, 0, 0, w, h, NX_DPF(TILE_RADIUS_DP), b < 1 ? 1 : b, 255, 255);
 	return s;
 }
 
 Uint8 Tiles_borderAlpha(void) {
 	return (Uint8)TILE_BORDER_ALPHA;
-}
-
-SDL_Surface* Tiles_ringOverlay(int w, int h, SDL_Color c) {
-	int ring = NX_DPF(TILE_RING_DP);
-	int W = w + 2 * ring, H = h + 2 * ring;
-	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
-	if (!s)
-		return NULL;
-	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
-	int rad = NX_DPF(TILE_RADIUS_DP);
-	float orad = (float)clampRadius(rad + ring, W, H), irad = (float)clampRadius(rad, w, h);
-	Uint32 rgb = (Uint32)c.r << 16 | (Uint32)c.g << 8 | c.b;
-	for (int y = 0; y < H; y++) {
-		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
-		for (int x = 0; x < W; x++) {
-			float outer = roundedCoverage(x, y, W, H, orad);
-			float inner = x >= ring && x < ring + w && y >= ring && y < ring + h
-							  ? roundedCoverage(x - ring, y - ring, w, h, irad)
-							  : 0.0f;
-			row[x] = (Uint32)(outer * (1.0f - inner) * 255.0f + 0.5f) << 24 | rgb;
-		}
-	}
-	return s;
 }
 
 void Tiles_logoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h) {
@@ -618,23 +708,30 @@ void Tiles_gridLogoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h) 
 	*box_h = GridLayout_logoBoxH(*box_h, NX_DPF(GRID_LOGO_COUNT_GAP_DP), f ? TTF_FontHeight(f) : 0);
 }
 
+// The colour mod taking the logos' baked off-white (TILE_MENU_GREY) to channel v.
+static Uint8 logoMod(Uint8 v) {
+	int m = (v * 255 + TILE_MENU_GREY / 2) / TILE_MENU_GREY;
+	return (Uint8)(m > 255 ? 255 : m);
+}
+
 static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, SDL_Color c, Uint8 a, Uint8 count_a) {
 	int box_w, box_h;
 	Tiles_logoBox(r.w, r.h, s, &box_w, &box_h);
 	int gap = NX_DPF(GRID_LOGO_COUNT_GAP_DP);
 	float count_sp = GridLayout_countSp(GRID_LOGO_COUNT_SP, s);
 	// the Grid's logo and its count centred as one block, the count's line reserved whether or not it is known yet (so
-	// nothing moves when it arrives): the logo's box gives that line up (Tiles_gridLogoBox, as warmLogos decodes it)
-	TTF_Font* fcount = !t->carousel ? UIFont_get(count_sp, false) : NULL;
+	// nothing moves when it arrives): the logo's box gives that line up (Tiles_gridLogoBox, as warmLogos decodes it).
+	// No count (no_count: the Consoles Grid's header shows the selection's): the logo alone, centred, in the whole box
+	TTF_Font* fcount = !t->carousel && !t->no_count ? UIFont_get(count_sp, false) : NULL;
 	int count_h = fcount ? TTF_FontHeight(fcount) : 0;
 	int logo_box_h = GridLayout_logoBoxH(box_h, gap, count_h);
 	SDL_Surface* logo =
 		(t->logo_file && box_w > 0 && logo_box_h > 0) ? MenuArt_get(t->logo_file, box_w, logo_box_h) : NULL;
 	if (!logo && !t->carousel) {
-		// the Grid: drawn like a collection tile with the unknown-console emblem over its name, in the off-white at full
-		// alpha, and its 13 sp count
+		// the Grid: drawn like a collection tile with the unknown-console emblem over its name, in the off-white at the
+		// content's alpha, and its 13 sp count
 		// 4 dp under the name, the count line reserved unlit
-		drawNameTile(dst, r, t, s, c, 255, GRID_LOGO_COUNT_SP, count_a, TILE_UNKNOWN_CONSOLE_ICON);
+		drawNameTile(dst, r, t, s, c, a, GRID_LOGO_COUNT_SP, count_a, TILE_UNKNOWN_CONSOLE_ICON);
 		return;
 	}
 	if (!logo) {
@@ -646,12 +743,14 @@ static void drawLogo(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 		return;
 	}
 	int lw = logo->w, lh = logo->h;
-	// the logo art is always the fixed off-white (TILE_MENU_GREY, baked into the PNGs); only its alpha follows the
-	// selection
+	// the logo art is the fixed off-white (TILE_MENU_GREY, baked into the PNGs): a colour mod takes it to c (the Main
+	// color when selected), its alpha the selection's
+	SDL_SetSurfaceColorMod(logo, logoMod(c.r), logoMod(c.g), logoMod(c.b));
 	SDL_SetSurfaceAlphaMod(logo, a);
 	float logo_y, count_y;
 	GridLayout_logoBlock((float)r.y, (float)r.h, (float)lh, (float)gap, (float)count_h, &logo_y, &count_y);
 	SDL_BlitSurface(logo, NULL, dst, &(SDL_Rect){r.x + (r.w - lw) / 2, (int)floorf(logo_y + 0.5f), lw, lh});
+	SDL_SetSurfaceColorMod(logo, 255, 255, 255);
 	SDL_SetSurfaceAlphaMod(logo, 255);
 	int y = (int)floorf(count_y + 0.5f);
 	// "N games" in the count grey, a step under the logo
@@ -810,58 +909,36 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 		s = 1.0f;
 
 	bool game = t->kind == TILE_GAME || t->kind == TILE_TITLE;
-	// the Grid's console/collection/tool tiles select with the "Logo" look (a 70% accent outline, the content in the
-	// accent, no fill); the game-list Carousel's tool tile keeps its fill: the accent with the ink content
+	// the console/collection/tool tiles select with no outline and no fill: the content (icon, logo, name) in the Main
+	// color (Color 1, UI_accent) at full strength, dimmed when not selected (the Grid's "Logo" look further, to 38%)
 	bool logo_look = !game && !t->carousel;
 	int rad = NX_DPF(TILE_RADIUS_DP);
 	Uint8 lit_a = (Uint8)(lit * 255.0f + 0.5f);
 	SDL_Color ac = UI_accent();
 
-	// the game ring: an accent rounded rect 3 dp larger on each side, under the tile
-	if (game && lit_a) {
-		int ring = NX_DPF(TILE_RING_DP);
-		blitShapeColor(dst, SHAPE_FILL, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, rad + ring, 0,
-					   UI_accent(), lit_a);
-	}
 	// the opaque black base
 	blitShape(dst, SHAPE_FILL, r.x, r.y, r.w, r.h, rad, 0, 0, 255);
-	// the plain look's 1 dp inset border (white 8%), fading out as the tile lights
-	if (lit < 1.0f) {
+	// the 1 dp inset border (white 14%) on both looks (a game's: its edge, over the picture below)
+	if (!game) {
 		int b = NX_DPF(TILE_BORDER_DP);
 		if (b < 1)
 			b = 1;
-		blitShape(dst, SHAPE_OUTLINE, r.x, r.y, r.w, r.h, rad, b, 255,
-				  (Uint8)(TILE_BORDER_ALPHA * (1.0f - lit) + 0.5f));
-	}
-	if (logo_look && lit_a) {
-		// the selected outline: 1.5 dp of the opaque accent at 70%, inside the tile's edge
-		int b = NX_DPF(GRID_SEL_OUTLINE_DP);
-		blitShapeColor(dst, SHAPE_OUTLINE, r.x, r.y, r.w, r.h, rad, b < 1 ? 1 : b, (SDL_Color){ac.r, ac.g, ac.b, 255},
-					   (Uint8)(GRID_SEL_OUTLINE_ALPHA * lit_a / 255));
-	} else if (!game && lit_a) {
-		// the Carousel's lit fill: the opaque accent (Color 1; white by default), as every other selection mark
-		blitShapeColor(dst, SHAPE_FILL, r.x, r.y, r.w, r.h, rad, 0, (SDL_Color){ac.r, ac.g, ac.b, 255}, lit_a);
+		blitShape(dst, SHAPE_OUTLINE, r.x, r.y, r.w, r.h, rad, b, 255, TILE_BORDER_ALPHA);
 	}
 
-	// content: at 82% (a Grid collection's name at 100%, as a logo-less console's: drawLogo) → 100% lit; the Grid's in
-	// the fixed off-white (TILE_MENU_GREY), the Carousel's fill kinds white → the accent's ink (Color 5; black by
-	// default), the game kinds white
-	Uint8 plain_a = (t->kind == TILE_COLLECTION && logo_look) ? 255 : TILE_PLAIN_ALPHA;
+	// content: at 82% (the Grid's and the games' at 38%, nx-mobile's dimmed ink) → 100% lit; the games' white, the
+	// others the fixed off-white (TILE_MENU_GREY) → the Main color
+	Uint8 plain_a = logo_look || game ? GAME_DIM_ALPHA : TILE_PLAIN_ALPHA;
 	Uint8 a = (Uint8)(plain_a + (255 - plain_a) * lit + 0.5f);
 	SDL_Color c;
 	if (game)
 		c = greyColor(255);
-	else if (logo_look)
-		c = greyColor(TILE_MENU_GREY); // the Grid: the fixed off-white, lit or not (the alpha marks the selection)
-	else {
-		// white → the ink; written so the default black ink gives exactly the former 255 · (1 − lit) grey
-		SDL_Color ink = UI_onAccent();
-		c = (SDL_Color){(Uint8)(ink.r * lit + 255.0f * (1.0f - lit) + 0.5f),
-						(Uint8)(ink.g * lit + 255.0f * (1.0f - lit) + 0.5f),
-						(Uint8)(ink.b * lit + 255.0f * (1.0f - lit) + 0.5f), 255};
-	}
+	else
+		c = (SDL_Color){(Uint8)(ac.r * lit + TILE_MENU_GREY * (1.0f - lit) + 0.5f),
+						(Uint8)(ac.g * lit + TILE_MENU_GREY * (1.0f - lit) + 0.5f),
+						(Uint8)(ac.b * lit + TILE_MENU_GREY * (1.0f - lit) + 0.5f), 255};
 	// "N games": on every Grid console and collection tile
-	Uint8 count_a = logo_look ? 255 : 0;
+	Uint8 count_a = logo_look && !t->no_count ? 255 : 0;
 	switch (t->kind) {
 	case TILE_LOGO:
 		drawLogo(dst, r, t, s, c, a, count_a);
@@ -874,7 +951,9 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 		break;
 	case TILE_GAME:
 		if (t->picture) {
-			drawPicture(dst, r, rad, t->picture);
+			// plain, grey (no ring: the colour marks the selection, nx-mobile's drained look); a crossfade is the
+			// caller's, between the two composed looks
+			drawPicture(dst, r, rad, t->picture, lit < 0.5f);
 			break;
 		}
 		// no screenshot: a title tile
@@ -885,6 +964,10 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 		break;
 	}
 
+	if (game) { // its edge, white 14%, on both looks
+		int b = NX_DPF(GAME_EDGE_DP);
+		blitShape(dst, SHAPE_OUTLINE, r.x, r.y, r.w, r.h, rad, b < 1 ? 1 : b, 255, TILE_BORDER_ALPHA);
+	}
 	if (game && lit_a && !t->carousel && !t->no_caption) {
 		SDL_Surface* cap = litCaption(r, t, s);
 		if (cap) {

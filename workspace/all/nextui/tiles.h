@@ -39,24 +39,31 @@ typedef struct {
 	// Leave out the lit caption (the fade, the name and the info): the Grid caches a tile's lit look without it, so
 	// the info arriving later doesn't recompose the tile, and draws it per frame with Tiles_drawCaption.
 	bool no_caption;
+	// a console's "N games" left off (its line too: the logo alone, centred): the Consoles Grid shows the selection's
+	// in its header (gridview.c)
+	bool no_count;
 } TileSpec;
 
-// lit 0..1 crossfades plain → lit: GAME/TITLE get the 3 dp accent ring + caption; the Grid's LOGO/TOOL/COLLECTION the
-// "Logo" look (a 1.5 dp outline at 70% accent, the content in the accent, the count); the Carousel's fill (the opaque
-// accent, the content in its ink: white and black by default).
-// Everything is blitted, so it honours dst's clip rect. The game ring sits 3 dp outside r.
+// lit 0..1 crossfades plain → lit: GAME/TITLE their picture grey at 25% plain and in colour lit (no ring), their
+// edge on both, the caption lit; LOGO/TOOL/COLLECTION their content (icon, logo, name) dimmed plain and in the Main
+// color (Color 1) lit, no outline or fill, their 1 dp edge on both (the Grid's with the count).
+// Everything is blitted, so it honours dst's clip rect.
 void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit);
 // Only the lit caption of a game or title tile (not the Carousel's) at r, at the lit amount: the cached caption
 // surface blended over dst, which must be opaque under r (UI_blitBlendOpaque). Nothing for other kinds.
 void Tiles_drawCaption(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit);
 // GPU pieces of a game tile drawn as sprites (no composed look): a w x h mask, black where the rounded tile isn't (its
-// corners, over a picture drawn square), and the lit ring as it shows around the tile: the accent rounded rect TILE_RING
-// px bigger each side, less the tile's own rounded rect ((w + 2 ring) x (h + 2 ring)). The caller owns both.
+// corners, over a picture drawn square). The caller owns it.
 SDL_Surface* Tiles_cornerMask(int w, int h);
-SDL_Surface* Tiles_ringOverlay(int w, int h, SDL_Color c);
-// The plain look's inset border at full alpha (draw it at Tiles_borderAlpha() x (1 - lit)), w x h; the caller owns it.
+// A game tile's 2 dp edge at full alpha (draw it at Tiles_borderAlpha(), over the picture, on both looks), w x h; the
+// caller owns it.
 SDL_Surface* Tiles_borderOverlay(int w, int h);
 Uint8 Tiles_borderAlpha(void);
+// A tool icon sized by what it shows: its pixels ink_h tall (the art's own transparent margins left out), at most
+// 1.5 × ink_h wide (a wider one shrinks to that, keeping its shape), so every tool's icon is one height and its name
+// sits at one place. *ink: those pixels' rect in the returned surface (MenuArt's: cached, not to be freed). NULL when
+// the file is missing.
+SDL_Surface* Tiles_toolIconSized(const char* file, int ink_h, SDL_Rect* ink);
 // The box a tile_w x tile_h tile's console logo is fitted in (MenuArt_get's), at tile scale s.
 void Tiles_logoBox(int tile_w, int tile_h, float s, int* box_w, int* box_h);
 // The Grid's console logo box: Tiles_logoBox less its "N games" line (the logo and count are centred as one block).

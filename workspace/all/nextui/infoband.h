@@ -13,7 +13,7 @@
 // line of segments, right-aligned.
 // `layout` is the caller's list geometry (the one its rows use), so the band and the rows always agree.
 // Drawn onto `layer` from one cached ARGB block (rebuilt only when text/arrows/size change), or blitted onto `dst` when
-// it is given (the tab-focus dim draws the content in software: contentdim.h).
+// it is given.
 void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down, int layer,
 					 SDL_Surface* dst);
 // InfoBand_render in two steps, so a caller can keep the band on its layer while nothing changed: the block built (or

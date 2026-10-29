@@ -45,7 +45,6 @@ static bool slide_retargeted = false; // the slide began while another ran (a he
 static unsigned seen_top = 0; // 0 = none (forgotten)
 static unsigned seen_gen = 0;
 static int seen_n = -1, seen_screen_w = 0, seen_scale = 0, seen_kind = -1;
-static bool snap_next = false; // UP from the tab row jumped to the last item: no slide across the list
 
 // FIXED_SCALE in hundredths: a key that tells 2.25 from 2.5 (an (int) cast truncates both to 2)
 static int scaleKey(void) {
@@ -124,7 +123,7 @@ static void computeGeo(SDL_Surface* screen, StackKind kind, StackGeo* sg) {
 	sg->body_top = bar;
 	sg->body_h = screen->h - 2 * bar;
 	sg->vis_top = CFG_getPageTitle() ? bar : 0;
-	sg->vis_h = (CFG_getButtonHints() ? screen->h - bar : screen->h) - sg->vis_top;
+	sg->vis_h = (MenuTabs_bottomBar() ? screen->h - bar : screen->h) - sg->vis_top;
 	sg->body_h_dp = sg->body_h / pd;
 	memset(&sg->side, 0, sizeof(sg->side));
 	sg->ss = game ? Stack_gameSizes(kind, sg->body_h_dp, screen->w / pd, &sg->side) : Stack_mainSizes(kind, screen->w / pd);
@@ -413,8 +412,7 @@ void StackView_render(SDL_Surface* screen, int lastScreen) {
 	StackKind kind = currentKind();
 	int n = top->entries->count;
 	RowView_syncKinds(n);
-	bool snap = syncList(screen, n, lastScreen, kind) || snap_next;
-	snap_next = false;
+	bool snap = syncList(screen, n, lastScreen, kind);
 	if (n <= 0 || screen->h - 2 * barPx() <= 0) {
 		slide_tw.active = false;
 		pos_from = pos_to = 0;
@@ -585,10 +583,6 @@ bool StackView_handleInput(bool* dirty) {
 			selectItem(nav.sel);
 			*dirty = true;
 			break;
-		case STACK_NAV_TAB_ROW:
-			MenuTabs_setFocused(true);
-			*dirty = true;
-			break;
 		case STACK_NAV_SWITCH_TAB:
 			GameList_switchTab(nav.dir, dirty);
 			break;
@@ -598,14 +592,6 @@ bool StackView_handleInput(bool* dirty) {
 		return true;
 	}
 	return false;
-}
-
-void StackView_focusBottom(void) {
-	int n = top ? top->entries->count : 0;
-	if (n <= 0)
-		return;
-	selectItem(Stack_fromTabRow(n));
-	snap_next = true;
 }
 
 bool StackView_animating(void) {
@@ -621,6 +607,5 @@ void StackView_forget(void) {
 	seen_top = 0;
 	slide_tw.active = false;
 	pos_from = pos_to;
-	snap_next = false;
 	pf.armed = false;
 }

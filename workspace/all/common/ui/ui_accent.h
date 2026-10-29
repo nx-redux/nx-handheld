@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The accent: the one theme colour every selection mark uses (the List pill and its text, the tab underline and focus
-// plate, the game tile ring, Home's selected cards), plus the ink drawn on it.
+// The accent: the one theme colour every selection mark uses (the List pill and its text, the game tile ring, Home's
+// selected cards), plus the ink drawn on it.
 //
 // By default it follows the theme: the accent is Color 1 (THEME_COLOR1, opacity included, as the List pill always
 // was) and its ink is Color 5 (THEME_COLOR5), both read live on every call, so a settings reload is picked up. The

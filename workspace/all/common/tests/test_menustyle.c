@@ -18,7 +18,7 @@ static int loadGameList(int stored) {
 static void unset_main_menu_defaults(void) {
 	assert(CFG_DEFAULT_MENUSTYLE == MENU_STYLE_CAROUSEL);
 	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_CONSOLES) == MENU_STYLE_CAROUSEL);
-	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_COLLECTIONS) == MENU_STYLE_CAROUSEL);
+	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_COLLECTIONS) == MENU_STYLE_MINIMAL);
 	assert(CFG_DEFAULT_MENUSTYLE_FOR(MENU_CAT_TOOLS) == MENU_STYLE_GRID);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		assert(MenuStyle_mainMenu(CFG_DEFAULT_MENUSTYLE_FOR(c)) == CFG_DEFAULT_MENUSTYLE_FOR(c));
@@ -153,14 +153,14 @@ static void valign_store_and_out_of_range(void) {
 static void home_style_store_and_out_of_range(void) {
 	assert(HOME_STYLE_GRID == 0 && HOME_STYLE_CAROUSEL == 1 && HOME_STYLE_LIST == 2 && HOME_STYLE_MINIMAL == 3 &&
 		   HOME_STYLE_COUNT == 4);
-	assert(CFG_DEFAULT_HOMESTYLE == HOME_STYLE_GRID);
+	assert(CFG_DEFAULT_HOMESTYLE == HOME_STYLE_MINIMAL);
 	assert(MenuStyle_storeHome(HOME_STYLE_GRID) == HOME_STYLE_GRID);
 	assert(MenuStyle_storeHome(HOME_STYLE_CAROUSEL) == HOME_STYLE_CAROUSEL);
 	assert(MenuStyle_storeHome(HOME_STYLE_LIST) == HOME_STYLE_LIST);
 	assert(MenuStyle_storeHome(HOME_STYLE_MINIMAL) == HOME_STYLE_MINIMAL);
 	int bad[] = {-1, 4, 99, -99};
 	for (int i = 0; i < 4; i++)
-		assert(MenuStyle_storeHome(bad[i]) == HOME_STYLE_GRID);
+		assert(MenuStyle_storeHome(bad[i]) == HOME_STYLE_MINIMAL);
 }
 
 int main(void) {
