@@ -83,10 +83,9 @@ static struct {
 	unsigned phase;			// where in the 17/17/16 ms pattern the next frame is
 	unsigned rate;			// sample rate reported to the frontend
 	int rate_refused;		// the frontend would not take a new rate; logged once
-	int splore;
 	char cart[P8_PATH];
 	uint8_t sha[32]; // of the pico8_64 started, which states must match
-	int states;		 // states are possible this game: not Splore, pico8_64 hashed, the shim has them on
+	int states;		 // states are possible this game: pico8_64 hashed, the shim has them on
 	// the last snapshot taken, still in ipc->state while no frame has run since
 	int snap_valid;
 	unsigned snap_frame;
@@ -286,20 +285,18 @@ static int start(const char* cart) {
 
 	// A state only loads into the pico8_64 that saved it
 	p8.states = 0;
-	if (!p8.splore) {
-		struct p8state_hdr h;
-		struct timespec t0;
-		clock_gettime(CLOCK_MONOTONIC, &t0);
-		if (p8state_sha256_file(bin, p8.sha) != 0)
-			core_log(RETRO_LOG_WARN, "cannot read %s: save states are off\n", bin);
-		else if (!cart || p8state_hdr_init(&h, p8.sha, cart) != 0)
-			core_log(RETRO_LOG_WARN, "the cart's file name is too long for a state: save states are off\n");
-		else {
-			p8.states = 1;
-			snprintf(p8.cart, sizeof(p8.cart), "%s", cart);
-		}
-		core_log(RETRO_LOG_INFO, "hashed pico8_64 in %ld ms\n", ms_since(&t0));
+	struct p8state_hdr h;
+	struct timespec t0;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	if (p8state_sha256_file(bin, p8.sha) != 0)
+		core_log(RETRO_LOG_WARN, "cannot read %s: save states are off\n", bin);
+	else if (!cart || p8state_hdr_init(&h, p8.sha, cart) != 0)
+		core_log(RETRO_LOG_WARN, "the cart's file name is too long for a state: save states are off\n");
+	else {
+		p8.states = 1;
+		snprintf(p8.cart, sizeof(p8.cart), "%s", cart);
 	}
+	core_log(RETRO_LOG_INFO, "hashed pico8_64 in %ld ms\n", ms_since(&t0));
 
 	char pak[P8_PATH];
 	if (pak_dir(pak, sizeof(pak)) != 0) {
@@ -329,7 +326,7 @@ static int start(const char* cart) {
 	}
 
 	char* argv[8];
-	if (core_build_argv(bin, home, cart, p8.splore, argv, 8) < 0) {
+	if (core_build_argv(bin, home, cart, argv, 8) < 0) {
 		core_log(RETRO_LOG_ERROR, "no cart to run\n");
 		stop_child(0);
 		return -1;
@@ -345,8 +342,7 @@ static int start(const char* cart) {
 	snprintf(e_preload, sizeof(e_preload), "LD_PRELOAD=%s/pico8shim.so", pak);
 	snprintf(e_libpath, sizeof(e_libpath), "LD_LIBRARY_PATH=%s/lib%s%s", pak, inherited && *inherited ? ":" : "",
 			 inherited ? inherited : "");
-	// P8NATIVE_STATES=1 puts PICO-8's allocations in the shim's save-state arena;
-	// Splore runs without it (no states, and downloads would fill it)
+	// P8NATIVE_STATES=1 puts PICO-8's allocations in the shim's save-state arena
 	const char* set[] = {e_ipc, e_home, e_cdata, e_preload, e_libpath, "SDL_VIDEODRIVER=offscreen",
 						 "SDL_AUDIODRIVER=dummy", p8.states ? "P8NATIVE_STATES=1" : "P8NATIVE_STATES=0", NULL};
 	static char* envp[ENV_MAX];
@@ -361,8 +357,7 @@ static int start(const char* cart) {
 		stop_child(0);
 		return -1;
 	}
-	core_log(RETRO_LOG_INFO, "started %s (pid %d) %s %s\n", bin, (int)p8.child, p8.splore ? "-splore" : "-run",
-			 p8.splore ? "" : cart);
+	core_log(RETRO_LOG_INFO, "started %s (pid %d) -run %s\n", bin, (int)p8.child, cart);
 	return 0;
 }
 
@@ -447,8 +442,6 @@ bool retro_load_game(const struct retro_game_info* game) {
 	};
 	environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void*)desc);
 
-	const char* splore = getenv("P8NATIVE_SPLORE");
-	p8.splore = splore && strcmp(splore, "1") == 0;
 	p8.dead = 0;
 	p8.clean_exit = 0;
 	p8.outstanding = 0;
@@ -623,7 +616,7 @@ static int capture(void) {
 // answer at once rather than waiting the frame out (a save or load does wait).
 size_t retro_serialize_size(void) {
 	if (!p8.states)
-		return 0; // Splore, pico8_64 unreadable, or the shim has them off: minarch offers no states
+		return 0; // pico8_64 unreadable, or the shim has them off: minarch offers no states
 	if (settle(FRAME_WAIT_MS) != 0 || capture() != 0)
 		return !p8.states ? 0 : p8.state_size ? p8.state_size
 											  : P8IPC_STATE_MAX;

@@ -6,10 +6,9 @@
 
 #include <stddef.h>
 
-// pico8_64 -home <home> [-splore | -run <cart>], NULL-terminated in argv.
-// Returns argc, or -1 if argv (max slots including the NULL) is too small or a
-// required string is missing (cart in run mode).
-int core_build_argv(const char* bin, const char* home, const char* cart, int splore, char** argv, int max);
+// pico8_64 -home <home> -run <cart>, NULL-terminated in argv. Returns argc, or -1
+// if argv (max slots including the NULL) is too small or a string is missing.
+int core_build_argv(const char* bin, const char* home, const char* cart, char** argv, int max);
 
 // out = base with each "NAME=value" in set (NULL-terminated) replacing the
 // variable of that name or added at the end; NULL-terminated. The strings are

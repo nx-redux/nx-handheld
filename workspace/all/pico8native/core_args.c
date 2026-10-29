@@ -5,22 +5,18 @@
 #include <string.h>
 #include <unistd.h>
 
-int core_build_argv(const char* bin, const char* home, const char* cart, int splore, char** argv, int max) {
-	if (!bin || !home || (!splore && !cart))
+int core_build_argv(const char* bin, const char* home, const char* cart, char** argv, int max) {
+	if (!bin || !home || !cart)
 		return -1;
 	// No window/size flags: under the offscreen driver PICO-8's default fullscreen-desktop
 	// window and software renderer work (Task 5 spike), and the shim never forwards rendering.
-	const char* v[6];
+	const char* v[5];
 	int n = 0;
 	v[n++] = bin;
 	v[n++] = "-home";
 	v[n++] = home;
-	if (splore)
-		v[n++] = "-splore";
-	else {
-		v[n++] = "-run";
-		v[n++] = cart;
-	}
+	v[n++] = "-run";
+	v[n++] = cart;
 	if (n + 1 > max)
 		return -1;
 	for (int i = 0; i < n; i++)

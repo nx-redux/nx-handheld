@@ -35,21 +35,14 @@ static void test_argv(void) {
 	const char* cart = "/mnt/SDCARD/Roms/PICO-8 (P8)/Celeste Classic.p8.png";
 	char* argv[16];
 
-	int n = core_build_argv(bin, home, cart, 0, argv, 16);
+	int n = core_build_argv(bin, home, cart, argv, 16);
 	const char* run[] = {bin, "-home", home, "-run", cart, NULL};
 	expect_vec(argv, n, run);
 
-	n = core_build_argv(bin, home, cart, 1, argv, 16);
-	const char* splore[] = {bin, "-home", home, "-splore", NULL};
-	expect_vec(argv, n, splore);
-
-	n = core_build_argv(bin, home, NULL, 1, argv, 16); // Splore needs no cart
-	expect_vec(argv, n, splore);
-
-	CHECK(core_build_argv(bin, home, NULL, 0, argv, 16) == -1); // run mode does
-	CHECK(core_build_argv(bin, home, cart, 0, argv, 6) == 5);	// exactly fits with the NULL
-	CHECK(core_build_argv(bin, home, cart, 0, argv, 5) == -1);
-	CHECK(core_build_argv(bin, home, cart, 1, argv, 4) == -1);
+	CHECK(core_build_argv(bin, home, NULL, argv, 16) == -1); // a cart is needed (Splore no longer runs here)
+	CHECK(core_build_argv(bin, NULL, cart, argv, 16) == -1);
+	CHECK(core_build_argv(bin, home, cart, argv, 6) == 5); // exactly fits with the NULL
+	CHECK(core_build_argv(bin, home, cart, argv, 5) == -1);
 }
 
 static void test_env(void) {

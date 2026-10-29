@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 // Whether states are on for this run: P8NATIVE_STATES=1, the program is pico8_64 (it
-// has the pstate symbol) and the arena is in place. Splore runs without them.
+// has the pstate symbol) and the arena is in place.
 int state_available(void);
 
 // Whether a state can be taken or put back now: states are on, the cart has started
