@@ -1,9 +1,13 @@
 #!/bin/sh
 
-# Splore's marker cart (Tools/Splore.pak) comes back here when a Splore session is
-# auto-resumed after sleep and power-off: reopen Splore, which runs minarch itself.
+# Splore's marker cart (Tools/Splore.pak, installed from Xtras) comes back here when a Splore session is
+# auto-resumed after sleep and power-off: reopen Splore, which runs minarch itself. Splore removed since: nothing to run.
 case "$1" in
-*/.splore/Splore.p8) exec sh "$SYSTEM_PATH/paks/Tools/Splore.pak/launch.sh" ;;
+*/.splore/Splore.p8)
+	SPLORE="$SDCARD_PATH/Tools/Splore.pak/launch.sh"
+	[ -f "$SPLORE" ] && exec sh "$SPLORE"
+	exit 0
+	;;
 esac
 
 # The user's own PICO-8 (pico8_64 + pico8.dat in Bios/P8 or Bios/PICO) runs carts

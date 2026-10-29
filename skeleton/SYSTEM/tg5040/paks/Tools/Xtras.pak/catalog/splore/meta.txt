@@ -1,0 +1,8 @@
+name=Splore
+category=TOOL
+platforms=tg5040 tg5050
+version_source=internal
+version=2026-10-29
+desc=Adds Splore, PICO-8's own cart browser, to Tools: browse the Lexaloffle BBS over Wi-Fi and play carts straight away. Carts you favourite in Splore are copied into Roms/Pico-8 when you leave it. Needs your own PICO-8 (pico8_64 and pico8.dat from the Raspberry Pi download) in Bios/P8.
+size_mb=1
+done_msg=Installed. Open Splore in Tools.

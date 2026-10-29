@@ -1,10 +1,14 @@
 #!/bin/sh
-# The P8.pak and Splore.pak launchers (both platforms) against a fake SD card,
-# with minarch.elf and show2.elf stubbed to record how they were called:
+# The P8.pak and Splore.pak launchers (both platforms) and Splore's Xtras
+# install/uninstall against a fake SD card, with minarch.elf and show2.elf
+# stubbed to record how they were called:
+# - Xtras refuses to install Splore without the PICO-8 files, installs it into
+#   Tools/ with them, and uninstall removes it
 # - P8.pak given Splore's marker cart (an auto-resumed Splore session) opens
-#   Splore in Splore mode and copies favourites, and Splore does not loop back
+#   Splore in Splore mode and copies favourites, and Splore does not loop back;
+#   with Splore uninstalled, it runs nothing
 # - P8.pak given a cart runs pico8native with the PICO-8 files, fake08 without
-# - Splore.pak without the PICO-8 files shows its message and runs nothing
+# - Splore.pak whose PICO-8 files went missing shows its message and runs nothing
 #
 #   sh workspace/all/pico8native/tests/test_splore_launch.sh
 set -u
@@ -23,6 +27,7 @@ check() { # <description> <command...>
 has() { grep -qF -- "$1" "$T/calls" 2>/dev/null; }
 lacks() { ! grep -qF -- "$1" "$T/calls" 2>/dev/null; }
 count() { [ "$(grep -c '' "$T/calls" 2>/dev/null)" = "$1" ]; }
+fails() { ! "$@"; }
 
 for PLAT in tg5040 tg5050; do
 	rm -rf "$T"
@@ -30,7 +35,7 @@ for PLAT in tg5040 tg5050; do
 	mkdir -p "$T/bin" "$T/sys/paks/Emus" "$T/sys/paks/Tools" "$SD/Roms/Pico-8 (P8)" \
 		"$SD/.userdata/$PLAT/logs" "$SD/.userdata/shared/P8-native/home/bbs/carts"
 	ln -s "$REPO/skeleton/SYSTEM/$PLAT/paks/Emus/P8.pak" "$T/sys/paks/Emus/P8.pak"
-	ln -s "$REPO/skeleton/SYSTEM/$PLAT/paks/Tools/Splore.pak" "$T/sys/paks/Tools/Splore.pak"
+	CATALOG="$REPO/skeleton/SYSTEM/$PLAT/paks/Tools/Xtras.pak/catalog/splore"
 	printf '#!/bin/sh\necho "minarch splore=${P8NATIVE_SPLORE:-} $*" >>"%s/calls"\n' "$T" >"$T/bin/minarch.elf"
 	printf '#!/bin/sh\necho "show2 $*" >>"%s/calls"\n' "$T" >"$T/bin/show2.elf"
 	chmod +x "$T/bin/minarch.elf" "$T/bin/show2.elf"
@@ -48,13 +53,21 @@ for PLAT in tg5040 tg5050; do
 		i=0
 		while [ ! -s "$T/calls" ] && [ $i -lt 50 ]; do sleep 0.1 2>/dev/null || sleep 1; i=$((i + 1)); done
 	}
+	xtras() { # <install.sh|uninstall.sh>: as extras.elf runs it, output in $T/xtras
+		env -i PATH="$PATH" SDCARD_PATH="$SD" PLATFORM="$PLAT" LOGS_PATH="$SD/.userdata/$PLAT/logs" \
+			CATALOG_DIR="$CATALOG" XTRAS_STATE_DIR="$SD/.userdata/shared/xtras" sh "$CATALOG/$1" >"$T/xtras" 2>&1
+	}
 	P8="$T/sys/paks/Emus/P8.pak/launch.sh"
-	SPLORE="$T/sys/paks/Tools/Splore.pak/launch.sh"
+	SPLORE="$SD/Tools/Splore.pak/launch.sh"
+	CACHES="$SD/.userdata/$PLAT/emulist_cache.txt $SD/.userdata/$PLAT/romindex_cache.txt"
 
-	# no PICO-8 files: Splore says so, P8.pak runs fake08
-	run "$SPLORE"
-	check "$PLAT splore without runtime shows the message" has "Splore needs PICO-8"
-	check "$PLAT splore without runtime runs no minarch" lacks "minarch"
+	# no PICO-8 files: Xtras won't install Splore, P8.pak runs fake08
+	check "$PLAT install without runtime fails" fails xtras install.sh
+	check "$PLAT install without runtime says why" grep -q "^ERROR: Splore needs PICO-8" "$T/xtras"
+	check "$PLAT install without runtime adds no tool" test ! -e "$SD/Tools/Splore.pak"
+	run "$CATALOG/pak/launch.sh"
+	check "$PLAT splore whose runtime went missing shows the message" has "Splore needs PICO-8"
+	check "$PLAT splore whose runtime went missing runs no minarch" lacks "minarch"
 	rm -f "$T/calls"
 	run "$P8" "$CART"
 	check "$PLAT cart without runtime runs fake08" has "P8.pak/fake08_libretro.so $CART"
@@ -67,10 +80,19 @@ for PLAT in tg5040 tg5050; do
 	check "$PLAT cart with runtime runs pico8native" has "minarch splore= $T/sys/paks/Emus/P8.pak/pico8native_libretro.so $CART"
 	rm -f "$T/calls"
 
-	# the auto-resumed Splore marker reopens Splore, once, and copies favourites
+	# a Splore marker left from before Splore was uninstalled: nothing to reopen
 	mkdir -p "$(dirname "$MARKER")"
 	: >"$MARKER"
-	CACHES="$SD/.userdata/$PLAT/emulist_cache.txt $SD/.userdata/$PLAT/romindex_cache.txt"
+	run "$P8" "$MARKER"
+	check "$PLAT marker without Splore runs nothing" lacks "minarch"
+
+	# with the files, Xtras installs Splore into Tools/ and refreshes the lists
+	for c in $CACHES; do : >"$c"; done
+	check "$PLAT install with runtime succeeds" xtras install.sh
+	check "$PLAT install puts Splore in Tools" test -x "$SPLORE"
+	for c in $CACHES; do check "$PLAT install clears $(basename "$c")" test ! -e "$c"; done
+
+	# the auto-resumed Splore marker reopens Splore, once, and copies favourites
 	for c in $CACHES; do : >"$c"; done
 	run "$P8" "$MARKER"
 	check "$PLAT resumed marker opens Splore mode" has "minarch splore=1 $T/sys/paks/Emus/P8.pak/pico8native_libretro.so $MARKER"
@@ -84,6 +106,14 @@ for PLAT in tg5040 tg5050; do
 	run "$SPLORE"
 	check "$PLAT splore with runtime runs minarch" count 1
 	for c in $CACHES; do check "$PLAT nothing copied keeps $(basename "$c")" test -e "$c"; done
+
+	# uninstall removes the tool and its version marker, keeps the copied carts
+	mkdir -p "$SD/.userdata/shared/xtras"
+	: >"$SD/.userdata/shared/xtras/splore.version"
+	check "$PLAT uninstall succeeds" xtras uninstall.sh
+	check "$PLAT uninstall removes the tool" test ! -e "$SD/Tools/Splore.pak"
+	check "$PLAT uninstall removes the version marker" test ! -e "$SD/.userdata/shared/xtras/splore.version"
+	check "$PLAT uninstall keeps the copied carts" test -f "$SD/Roms/Pico-8 (P8)/a game.p8.png"
 done
 
 echo "test_splore_launch: $PASSES passed, $FAILS failed"

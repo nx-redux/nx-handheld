@@ -1,7 +1,9 @@
 #!/bin/sh
 # Splore: PICO-8's cart browser, in minarch through the pico8native core
-# (P8NATIVE_SPLORE=1). Needs the user's own pico8_64 and pico8.dat. On the way
-# out, the carts favourited in Splore are copied into the PICO-8 roms folder.
+# (P8NATIVE_SPLORE=1). Installed into Tools/ from Xtras (catalog/splore), which
+# checks for the user's own pico8_64 and pico8.dat; they can still go missing
+# later, so this checks again. On the way out, the carts favourited in Splore
+# are copied into the PICO-8 roms folder.
 
 P8_PAK="$SYSTEM_PATH/paks/Emus/P8.pak"
 LOG="$LOGS_PATH/splore.txt"
@@ -28,13 +30,6 @@ mkdir -p "$ROMS/.splore"
 
 HOME="$USERDATA_PATH"
 cd "$HOME" || exit 1
-# With a shader on, the GPU runs at performance (gpu-shader-boost.sh), read
-# from the P8 native config that minarch uses here
-EMU_TAG=P8
-EMU_EXE=pico8native
-ROM="$MARKER"
-. "$SHARED_SYSTEM_PATH/bin/gpu-shader-boost.sh"
-nx_gpu_shader_boost
 P8NATIVE_SPLORE=1 minarch.elf "$P8_PAK/pico8native_libretro.so" "$MARKER" >"$LOG" 2>&1
 
 # PICO-8's home, as the core sets it (core.c: $SHARED_USERDATA_PATH/P8-native/home).
