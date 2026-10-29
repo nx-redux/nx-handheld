@@ -83,10 +83,15 @@ RowItem Row_item(const RowSizes* s, RowKind k, float index, float pos) {
 			it.darken += (1 - it.darken) * clampf(d - 3, 0, 1);
 	} else {
 		it.alpha = Row_slotAlpha(d);
-		if (k == ROW_BACKDROP_LOGO) // Consoles' side logos a step dimmer than the curve, eased in over the first step
+		// Consoles' side logos and Tools' side icons a step dimmer than the curve, eased in over the first step
+		if (k == ROW_BACKDROP_LOGO || k == ROW_BACKDROP_TOOL)
 			it.alpha *= 1 - (1 - ROW_LOGO_SIDE_ALPHA) * t;
 	}
 	return it;
+}
+
+float Row_drainedDarken(float d) {
+	return clampf(fabsf(d) - 3, 0, 1);
 }
 
 // Item i's centre (dp from the row centre) with the selection resting on k: the selection full size, the others at

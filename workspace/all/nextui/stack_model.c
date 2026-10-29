@@ -22,8 +22,8 @@ StackSizes Stack_mainSizes(StackKind k, float body_w) {
 	case STACK_MAIN_COLLECTIONS:
 		s.item_w = 400, s.item_h = 100, s.gap = 14;
 		break;
-	default: // Tools
-		s.item_w = 150, s.item_h = 140, s.scale = 0.6f, s.gap = 10;
+	default:																							// Tools
+		s.item_w = 150, s.item_h = 140, s.scale = 0.6f, s.gap = 10, s.side_alpha = ROW_LOGO_SIDE_ALPHA; // as Consoles
 		break;
 	}
 	s.item_w = maxf(0.0f, minf(s.item_w, body_w - 2 * STACK_GUTTER_DP));
@@ -192,9 +192,7 @@ StackNav Stack_navigate(int n, int sel, StackKey key, bool fresh, bool main_menu
 	StackNav nav = {STACK_NAV_NONE, sel, 0};
 	if (n <= 0) {
 		nav.sel = 0;
-		if (main_menu && fresh && key == STACK_KEY_UP)
-			nav.action = STACK_NAV_TAB_ROW;
-		else if (main_menu && fresh && (key == STACK_KEY_LEFT || key == STACK_KEY_RIGHT))
+		if (main_menu && fresh && (key == STACK_KEY_LEFT || key == STACK_KEY_RIGHT))
 			nav.action = STACK_NAV_SWITCH_TAB, nav.dir = key == STACK_KEY_LEFT ? -1 : 1;
 		return nav;
 	}
@@ -207,7 +205,7 @@ StackNav Stack_navigate(int n, int sel, StackKey key, bool fresh, bool main_menu
 	case STACK_KEY_UP:
 		if (sel > 0)
 			nav.action = STACK_NAV_MOVE, nav.sel = sel - 1;
-		else if (fresh && n > 1) // the first item: a fresh press wraps to the last (never the tab row, as the List)
+		else if (fresh && n > 1) // the first item: a fresh press wraps to the last (as the List)
 			nav.action = STACK_NAV_MOVE, nav.sel = n - 1;
 		break;
 	case STACK_KEY_DOWN:
@@ -223,8 +221,4 @@ StackNav Stack_navigate(int n, int sel, StackKey key, bool fresh, bool main_menu
 		break;
 	}
 	return nav;
-}
-
-int Stack_fromTabRow(int n) {
-	return n > 0 ? n - 1 : 0;
 }

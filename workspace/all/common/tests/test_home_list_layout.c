@@ -66,10 +66,10 @@ static int near(float a, float b) {
 }
 static void minimal_fade(void) {
 	assert(near(HomeMin_alpha(0), 1.0f));
-	assert(near(HomeMin_alpha(1), 0.5f) && near(HomeMin_alpha(2), 0.4f) && near(HomeMin_alpha(3), 0.28f));
-	assert(near(HomeMin_alpha(4), 0.2f) && near(HomeMin_alpha(9), 0.2f));
-	assert(near(HomeMin_alpha(-1), 0.3f) && near(HomeMin_alpha(-2), 0.22f) && near(HomeMin_alpha(-9), 0.2f));
-	assert(near(HomeMin_alpha(0.5f), 0.75f) && near(HomeMin_alpha(-0.5f), 0.65f));
+	assert(near(HomeMin_alpha(1), 0.8f) && near(HomeMin_alpha(2), 0.6f) && near(HomeMin_alpha(3), 0.5f));
+	assert(near(HomeMin_alpha(4), 0.42f) && near(HomeMin_alpha(9), 0.42f));
+	assert(near(HomeMin_alpha(-1), 0.6f) && near(HomeMin_alpha(-2), 0.48f) && near(HomeMin_alpha(-9), 0.4f));
+	assert(near(HomeMin_alpha(0.5f), 0.9f) && near(HomeMin_alpha(-0.5f), 0.8f));
 }
 
 static void minimal_glide(void) {

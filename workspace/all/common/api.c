@@ -2123,6 +2123,162 @@ static void GFX_blitButtonAt(char* hint, char* button, SDL_Surface* dst, SDL_Rec
 void GFX_blitButton(char* hint, char* button, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	GFX_blitButtonAt(hint, button, dst, dst_rect, FIXED_SCALE, font.tiny);
 }
+
+// The glyph art's shape alone, without the name printed over it (SELECT's square, START's triangle): the last band of
+// rows with ink (the name is the band above it, a clear row between), cropped to its columns. A 32-bit surface only.
+static SDL_Rect glyphShape(SDL_Surface* src) {
+	SDL_Rect r = {0, 0, src->w, src->h};
+	int amask = src->format->Amask;
+	if (!amask)
+		return r;
+	int ashift = src->format->Ashift, top = -1, bottom = -1, left = src->w, right = -1;
+	for (int y = src->h - 1; y >= 0; y--) {
+		const Uint32* row = (const Uint32*)((const Uint8*)src->pixels + y * src->pitch);
+		int ink = 0;
+		for (int x = 0; x < src->w; x++)
+			if ((int)((row[x] & amask) >> ashift) > 32) {
+				ink = 1;
+				if (x < left)
+					left = x;
+				if (x > right)
+					right = x;
+			}
+		if (ink) {
+			if (bottom < 0)
+				bottom = y;
+			top = y;
+		} else if (bottom >= 0)
+			break; // the clear row over the shape
+	}
+	if (bottom < 0)
+		return r;
+	r.x = left, r.y = top, r.w = right - left + 1, r.h = bottom - top + 1;
+	return r;
+}
+
+// src's art in r area-averaged down to h px tall (its width in proportion; never grown: at most r's height): every
+// source pixel lands in exactly one output pixel, so a thin stroke thins instead of breaking up (as a
+// nearest-neighbour stretch would).
+static SDL_Surface* glyphShrunk(SDL_Surface* src, SDL_Rect r, int h) {
+	if (!src || h <= 0 || r.w <= 0 || r.h <= 0 || src->format->BytesPerPixel != 4)
+		return NULL;
+	if (h > r.h)
+		h = r.h;
+	int w = (r.w * h + r.h / 2) / r.h;
+	if (w < 1)
+		w = 1;
+	SDL_Surface* out = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, src->format->format);
+	if (!out)
+		return NULL;
+	if (SDL_MUSTLOCK(src))
+		SDL_LockSurface(src);
+	for (int y = 0; y < h; y++) {
+		int y0 = r.y + y * r.h / h, y1 = r.y + (y + 1) * r.h / h;
+		Uint32* drow = (Uint32*)((Uint8*)out->pixels + y * out->pitch);
+		for (int x = 0; x < w; x++) {
+			int x0 = r.x + x * r.w / w, x1 = r.x + (x + 1) * r.w / w;
+			Uint32 acc[4] = {0, 0, 0, 0}, n = 0;
+			for (int sy = y0; sy < y1; sy++) {
+				const Uint32* srow = (const Uint32*)((const Uint8*)src->pixels + sy * src->pitch);
+				for (int sx = x0; sx < x1; sx++, n++)
+					for (int c = 0; c < 4; c++)
+						acc[c] += (srow[sx] >> (c * 8)) & 0xFF;
+			}
+			Uint32 p = 0;
+			for (int c = 0; c < 4; c++)
+				p |= (n ? (acc[c] + n / 2) / n : 0) << (c * 8);
+			drow[x] = p;
+		}
+	}
+	if (SDL_MUSTLOCK(src))
+		SDL_UnlockSurface(src);
+	SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
+	return out;
+}
+
+// START's shape drawn for the tab row (the art's triangle, wide and flat, reads as a flag that small): a triangle
+// pointing right, h px tall and 9/10 of that wide, its edges anti-aliased (4 x 4 samples a px).
+static SDL_Surface* glyphTriangle(int h, Uint32 format) {
+	int w = (h * 9 + 5) / 10;
+	if (h <= 0 || w <= 0)
+		return NULL;
+	SDL_Surface* out = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, format);
+	if (!out)
+		return NULL;
+	for (int y = 0; y < h; y++) {
+		Uint32* row = (Uint32*)((Uint8*)out->pixels + y * out->pitch);
+		for (int x = 0; x < w; x++) {
+			int in = 0;
+			for (int sy = 0; sy < 4; sy++)
+				for (int sx = 0; sx < 4; sx++) {
+					float px = x + (sx + 0.5f) / 4, py = y + (sy + 0.5f) / 4;
+					float half = h / 2.0f, reach = w * (1 - fabsf(py - half) / half); // the row's right end
+					in += px < reach;
+				}
+			row[x] = SDL_MapRGBA(out->format, 255, 255, 255, (Uint8)(in * 255 / 16));
+		}
+	}
+	SDL_SetSurfaceBlendMode(out, SDL_BLENDMODE_BLEND);
+	return out;
+}
+
+int GFX_blitButtonScaled(char* hint, char* button, SDL_Surface* dst, int x, int cy, int glyph_h) {
+	const char* label = PAD_buttonLabel(button);
+	SDL_Surface* glyph = GFX_getNavGlyph(label);
+	if (!glyph) { // no art (the drawn fallback): the standard size
+		if (dst)
+			GFX_blitButton(hint, button, dst, &(SDL_Rect){x, cy - SCALE1(BUTTON_SIZE) / 2});
+		return GFX_getButtonWidth(hint, button);
+	}
+	// a few shrunk glyphs kept (the tab row's SELECT and START), keyed by the art and the height: the shape alone, the
+	// name printed over it unreadable at this size
+	static struct {
+		SDL_Surface *src, *surf;
+		int h;
+	} cache[4];
+	static int next = 0;
+	SDL_Surface* g = glyph;
+	if (glyph_h > 0) {
+		g = NULL;
+		for (int i = 0; i < 4 && !g; i++)
+			if (cache[i].surf && cache[i].src == glyph && cache[i].h == glyph_h)
+				g = cache[i].surf;
+		if (!g) {
+			if (cache[next].surf)
+				SDL_FreeSurface(cache[next].surf);
+			cache[next].src = glyph;
+			cache[next].h = glyph_h;
+			if (strcmp(label, "START") == 0)
+				cache[next].surf = glyphTriangle(glyph_h, glyph->format->format);
+			else {
+				if (SDL_MUSTLOCK(glyph))
+					SDL_LockSurface(glyph);
+				SDL_Rect shape =
+					glyph->format->BytesPerPixel == 4 ? glyphShape(glyph) : (SDL_Rect){0, 0, glyph->w, glyph->h};
+				if (SDL_MUSTLOCK(glyph))
+					SDL_UnlockSurface(glyph);
+				cache[next].surf = glyphShrunk(glyph, shape, glyph_h);
+			}
+			g = cache[next].surf ? cache[next].surf : glyph;
+			next = (next + 1) % 4;
+		}
+	}
+	int gap = SCALE1(BUTTON_TEXT_GAP);
+	int w = g->w + gap;
+	int tw = 0;
+	GFX_measureText(font.tiny, hint, &tw, NULL);
+	if (dst) {
+		// the label's line box centred on cy; a shrunk glyph stands on its baseline (as tall as its capitals: level
+		// with them), else centred
+		int fh = TTF_FontHeight(font.tiny), text_y = cy - fh / 2;
+		int gy = g != glyph ? text_y + TTF_FontAscent(font.tiny) - g->h : cy - g->h / 2;
+		GFX_blitSurfaceColor(g, NULL, dst, &(SDL_Rect){x, gy}, RGB_WHITE);
+		SDL_Surface* text = GFX_getCachedText(font.tiny, hint, uintToColour(THEME_COLOR6_255));
+		if (text)
+			SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x + w, text_y, text->w, text->h});
+	}
+	return w + tw;
+}
 void GFX_blitMessage(TTF_Font* font, char* msg, SDL_Surface* dst, SDL_Rect* dst_rect) {
 	if (!dst_rect)
 		dst_rect = &(SDL_Rect){0, 0, dst->w, dst->h};

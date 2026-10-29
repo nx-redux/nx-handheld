@@ -38,6 +38,7 @@ void HomeCar_compute(float W, float H, float bar, int strip_lines, const HomeCar
 	float step = 36 * strip_k * text_k;
 	float strip_h = l->strip_lines > 0 ? asc + (l->strip_lines - 1) * step + desc : 0.0f;
 	int nspaces = l->strip_lines > 0 ? 3 : 2;
+	bool strip_fixed = opts && opts->strip_base0 > 0 && l->strip_lines > 0;
 
 	// the dock: squares of HOMECAR_DOCK_SQ, as many as fit the content's width, centred
 	float cw = W - 2 * HOME_EDGE;
@@ -53,6 +54,16 @@ void HomeCar_compute(float W, float H, float bar, int strip_lines, const HomeCar
 	// the tile: what the body leaves (the strip, the spaces at their least, the ring room above and under it, the
 	// dock), capped, in the shape
 	float tabs = opts && opts->tabs_bottom > 0 ? opts->tabs_bottom : bar;
+	if (strip_fixed) { // the strip in the top bar's row: the body starts under it, two spaces
+		l->strip_base[0] = opts->strip_base0;
+		l->strip_base[1] = l->strip_base[0] + step;
+		l->strip_top = l->strip_base[0] - asc;
+		l->strip_bottom = l->strip_top + strip_h;
+		if (l->strip_bottom > tabs)
+			tabs = l->strip_bottom;
+		strip_h = 0;
+		nspaces = 2;
+	}
 	float body = H - bar - tabs;
 	float h = body - strip_h - nspaces * HOMECAR_MARGIN - 2 * HOME_RING - dock_h;
 	if (max_h > 0 && h > max_h)
@@ -71,7 +82,7 @@ void HomeCar_compute(float W, float H, float bar, int strip_lines, const HomeCar
 	float block = HOME_RING + h + HOME_RING + dock_h;
 	l->space = (body - strip_h - block) / nspaces;
 	float y = tabs + l->space;
-	if (l->strip_lines > 0) {
+	if (l->strip_lines > 0 && !strip_fixed) {
 		l->strip_top = y;
 		l->strip_base[0] = y + asc;
 		l->strip_base[1] = l->strip_base[0] + step;
@@ -95,12 +106,14 @@ void HomeCar_compute(float W, float H, float bar, int strip_lines, const HomeCar
 		float sk = strip_k * text_k;
 		float top = bar + (l->strip_lines == 2 ? 103 * sk : l->strip_lines == 1 ? 71 * sk
 																				: 27);
+		if (strip_fixed) // the strip in the top bar's row: the card under its last line, as Grid's top section
+			top = fmaxf(l->strip_base[l->strip_lines - 1] + 30 * sk, bar + HOME_BOTTOM);
 		float bottom = l->ntools > 0 ? l->dock_y - HOMECAR_DOCK_GAP - HOME_RING : H - bar - HOME_BOTTOM;
 		l->tile_w = cw;
 		l->tile_h = bottom - top;
 		l->row_y = top;
 		l->row_cy = top + l->tile_h / 2;
-		if (l->strip_lines > 0) {
+		if (l->strip_lines > 0 && !strip_fixed) {
 			l->strip_base[0] = bar + (l->strip_lines == 2 ? 37 : 40) * sk;
 			l->strip_base[1] = bar + 73 * sk;
 			l->strip_top = l->strip_base[0] - asc;
@@ -116,7 +129,7 @@ HomeCarItem HomeCar_item(const HomeCarLayout* l, int i, float pos) {
 	float w = l->tile_w * it.scale, h = l->tile_h * it.scale;
 	out.r = (HomeRect){l->centre_x + it.dx - w / 2, l->row_cy - h / 2, w, h};
 	out.scale = it.scale;
-	out.darken = it.darken;
+	out.darken = Row_drainedDarken(i - pos); // every card a game (or Pick a game): no shade over the grey
 	out.visible = it.visible && i >= 0 && i < l->nitems;
 	return out;
 }
@@ -151,19 +164,13 @@ HomeMoveResult HomeCar_move(const HomeCarLayout* l, HomeCarFocus* f, HomeDir dir
 			f->dock = false;
 			return HOME_MOVE_MOVED;
 		}
-		return HOME_MOVE_TABS;
+		return HOME_MOVE_STAY;
 	case HOME_DIR_DOWN:
 		if (!f->dock && l->ntools > 0) {
 			f->dock = true;
 			return HOME_MOVE_MOVED;
 		}
-		return HOME_MOVE_STAY;
+		return HOME_MOVE_STAY; // the dock (or the row without one): nothing under it
 	}
 	return HOME_MOVE_STAY;
-}
-
-void HomeCar_fromTabs(const HomeCarLayout* l, HomeCarFocus* f) {
-	*f = HomeCar_clampFocus(l, *f);
-	if (l->ntools > 0)
-		f->dock = true;
 }

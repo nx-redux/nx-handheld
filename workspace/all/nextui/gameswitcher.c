@@ -359,7 +359,7 @@ static void drawHeader(const char* rom_path, int status_w) {
 		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){x, BAR_HEIGHT});
 }
 
-// Layouts > Button hints: Hide: the bar's row gets its 90% scrim only under the info line (drawInfo); with
+// Layouts > Bottom bar: Hide: the bar's row gets its 90% scrim only under the info line (drawInfo); with
 // nothing in it the preview runs to the bottom edge
 static void drawHintScrim(void) {
 	static SDL_Surface* scrim = NULL;
@@ -369,7 +369,7 @@ static void drawHintScrim(void) {
 }
 
 // The selected game's one-line info (time, achievements, Next), bottom-left over an eased fade that rises from the
-// hint bar, across the screen. Layouts > Extra info: Hide drops it; Layouts > Button hints: Hide leaves the bar's row
+// hint bar, across the screen. Layouts > Extra info: Hide drops it; Layouts > Bottom bar: Hide leaves the bar's row
 // to it (the bar's 90% scrim without hints, the line centred in it, as a List game list's). The recent's own path, so
 // a game whose emulator is gone still shows its history.
 static void drawInfo(const char* rom_path) {

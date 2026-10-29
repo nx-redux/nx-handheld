@@ -42,7 +42,7 @@ int MinDraw_wrap(TTF_Font* f, const char* text, int max_w, int max_lines, char l
 // left, so the solid's are drawn that far in to match). w: the lines' room.
 SDL_Surface* MinDraw_lines(const MinMetrics* m, char lines[][MIN_LINE_MAX], int n, int w, SDL_Color c, bool outlined);
 
-// s into r at alpha (and the tab-focus dim, MenuTabs_contentAlpha) and grey level shade: a GPU sprite clipped to clip
+// s into r at alpha and grey level shade: a GPU sprite clipped to clip
 // when sprite (the CPU blending a dozen big names a frame held the Brick near 10 fps), else blended into dst (clipped
 // by its clip rect). r's w, h: the size to draw at (0: s's own).
 void MinDraw_blit(SDL_Surface* s, SDL_Rect r, float alpha, const SDL_Rect* clip, Uint8 shade, bool sprite,

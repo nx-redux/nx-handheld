@@ -38,8 +38,8 @@ void HomeList_compute(int strip_lines, const HomeListOpts* o, HomeListGeom* out)
 	out->list_top = out->strip_base[lines - 1] + o->desc + o->list_gap;
 }
 
-static const float MIN_BELOW[] = {1.0f, 0.5f, 0.4f, 0.28f, 0.2f};
-static const float MIN_ABOVE[] = {1.0f, 0.3f, 0.22f, 0.2f};
+static const float MIN_BELOW[] = {1.0f, 0.8f, 0.6f, 0.5f, 0.42f};
+static const float MIN_ABOVE[] = {1.0f, 0.6f, 0.48f, 0.4f};
 
 float HomeMin_alpha(float distance) {
 	const float* steps = distance < 0 ? MIN_ABOVE : MIN_BELOW;

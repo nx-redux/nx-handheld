@@ -32,6 +32,8 @@ typedef struct {
 	float row_gap;		   // between neighbouring tiles (the game-list Carousel's gap)
 	float tabs_bottom;	   // the tab row's underline's bottom, where the first space starts; 0: bar
 	bool no_continue;	   // no Continue: item 0 is Pick a game (alone, with no pinned games: Grid's card, see below)
+	float strip_base0;	   // >0: the strip's first baseline, fixed (in the top bar's row); the spaces then share the
+						   // body under the strip (two: above the ring, under the block)
 } HomeCarOpts;
 
 typedef struct {
@@ -81,11 +83,9 @@ typedef struct {
 } HomeCarFocus;
 
 // The D-pad: along the row or the dock with LEFT/RIGHT (past an end: HOME_MOVE_EDGE_PREV / _NEXT, the caller switches
-// tab on a fresh press only); UP from the row to the tab row (HOME_MOVE_TABS), from the dock back to the row; DOWN from
-// the row to the dock on its remembered square when there are tools.
+// tab on a fresh press only); UP from the dock back to the row; DOWN from the row to the dock on its remembered square
+// when there are tools; DOWN from the dock (or a row without one) stays.
 HomeMoveResult HomeCar_move(const HomeCarLayout* l, HomeCarFocus* f, HomeDir dir);
-// UP on the tab row: into the dock when it has tools, else the row as it was.
-void HomeCar_fromTabs(const HomeCarLayout* l, HomeCarFocus* f);
 // A focus kept in range after a rebuild (fewer items: the last one; no tools: the row).
 HomeCarFocus HomeCar_clampFocus(const HomeCarLayout* l, HomeCarFocus f);
 

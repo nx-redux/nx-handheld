@@ -25,6 +25,9 @@ typedef struct {
 // never below the spec-scaled size (a block that still doesn't fit clamps under the header, see Row_top).
 void Row_fitBoxSlot(RowSizes* s, RowKind k, float body_h, float room, float caption_gap, float caption_h);
 RowItem Row_item(const RowSizes* s, RowKind k, float index, float pos);
+// A Carousel game's darkening at distance d (items) from the row's position: none, its plain look's grey dims it
+// already (nx-mobile's drained row: no black layer over the neighbours), but the far fade toward black over 3..4.
+float Row_drainedDarken(float d);
 // Row_item's dx for content-sized slots (Horizontal Tools and Collections): item j is w(j, ctx) dp wide at full size
 // (s->scale of it off the selection), s->gap between neighbouring edges; at rest on k the selection is centred, and
 // between two rests the centres move linearly (equal widths: Row_item's dx exactly). n items.
@@ -46,7 +49,7 @@ float Row_backdropGain(float y_frac);
 // the tab row and the hint bar (Row_top with no caption).
 #define ROW_COUNT_SP 14.0f			   // "N games", in the accent: × the slot content scale (Row_countSp)
 #define ROW_COUNT_MIN_SP 10.0f		   // ...never below the caption floor
-#define ROW_LOGO_SIDE_ALPHA 0.65f	   // Consoles (Horizontal): its side logos at 0.65 x Row_slotAlpha
+#define ROW_LOGO_SIDE_ALPHA 0.65f	   // Consoles and Tools: their side items at 0.65 x Row_slotAlpha
 #define ROW_LOGO_COUNT_GAP_DP 8.0f	   // Consoles: under the logo as drawn (unscaled)
 #define ROW_COUNT_GLIDE_MS 300		   // Consoles: the count's y glides as logo heights differ (UI_easeStandard)
 #define ROW_COLL_NAME_SP 36.0f		   // Collections: the name starts here × the slot content scale

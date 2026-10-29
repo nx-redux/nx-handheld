@@ -162,6 +162,12 @@ int UI_renderMenuBar(SDL_Surface* screen, const char* title) {
 	return UI_renderMenuBarAt(screen, title, NULL, -1, true, false);
 }
 
+static int last_ow = 0; // the hardware group's width as the bar last drew it
+
+int UI_statusWidth(void) {
+	return last_ow;
+}
+
 int UI_renderMenuBarAt(SDL_Surface* screen, const char* title, const char* suffix, int x, bool scrim,
 					   bool title_shadow) {
 	int bar_h = UI_menuBarHeight();
@@ -175,6 +181,7 @@ int UI_renderMenuBarAt(SDL_Surface* screen, const char* title, const char* suffi
 
 	// Hardware group (right side)
 	int ow = GFX_blitHardwareGroup(screen, PWR_getShowSetting());
+	last_ow = ow;
 
 	// Page title (left side, no pill): at most 80% of the screen, and clear of the hardware group
 	if (title && title[0]) {

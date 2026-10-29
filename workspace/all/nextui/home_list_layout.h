@@ -35,7 +35,7 @@ typedef struct {
 } HomeListOpts;
 
 typedef struct {
-	int strip_lines;   // 0 (fresh, or Layouts > Extra info hidden), 1 or 2
+	int strip_lines;   // 0 (fresh, or Layouts > Top bar hidden), 1 or 2
 	int strip_base[2]; // the lines' baselines
 	int list_top;	   // the first row's top
 } HomeListGeom;
@@ -54,8 +54,8 @@ typedef struct {
 HomeListTag HomeList_tag(int th, int text_w);
 
 // Home's Minimal (Layouts > Home layout: Minimal; nx-mobile's HomeMinimalScreen) draws the same rows as big names. A
-// name's opacity `distance` names from the shown position (negative above it), in steps: below 0.6, 0.4, 0.28, then
-// 0.2 on to the screen's edge; above fainter, 0.3, 0.22, then 0.2; the selection 1. Linear between the steps, so it
+// name's opacity `distance` names from the shown position (negative above it), in steps: below 0.8, 0.6, 0.5, then
+// 0.42 on to the screen's edge; above fainter, 0.6, 0.48, then 0.4; the selection 1. Linear between the steps, so it
 // stays smooth while the names slide.
 float HomeMin_alpha(float distance);
 

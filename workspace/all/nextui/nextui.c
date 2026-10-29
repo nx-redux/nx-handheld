@@ -14,7 +14,6 @@
 #include <unistd.h>
 
 #include "content.h"
-#include "contentdim.h"
 #include "display_helper.h"
 #include "collcount.h"
 #include "gameinfo.h"
@@ -439,13 +438,12 @@ int main(int argc, char* argv[]) {
 		bool sw_list = currentScreen == SCREEN_GAMESWITCHER && GameSwitcher_isList();
 		int drawScreen = sw_list ? SCREEN_GAMELIST : currentScreen;
 
-		// Keep redrawing while the selection pill glides to its new row, the
-		// tab underline to its new tab, a Grid slides or crossfades its lit tile,
-		// a Carousel/Backdrop row slides or crossfades its picture, or the content
-		// dims for (or lights up from) tab-row focus. Settled, nothing redraws.
+		// Keep redrawing while the selection pill glides to its new row, a Grid
+		// slides or crossfades its lit tile, or a Carousel/Backdrop row slides or
+		// crossfades its picture. Settled, nothing redraws.
 		if (drawScreen == SCREEN_GAMELIST && !ContextMenu_isOpen() &&
-			(GameList_pillAnimating() || GameList_artWaiting() || MenuTabs_animating() || Home_animating() || GridView_animating() ||
-			 RowView_animating() || MinView_animating() || MenuTabs_dimAnimating()))
+			(GameList_pillAnimating() || GameList_artWaiting() || Home_animating() || GridView_animating() ||
+			 RowView_animating() || MinView_animating()))
 			dirty = true;
 
 		if (dirty) {
@@ -460,7 +458,6 @@ int main(int argc, char* argv[]) {
 			// RowView_beginSprites), those under the screen too (the Backdrop picture); a frame that adds none leaves
 			// none. After the capture above: the outgoing frame keeps its sprites.
 			PLAT_spritesClear();
-			PLAT_setScreenDim(0, 0, 255); // the tab-focus dim's rows, when it is the GPU's: this frame's to set again
 
 			if (lastScreen == SCREEN_GAME || lastScreen == SCREEN_OFF) {
 				GFX_clearLayers(LAYER_ALL);
@@ -520,13 +517,15 @@ int main(int argc, char* argv[]) {
 			if (currentScreen == SCREEN_GAMESWITCHER)
 				menu_title = sw_list ? "Recent" : NULL; // Full screen draws the game's name itself, larger
 			else if (!CFG_getPageTitle())
-				menu_title = NULL; // Layouts > Page title: Hide (no tab row either, below); the status icons stay
+				menu_title = NULL; // Layouts > Top bar: Hide (no title, stats or header); the status icons stay
+			else if (stack->count > 1 && drawScreen == SCREEN_GAMELIST && GridView_headerHidesTitle())
+				menu_title = NULL; // the Grid's header has the selected game's info on the title's line
 			else if (stack->count > 1)
 				menu_title = listTitle(list_title, sizeof(list_title));
 			else if (MenuTabs_count() <= 1)
 				menu_title = "NX Redux"; // a lone tab draws no row (MenuTabs_renderRow): the bar shows the name instead
 			else
-				menu_title = NULL; // the root draws the tab row in the bar instead
+				menu_title = NULL; // the root: the tab row is in the bottom bar, the top keeps the status icons
 			int ow;
 			if (currentScreen == SCREEN_GAMELIST || currentScreen == SCREEN_GAMESWITCHER) {
 				// an eased fade from the top edge replaces the bar's flat scrim: over the art, under the text
@@ -549,18 +548,13 @@ int main(int argc, char* argv[]) {
 					UI_fillFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
 				else if (fade)
 					UI_blitFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
-				// a game list's title starts where its content does: the List rows' 14 dp inset, the 24 dp gutter of
-				// Grid, Carousel and Backdrop (LIST-LAYOUT §10.1)
-				int title_x = currentScreen == SCREEN_GAMELIST &&
-									  (GameList_currentStyle() != MENU_STYLE_LIST || stack->count == 1)
-								  ? NX_DP(NX_MENU_GUTTER_DP) // the root's: where the tab row starts
-								  : -1;
+				// a game list's title on the side margin, where its content starts (the List's pill edge, the Grid's
+				// tiles, the Carousel's and Backdrop's captions) and the tab row's labels do
+				int title_x = currentScreen == SCREEN_GAMELIST ? NX_DP(NX_MENU_GUTTER_DP) : -1;
 				ow = UI_renderMenuBarAt(screen, menu_title, NULL, title_x, false, over_art);
 			} else {
 				ow = UI_renderMenuBar(screen, menu_title);
 			}
-			if (currentScreen == SCREEN_GAMELIST && stack->count == 1 && CFG_getPageTitle())
-				MenuTabs_renderRow(screen, ow); // the root has no picture: the plain tab row
 
 			// capture menu bar for fixed overlay during animation
 			SDL_Surface* menuBarSurface = NULL;
@@ -581,7 +575,9 @@ int main(int argc, char* argv[]) {
 			} else {
 				GameSwitcher_readyList(); // the switcher's List: its selection's resume state (a no-op otherwise)
 				GameList_render(screen, lastScreen, show_setting, blackBG);
-				RowView_renderExit(screen); // B's fade out of a Backdrop game list: the whole frame toward black
+				if (stack->count == 1)
+					MenuTabs_renderRow(screen, ow); // the root's tab row in the bottom bar (Layouts > Bottom bar)
+				RowView_renderExit(screen);			// B's fade out of a Backdrop game list: the whole frame toward black
 				lastScreen = SCREEN_GAMELIST;
 			}
 
@@ -677,7 +673,7 @@ int main(int argc, char* argv[]) {
 				// lands on the first frame after the glide settles (via the
 				// idle thumbchanged branch below). The Consoles carousel's background
 				// (Layouts > Consoles background: Background) waits out the row's slide the same way.
-				if (!GameList_pillAnimating() && !MenuTabs_underlineGliding() &&
+				if (!GameList_pillAnimating() &&
 					!(RowView_consoleBackground() && RowView_animating())) {
 					updateBackgroundLayer(blackBG);
 				}
@@ -843,7 +839,6 @@ int main(int argc, char* argv[]) {
 	// Cleanup scroll text state
 	GameList_clearScroll();
 	Home_quit();
-	ContentDim_quit();
 	GridView_quit();
 	MinView_quit();
 	RowView_quit();

@@ -13,20 +13,17 @@
 //   Both game stacks sit left of centre with the game caption to their right (§8f.4).
 //
 // rowview.c delegates here while it is active (RowView_render, RowView_handleInput, RowView_animating), so the rest
-// of GameList treats it as the Carousel it is: the tab row, the hint bar, the tab-focus dim layer and every button
-// but the D-pad stay GameList's.
+// of GameList treats it as the Carousel it is: the tab row, the hint bar and every button but the D-pad stay
+// GameList's.
 
 // A main-menu tab in Carousel, or a game list in Carousel or Backdrop, whose effective orientation is Vertical
 // (GameList_currentOrientation).
 bool StackView_active(void);
 // The body: the stack (far items first), the selection's "N games", the edge fade. Over the black RowView_render laid.
 void StackView_render(SDL_Surface* screen, int lastScreen);
-// The D-pad only (Stack_navigate): UP/DOWN step and stop at the ends; UP on the first item (or an empty tab) focuses
-// the tab row on a fresh press; LEFT/RIGHT switch tab on a fresh press. In a game list UP on the first item and
-// LEFT/RIGHT do nothing. True when it handled a D-pad key.
+// The D-pad only (Stack_navigate): UP/DOWN step, wrapping past an end on a fresh press; at the root LEFT/RIGHT switch
+// tab on a fresh press, in a game list they do nothing. True when it handled a D-pad key.
 bool StackView_handleInput(bool* dirty);
-// UP on the tab row: the selection goes to the last item, the stack snapped there.
-void StackView_focusBottom(void);
 // The slide is running (one settled frame after it).
 bool StackView_animating(void);
 // RowView_prefetchStep for the stack: builds ahead, until `deadline`, what the last frame's stack needs next. True

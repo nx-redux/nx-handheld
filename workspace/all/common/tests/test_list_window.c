@@ -84,13 +84,6 @@ static void legacy_doRenameCollection(Dir* root, int total, int rc, int row) {
 	}
 }
 
-// gamelist.c contentToBottom (List branch)
-static void legacy_contentToBottom(Dir* top, int total, int rc) {
-	top->selected = total - 1;
-	top->start = total > rc ? total - rc : 0;
-	top->end = total;
-}
-
 // launcher.c pathToStack (root_dir / merged / dir) and openDirectory's stale fallback
 static void legacy_pathToStack(Dir* dir, int count, int rows) {
 	dir->start = 0;
@@ -229,7 +222,7 @@ static bool shows(Dir d, int total, int rows) {
 static void exhaustive(void) {
 	for (int total = 0; total <= MAX_TOTAL; total++) {
 		for (int rows = 1; rows <= MAX_ROWS; rows++) {
-			// fromTop / toBottom
+			// fromTop
 			{
 				Dir a = {7, 3, 9}, b = a;
 				legacy_pathToStack(&a, total, rows);
@@ -241,14 +234,6 @@ static void exhaustive(void) {
 				b.selected = 0;
 				ListWindow_fromTop(total, rows, &b.start, &b.end);
 				assert(same(a, b));
-				if (total > 0) {
-					a = (Dir){0, 0, 0};
-					b = a;
-					legacy_contentToBottom(&a, total, rows);
-					b.selected = total - 1;
-					ListWindow_toBottom(total, rows, &b.start, &b.end);
-					assert(same(a, b) && shows(b, total, rows));
-				}
 			}
 			// reload: keep anywhere, incoming window ignored; MenuTabs_reload agrees with reloadDirectoryAt
 			for (int keep = -3; keep <= total + 3; keep++) {
@@ -404,11 +389,7 @@ static void named(void) {
 	assert(s == 1 && e == 5);
 	ListWindow_reveal(10, 4, 3, &s, &e);
 	assert(s == 1 && e == 5);
-	// toBottom / fromTop
-	ListWindow_toBottom(10, 4, &s, &e);
-	assert(s == 6 && e == 10);
-	ListWindow_toBottom(3, 4, &s, &e);
-	assert(s == 0 && e == 3);
+	// fromTop
 	ListWindow_fromTop(10, 4, &s, &e);
 	assert(s == 0 && e == 4);
 	ListWindow_fromTop(3, 4, &s, &e);

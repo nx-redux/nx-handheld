@@ -16,9 +16,6 @@ void Home_render(SDL_Surface* screen, int lastScreen);
 // Returns true when it handled input (the D-pad, A, MENU); sets *dirty. Edge moves switch tab through
 // GameList_switchTab. SELECT, START, L1/R1 and the rest return false for the root's own handlers.
 bool Home_handleInput(unsigned long now, bool* dirty);
-// UP on the tab row: focus the last pin (HomeLayout_fromTabs); no pins: the top item stays. Carousel: the dock when
-// it has tools, else the row's selection stays.
-void Home_focusBottom(void);
 bool Home_animating(void); // scroll tween, selection crossfade, card flip (one settled frame after each)
 bool Home_scrolled(void);  // offset > 0: nextui.c draws the top band fade (never on the Carousel, which doesn't scroll)
 // Data changed (pins, rescan, menu show): rebuild the layout on the next use, clamp the focus, request stats.
@@ -43,5 +40,9 @@ void Home_renderListHints(SDL_Surface* dst); // Home's hint bar (as Grid's and t
 int Home_listTagWidth(void);
 void Home_listDrawTag(SDL_Surface* dst, int x, int text_y, int text_h, bool lit, bool sprite);
 void Home_quit(void); // free the drawing surfaces and Continue's entry
+
+// The shared side margin (nx_edge.h NX_EDGE_DP, Home's HOME_EDGE) in px as Home rounds it: the Continue card's left
+// edge, the tools column's right. The tab row in the bottom bar keeps the same margin on both sides.
+int Home_edgePx(void);
 
 #endif // HOME_H

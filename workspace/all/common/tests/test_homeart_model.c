@@ -181,7 +181,27 @@ static void list_paths(void) {
 	assert(HomeArt_parseListPath(NULL, preview, sizeof(preview), &rom) == HOMEART_LIST_NONE);
 }
 
+// The drained look: Rec. 709 luminance at the level, alpha kept, the pitch's padding left alone.
+static void drained(void) {
+	unsigned px[2 * 3] = {0xFFFFFFFFu, 0xFF00FF00u, 0x12345678u, 0x80FF0000u, 0xFF0000FFu, 0xDEADBEEFu};
+	HomeArt_drain(px, 2, 2, 3, 256);
+	assert(px[0] == 0xFFFFFFFFu); // white stays white
+	assert(px[1] == 0xFFB6B6B6u); // green: 182
+	assert(px[2] == 0x12345678u); // padding untouched
+	assert(px[3] == 0x80363636u); // red: 54, alpha kept
+	assert(px[4] == 0xFF131313u); // blue: 19
+	assert(px[5] == 0xDEADBEEFu);
+	unsigned w = 0xFFFFFFFFu;
+	HomeArt_drain(&w, 1, 1, 1, 64);
+	assert(w == 0xFF404040u); // grey at 25%: 255 · 64/256 → 64
+	unsigned b = 0xFF000000u;
+	HomeArt_drain(&b, 1, 1, 1, 64);
+	assert(b == 0xFF000000u);
+	HomeArt_drain(NULL, 1, 1, 1, 64); // no pixels: nothing
+}
+
 int main(void) {
+	drained();
 	halving();
 	cover_math();
 	list_paths();

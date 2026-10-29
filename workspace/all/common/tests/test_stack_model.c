@@ -57,13 +57,13 @@ static void slot_tables(void) {
 	assert(px(t.item_w * t.scale, BRICK_PD) == 193 && px(t.item_h * t.scale, BRICK_PD) == 180);
 	assert(px(t.item_w, SPS_PD) == 214 && px(t.item_h, SPS_PD) == 200);
 	assert(px(t.item_w * t.scale, SPS_PD) == 129 && px(t.item_h * t.scale, SPS_PD) == 120);
-	// a narrow window: the width is held to body − 2 · 24 dp (the height and the rest stay)
+	// a narrow window: the width is held to body − 2 · 16 dp, the side margin (the height and the rest stay)
 	StackSizes nc = Stack_mainSizes(STACK_MAIN_CONSOLES, 60);
-	assert(near(nc.item_w, 12, 1e-4f) && near(nc.item_h, 149 * 60 / 960.0f, 1e-4f));
+	assert(near(nc.item_w, 28, 1e-4f) && near(nc.item_h, 149 * 60 / 960.0f, 1e-4f));
 	StackSizes nl = Stack_mainSizes(STACK_MAIN_COLLECTIONS, 400);
-	assert(near(nl.item_w, 352, 1e-4f));
-	StackSizes nt = Stack_mainSizes(STACK_MAIN_TOOLS, 190);
-	assert(near(nt.item_w, 142, 1e-4f) && near(nt.item_h, 140, 1e-4f));
+	assert(near(nl.item_w, 368, 1e-4f));
+	StackSizes nt = Stack_mainSizes(STACK_MAIN_TOOLS, 170);
+	assert(near(nt.item_w, 138, 1e-4f) && near(nt.item_h, 140, 1e-4f));
 	assert(Stack_mainSizes(STACK_MAIN_TOOLS, 20).item_w == 0);
 }
 
@@ -199,17 +199,17 @@ static void navigation(void) {
 	assert(v.action == STACK_NAV_MOVE && v.sel == 0);
 	v = Stack_navigate(5, 4, STACK_KEY_DOWN, false, false);
 	assert(v.action == STACK_NAV_NONE && v.sel == 4);
-	// UP on the first item wraps to the last on a fresh press (main menu too: never the tab row); held, it stops
+	// UP on the first item wraps to the last on a fresh press (main menu too); held, it stops
 	v = Stack_navigate(5, 0, STACK_KEY_UP, true, true);
 	assert(v.action == STACK_NAV_MOVE && v.sel == 4);
 	v = Stack_navigate(5, 0, STACK_KEY_UP, false, true);
 	assert(v.action == STACK_NAV_NONE && v.sel == 0);
 	v = Stack_navigate(1, 0, STACK_KEY_UP, true, true); // one item: nothing to wrap to
 	assert(v.action == STACK_NAV_NONE);
-	// an empty tab: UP goes to the tab row; DOWN does nothing
-	v = Stack_navigate(0, 0, STACK_KEY_UP, true, true);
-	assert(v.action == STACK_NAV_TAB_ROW);
+	// an empty tab: UP and DOWN do nothing
 	v = Stack_navigate(0, 0, STACK_KEY_DOWN, true, true);
+	assert(v.action == STACK_NAV_NONE && v.sel == 0);
+	v = Stack_navigate(0, 0, STACK_KEY_UP, true, true);
 	assert(v.action == STACK_NAV_NONE);
 	// game list: UP on the first item wraps too (fresh)
 	v = Stack_navigate(5, 0, STACK_KEY_UP, true, false);
@@ -231,8 +231,6 @@ static void navigation(void) {
 	// an out-of-range selection is clamped first
 	v = Stack_navigate(5, 9, STACK_KEY_UP, true, true);
 	assert(v.action == STACK_NAV_MOVE && v.sel == 3);
-	// UP on the tab row lands on the last item
-	assert(Stack_fromTabRow(5) == 4 && Stack_fromTabRow(1) == 0 && Stack_fromTabRow(0) == 0);
 }
 
 // The game-list side arrangement (§8f.4, landscape family): the doc's worked tables, then both screens.
@@ -296,18 +294,18 @@ static void side_geometry(void) {
 	assert(px(d.item_w * s.scale, BRICK_PD) == 131 && px(d.item_h * s.scale, BRICK_PD) == 174);
 	assert(px(d.x, BRICK_PD) == 234 && px(d.cap_x, BRICK_PD) == 433 && 1024 - px(d.margin, BRICK_PD) == 921);
 	assert(px(d.x - d.item_w / 2, BRICK_PD) == px(d.margin, BRICK_PD)); // left margin == the caption's right margin
-	// Carousel: want 154 → 218 × 154 is wider than R − gutter (206.7): the guard takes it to 206 × 145, its side
-	// margins only 24.36 dp each (48 would take the caption under 40%): x 127.36, caption 262.36 (exactly 40%)
+	// Carousel: want 154 → 218 × 154 fits R − the side margin (214.7 with the 16 dp margin): unguarded, its side
+	// margins only 18.36 dp each (48 would take the caption under 40%): x 127.36, caption 268.36 (exactly 40%)
 	s = Stack_gameSizes(STACK_GAME_CAROUSEL, BRICK_BODY, BRICK_W, &d);
 	assert(near(Stack_gameWant(STACK_GAME_CAROUSEL, BRICK_BODY), 154, 1e-3f));
-	assert(d.guarded && d.item_w == 206 && d.item_h == 145);
-	assert(near(d.x, 127.36f, 0.01f) && near(d.cap_x, 262.36f, 0.01f) && near(d.margin, 24.36f, 0.01f));
+	assert(!d.guarded && d.item_w == 218 && d.item_h == 154);
+	assert(near(d.x, 127.36f, 0.01f) && near(d.cap_x, 268.36f, 0.01f) && near(d.margin, 18.36f, 0.01f));
 	assert(near(d.cap_w, 0.4f * BRICK_W, 0.01f));
 	assert(d.x - d.item_w / 2 >= STACK_GUTTER_DP); // the item never starts off-screen
-	assert(px(d.item_w, BRICK_PD) == 441 && px(d.item_h, BRICK_PD) == 311);
-	assert(px(d.item_w * s.scale, BRICK_PD) == 274 && px(d.item_h * s.scale, BRICK_PD) == 193);
-	assert(px(d.x, BRICK_PD) == 273 && px(d.cap_x, BRICK_PD) == 562 && 973 - px(d.cap_x, BRICK_PD) == 411);
-	assert(Stack_capXPx(274, 441, BRICK_PD) == 563); // 274 + 220.5 + 68.57
+	assert(px(d.item_w, BRICK_PD) == 467 && px(d.item_h, BRICK_PD) == 330);
+	assert(px(d.item_w * s.scale, BRICK_PD) == 290 && px(d.item_h * s.scale, BRICK_PD) == 205);
+	assert(px(d.x, BRICK_PD) == 273 && px(d.cap_x, BRICK_PD) == 575 && 1024 - px(d.margin, BRICK_PD) - px(d.cap_x, BRICK_PD) == 410);
+	assert(Stack_capXPx(273, 467, BRICK_PD) == 575); // 273 + 233.5 + 68.57
 
 	// SPS (body 425.6 dp, 896 dp wide). Backdrop: want 246.85 → 185 × 247, 48 dp side margins: x 140.5, caption 265
 	// (583 dp, 65%)
@@ -332,13 +330,13 @@ static void side_geometry(void) {
 	// each part first would give 100 + 31 + 69 = 200)
 	assert(Stack_capXPx(100, 61, BRICK_PD) == 199);
 
-	// the guard on a near-square window: 500 wide → R = 244, w ≤ 220 and x ≤ R − w/2; the caption keeps 40%
+	// the guard on a near-square window: 500 wide → R = 252, w ≤ 236 and x ≤ R − w/2; the caption keeps 40%
 	d = Stack_sideGeom(240, 340, 240, 500);
-	assert(d.guarded && d.item_w == 220 && d.item_h == 155 && near(d.x, 134, 1e-4f));
+	assert(d.guarded && d.item_w == 236 && d.item_h == 167 && near(d.x, 134, 1e-4f));
 	assert(near(d.cap_w, 200, 1e-3f));
-	// a tiny window (200 wide): R = 64, w = 40, h = 53, and x clamped into [24 + 20, 64 − 20] = 44 (0.32 · 200 = 64)
+	// a tiny window (200 wide): R = 72, w = 56, h = 75, and x clamped into [16 + 28, 72 − 28] = 44 (0.32 · 200 = 64)
 	d = Stack_sideGeom(110, 3, 4, 200);
-	assert(d.guarded && d.item_w == 40 && d.item_h == 53 && near(d.x, 44, 1e-4f) && near(d.cap_w, 80, 1e-3f));
+	assert(d.guarded && d.item_w == 56 && d.item_h == 75 && near(d.x, 44, 1e-4f) && near(d.cap_w, 80, 1e-3f));
 	// the selection is centred in the body (cap 0)
 	assert(near(Stack_selectionY(BRICK_BODY, 0), 140, 1e-4f) && near(Stack_selectionY(SPS_BODY, 0), 212.8f, 1e-3f));
 }
@@ -354,8 +352,8 @@ static void carousel_darken(void) {
 	assert(near(Stack_item(&s, -3, 0).darken, 0.85f, 1e-5f));
 	assert(near(Stack_item(&s, 3.5f, 0).darken, 0.85f + 0.15f * 0.5f, 1e-5f));
 	assert(!Stack_item(&s, 4, 0).visible);
-	// neighbour 1's offset: h/2 + g + h·s/2 (Brick: 72.5 + 16 + 44.95)
-	assert(near(Stack_item(&s, 1, 0).dy, 145 / 2.0f + 16 + 145 * 0.62f / 2, 1e-3f));
+	// neighbour 1's offset: h/2 + g + h·s/2 (Brick: 77 + 16 + 47.74)
+	assert(near(Stack_item(&s, 1, 0).dy, 154 / 2.0f + 16 + 154 * 0.62f / 2, 1e-3f));
 }
 
 // Consoles' "N games" belongs to its item: its top is 8 dp under the item's drawn logo, both scaled about the item's

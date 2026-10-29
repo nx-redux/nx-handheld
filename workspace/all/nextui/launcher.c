@@ -516,8 +516,6 @@ void openDirectory(char* path, int auto_launch) {
 		openRom(auto_path, path);
 		return;
 	}
-	MenuTabs_leaveFocus(); // a list opens (pushed or rebuilt): B back to the root returns to the lit content
-
 	char m3u_path[MAX_PATH];
 	if (hasFolderM3u(path, m3u_path) && auto_launch) {
 		auto_path[0] = '\0';
@@ -612,7 +610,6 @@ static bool inTopList(const Entry* self) {
 }
 
 void Entry_open(Entry* self) {
-	MenuTabs_leaveFocus(); // any launch or open: the content has focus, lit, when the menu shows again
 	Recents_setAlias(self->name);
 	if (self->type == ENTRY_ROM) {
 		startgame = true;
@@ -658,11 +655,9 @@ void saveLast(char* path) {
 	MenuTabs_saveState();
 }
 // One copy for both callers (the root context menu's Consoles, Collections and Tools items, and loadLast re-pushing
-// the list after a launch from it), which had drifted apart for Tools. Kept from each, deliberately:
-//  - the window is clamped to the selection (boot copy, via MenuTabs_clampWindow): with select_path NULL the row is 0
-//    and this is the plain top window the menu copy built, and on boot the tool's row must be visible;
-//  - MenuTabs_leaveFocus (menu copy): a list was opened over the tab, so the content has focus, lit. On boot it is a
-//    no-op in practice (Entry_open already left focus before the launch), and it keeps the two pushes identical.
+// the list after a launch from it), which had drifted apart for Tools. The window is clamped to the selection (the
+// boot copy, via MenuTabs_clampWindow): with select_path NULL the row is 0 and this is the plain top window the menu
+// copy built, and on boot the tool's row must be visible.
 // The list is titled as its tab ("Consoles", not the Roms folder's name). The resume probe is the caller's: the
 // context menu re-probes whatever is selected after any action, so only loadLast probes here.
 void pushTabOverTab(MenuTabId id, const char* select_path) {
@@ -687,7 +682,6 @@ void pushTabOverTab(MenuTabId id, const char* select_path) {
 	list->selected = sel;
 	list->start = list->end = 0; // rebuilt around the selection, with a game list's rows (pushed over the tab)
 	MenuTabs_clampWindow(count, GameList_rowCountAt(false), &list->selected, &list->start, &list->end);
-	MenuTabs_leaveFocus();
 	Array_push(stack, list);
 	top = list;
 }

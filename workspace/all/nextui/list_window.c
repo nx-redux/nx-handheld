@@ -14,13 +14,6 @@ void ListWindow_fromTop(int total, int rows, int* start, int* end) {
 	*end = (total < rows) ? total : rows;
 }
 
-// gamelist.c contentToBottom (List branch); same as GameList_handleInput's UP wrap
-void ListWindow_toBottom(int total, int rows, int* start, int* end) {
-	rows = clampRows(rows);
-	*start = total > rows ? total - rows : 0;
-	*end = total;
-}
-
 // gridview.c selectTile / rowview.c LEFT-RIGHT / stackview.c selectItem (the three are identical)
 void ListWindow_selectAtTop(int total, int rows, int sel, int* start, int* end) {
 	rows = clampRows(rows);

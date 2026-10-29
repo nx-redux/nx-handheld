@@ -153,6 +153,8 @@ static void main_menu_sizes(void) {
 	assert(near(t.item_w, 240 * t.f, 0.01f) && near(t.item_h, 208 * t.f, 0.01f) && near(t.scale, 0.62f, 1e-4f));
 	// the selected collection reads 2x its neighbours: half size one step out, the frameless alpha fades
 	RowItem side = Row_item(&c, ROW_BACKDROP_COLL, 4, 3);
+	assert(near(Row_drainedDarken(1), 0, 1e-6f) && near(Row_drainedDarken(-3.5f), 0.5f, 1e-6f) &&
+		   near(Row_drainedDarken(5), 1, 1e-6f));
 	assert(near(side.scale, 0.5f, 1e-4f) && near(side.alpha, 0.5f, 1e-4f) && near(side.darken, 0, 1e-6f));
 	assert(near(side.dx, c.item_w / 2 + c.gap + c.item_w * 0.5f / 2, 1e-3f));
 	RowItem far = Row_item(&c, ROW_BACKDROP_COLL, 6.5f, 3); // d = 3.5: the 3-4 step fade

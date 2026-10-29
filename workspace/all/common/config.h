@@ -164,8 +164,8 @@ typedef struct
 	int consoleArt;		// CONSOLE_ART_*: what the Consoles tab's List and Carousel draw (Layouts > Consoles background)
 	int gameListArt;	// GAME_LIST_ART_*: the List game list's picture (Layouts > List art)
 	int backdropArt;	// BACKDROP_ART_*: the Backdrop game list's item pictures (Layouts > Backdrop art)
-	bool buttonHints;	// the launcher lists' bottom button hint bar (Layouts > Button hints)
-	bool pageTitle;		// the main menu's tab row and a game list's title (Layouts > Page title)
+	bool buttonHints;	// the launcher lists' bottom button hint bar (Layouts > Bottom bar)
+	bool pageTitle;		// the main menu's tab row and a game list's title (Layouts > Top bar)
 	bool extraInfo;		// play time, achievements and Home's monthly stats in the menus (Layouts > Extra info)
 	int switcherLayout; // SWITCHER_LAYOUT_*: how the Game Switcher draws (Layouts > Game Switcher layout)
 	bool showCollections;
@@ -399,7 +399,7 @@ void CFG_setGameListArt(int art);
 // out-of-range value as the default.
 int CFG_getBackdropArt(void);
 void CFG_setBackdropArt(int art);
-// Show/hide the bottom button hint bar on the launcher's Home, tab and game list screens (Layouts > Button hints).
+// Show/hide the bottom button hint bar on the launcher's Home, tab and game list screens (Layouts > Bottom bar).
 bool CFG_getButtonHints(void);
 void CFG_setButtonHints(bool show);
 // Show/hide the games' extra info in the launcher's menus (Layouts > Extra info): play time, achievements and Next on

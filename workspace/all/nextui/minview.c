@@ -188,7 +188,7 @@ static Slot* slotFor(int i, int sel, int max_w) {
 // hidden, the names running on under a fade).
 static void bodyRange(SDL_Surface* dst, int* top_y, int* bottom_y) {
 	*top_y = barPx();
-	*bottom_y = CFG_getButtonHints() ? dst->h - barPx() : dst->h;
+	*bottom_y = MenuTabs_bottomBar() ? dst->h - barPx() : dst->h;
 }
 
 // Name i's top on the screen at the shown position p: the name at p one pitch under the body's top.
@@ -432,7 +432,7 @@ void MinView_render(SDL_Surface* dst, int lastScreen) {
 	}
 	if (morph.active && morph.back) // where the name lands: its row on this frame
 		morph.row.y = nameY(sel, p, body_top, max_w);
-	if (!CFG_getButtonHints()) { // the names fade out to the screen's bottom edge
+	if (!MenuTabs_bottomBar()) { // the names fade out to the screen's bottom edge
 		int h = barPx() + NX_DP(24);
 		SDL_Surface* f = MinFade_get(&bottom_fade, false, dst->w, h);
 		if (sprites)
@@ -556,12 +556,6 @@ MinViewInput MinView_handleInput(unsigned long now, bool* dirty) {
 		*dirty = true;
 	}
 	return MINVIEW_HANDLED;
-}
-
-void MinView_focusBottom(void) {
-	int n = top ? top->entries->count : 0;
-	if (n > 0)
-		selectName(n - 1, n);
 }
 
 bool MinView_animating(void) {

@@ -109,10 +109,11 @@ static void width_bound_and_dock_fit(void) {
 static void items_slide(void) {
 	HomeCarLayout l;
 	HomeCar_compute(1536, 1152, BAR, 2, &BRICK, 4, 0, &l);
-	// at rest on 0: Continue full size centred, lit; item 1 at 0.62, gap 25.6 from Continue's edge, darkened 0.6
+	// at rest on 0: Continue full size centred, lit; item 1 at 0.62, gap 25.6 from Continue's edge, not darkened (its
+	// plain look is grey)
 	HomeCarItem c = HomeCar_item(&l, 0, 0), n = HomeCar_item(&l, 1, 0);
 	assert(c.visible && near(c.scale, 1) && near(c.darken, 0) && near(c.r.x, 768 - l.tile_w / 2) && near(c.r.y, l.row_y));
-	assert(near(n.scale, 0.62f) && near(n.darken, 0.6f) && near(n.r.x, c.r.x + l.tile_w + 25.6f));
+	assert(near(n.scale, 0.62f) && near(n.darken, 0) && near(n.r.x, c.r.x + l.tile_w + 25.6f));
 	assert(near(n.r.y + n.r.h / 2, l.row_cy));
 	// none before the first item; 3 steps out still in, 4 out gone; past the list's end nothing
 	assert(!HomeCar_item(&l, -1, 0).visible && HomeCar_item(&l, 3, 0).visible && !HomeCar_item(&l, 4, 0).visible);
@@ -130,25 +131,21 @@ static void moves(void) {
 	assert(HomeCar_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_MOVED && f.sel == 1);
 	assert(HomeCar_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_MOVED && f.sel == 2);
 	assert(HomeCar_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_EDGE_NEXT && f.sel == 2);
-	assert(HomeCar_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_TABS && !f.dock);
-	// DOWN into the dock on its first square; along it; past its ends the tabs; UP back to the same row item
+	assert(HomeCar_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_STAY && !f.dock);
+	// DOWN into the dock on its first square, DOWN again stays; along it; past its ends the tabs; UP back to the same
+	// row item
 	assert(HomeCar_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.dock && f.tool == 0);
-	assert(HomeCar_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.dock);
+	assert(HomeCar_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && f.dock && f.tool == 0);
 	assert(HomeCar_move(&l, &f, HOME_DIR_LEFT) == HOME_MOVE_EDGE_PREV && f.tool == 0);
 	assert(HomeCar_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_MOVED && f.tool == 1);
 	assert(HomeCar_move(&l, &f, HOME_DIR_RIGHT) == HOME_MOVE_EDGE_NEXT && f.tool == 1);
 	assert(HomeCar_move(&l, &f, HOME_DIR_UP) == HOME_MOVE_MOVED && !f.dock && f.sel == 2);
 	// back down: the square last on
 	assert(HomeCar_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_MOVED && f.dock && f.tool == 1);
-	// from the tab row: the dock (its square kept), or the row without tools
-	f = (HomeCarFocus){false, 1, 1};
-	HomeCar_fromTabs(&l, &f);
-	assert(f.dock && f.tool == 1 && f.sel == 1);
+	// no tools: DOWN on the row stays
 	HomeCar_compute(1536, 1152, BAR, 2, &BRICK, 2, 0, &l);
 	f = (HomeCarFocus){false, 1, 0};
-	HomeCar_fromTabs(&l, &f);
-	assert(!f.dock && f.sel == 1);
-	assert(HomeCar_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && !f.dock);
+	assert(HomeCar_move(&l, &f, HOME_DIR_DOWN) == HOME_MOVE_STAY && !f.dock && f.sel == 1);
 	// clamped after a rebuild: fewer games, no tools
 	f = (HomeCarFocus){true, 5, 4};
 	f = HomeCar_clampFocus(&l, f);

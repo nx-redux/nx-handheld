@@ -66,29 +66,15 @@ bool MenuTabs_savedHomeLaunch(void);
 MenuTabId MenuTabs_savedPush(void);
 // The tab to open at boot: MENU_TAB_PATH if visible, else the tab of last_path, else Home.
 MenuTabId MenuTabs_initialTab(const char* last_path);
-// Tab-row focus (docs/superpowers/specs/2026-10-01-menu-sp6-tab-focus-design.md): UP from the top of a tab's content
-// moves focus to the tab row. Meaningful only at the root: setFocused(true) is refused below it, and every path that
-// pushes a list clears it (Entry_open, openDirectory, the context menu's hidden-tab push), so B back to the root
-// returns to the content; MenuTabs_focused is a pure read. MenuTabs_openRoot clears it (boot, a launch return);
-// MenuTabs_step keeps it (LEFT/RIGHT, L1/R1 on the row).
-bool MenuTabs_focused(void);
-// Focus moved by the d-pad, A or B (onto the row, or back to the content): the dim tweens over 180 ms.
-void MenuTabs_setFocused(bool focused);
-// Focus lost to anything else (SELECT, START, MENU, the F keys, a launch, a list opened, a context menu): the content
-// snaps lit, so nothing shows it part-dimmed.
-void MenuTabs_leaveFocus(void);
-// The opacity of the whole content below the tab row (LIST-LAYOUT §5): 1, easing to 0.4 over 180 ms while the tab row
-// has focus and back when it returns to the content (MenuTabs_setFocused); MenuTabs_leaveFocus, off the main menu or
-// animations off snap it. Drawn as one layer by contentdim.c.
-float MenuTabs_contentAlpha(void);
-// Once per frame: the dim is moving (true once more on its settled frame), so the host keeps drawing.
-bool MenuTabs_dimAnimating(void);
-// Tab row and its glide. While focused, the current label wears the selection plate (accent pill, onAccent text)
-// and the underline hides.
+// The tab row, in the bottom bar at the root: the labels (the current one lit, the others dimmed) and the RECENT and
+// SEARCH hints. It takes no focus: the tabs switch by L1/R1, and by LEFT/RIGHT where the layout passes them on (the
+// List root, Minimal, a vertical stack, the edges of Home and the Carousel).
 void MenuTabs_renderRow(SDL_Surface* screen, int ow);
-bool MenuTabs_animating(void);
-// Read-only (never ticks): the underline is mid-glide at the root. For checks later in a frame
-// (upload deferral) that must not consume MenuTabs_animating()'s one settled-frame "true".
-bool MenuTabs_underlineGliding(void);
+// The root shows the tab row (more than one tab, Layouts > Bottom bar on): it holds the bottom bar, so the root's
+// content keeps clear of it and draws no hint bar of its own.
+bool MenuTabs_rowShown(void);
+// The bottom bar is taken (Layouts > Bottom bar): by the tab row at the root, the hint bar elsewhere. Content that runs
+// to the bottom edge without a bar stops above it.
+bool MenuTabs_bottomBar(void);
 
 #endif

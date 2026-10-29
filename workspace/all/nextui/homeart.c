@@ -667,7 +667,60 @@ void HomeArt_forgetAll(void) {
 	SDL_AtomicIncRef(&changes);
 }
 
+///////////////////////////////////////
+// Drained copies (UI thread only)
+
+// Unselected pictures drawn as GPU sprites (a Grid tile's, a Carousel tile's, a Backdrop box): a Grid screen and the
+// rows on each side of a Carousel or Backdrop. Each copy is made once (a pass over its pixels) and kept until evicted.
+#define DRAINED_MAX 32
+
+typedef struct {
+	const SDL_Surface* src;
+	unsigned gen, lru;
+	int w, h, level;
+	SDL_Surface* surf;
+} DrainedSlot;
+
+static DrainedSlot drained[DRAINED_MAX];
+static unsigned drained_clock = 0;
+
+static void drainedFree(void) {
+	for (int i = 0; i < DRAINED_MAX; i++) {
+		GFX_freeSurfaceAndTexture(drained[i].surf);
+		drained[i] = (DrainedSlot){0};
+	}
+}
+
+SDL_Surface* HomeArt_drained(SDL_Surface* pic, unsigned gen, int level) {
+	if (!pic || pic->w <= 0 || pic->h <= 0)
+		return NULL;
+	DrainedSlot* victim = &drained[0];
+	for (int i = 0; i < DRAINED_MAX; i++) {
+		DrainedSlot* d = &drained[i];
+		if (d->surf && d->src == pic && d->gen == gen && d->w == pic->w && d->h == pic->h && d->level == level) {
+			d->lru = ++drained_clock;
+			return d->surf;
+		}
+		if (!d->surf ? victim->surf != NULL : (victim->surf && d->lru < victim->lru))
+			victim = d;
+	}
+	SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, pic->w, pic->h, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!s)
+		return NULL;
+	SDL_BlendMode bm;
+	SDL_GetSurfaceBlendMode(pic, &bm);
+	SDL_SetSurfaceBlendMode(pic, SDL_BLENDMODE_NONE); // a plain copy, its alpha with it
+	SDL_BlitSurface(pic, NULL, s, NULL);
+	SDL_SetSurfaceBlendMode(pic, bm);
+	SDL_SetSurfaceBlendMode(s, bm);
+	HomeArt_drain(s->pixels, s->w, s->h, s->pitch / 4, level);
+	GFX_freeSurfaceAndTexture(victim->surf);
+	*victim = (DrainedSlot){.src = pic, .gen = gen, .lru = ++drained_clock, .w = pic->w, .h = pic->h, .level = level, .surf = s};
+	return s;
+}
+
 void HomeArt_quit(void) {
+	drainedFree();
 	if (worker) {
 		SDL_LockMutex(mutex);
 		SDL_AtomicSet(&shutdownFlag, 1);
