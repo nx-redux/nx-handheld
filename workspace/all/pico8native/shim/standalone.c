@@ -51,10 +51,10 @@
 #define SDL_AUDIO_PLAYING 1
 
 // The TrimUI pad as the controller mapping Splore's launcher writes has it: SDL's A
-// (south, PICO-8's O) is raw button 1, the pad's B; SDL's B (east, PICO-8's X) is raw
-// 0, the pad's A; Menu (guide) raw 8. Used when PICO-8 opened the joystick only.
-#define RAW_A 1
-#define RAW_B 0
+// (PICO-8's O) is raw button 1, the pad's B; SDL's B (PICO-8's X) is raw 0, the pad's
+// A; the Xbox button layout (NX_BUTTON_LAYOUT=xbox) swaps the two, as the mapping does.
+// Menu (guide) is raw 8. Used when PICO-8 opened the joystick only.
+static int raw_a = 1, raw_b = 0;
 #define RAW_MENU 8
 
 // How long PICO-8 has to exit after Quit: the SDL_QUIT goes again every second, and
@@ -139,6 +139,11 @@ static void resolve(void) {
 	if (done)
 		return;
 	done = 1;
+	const char* layout = getenv("NX_BUTTON_LAYOUT");
+	if (layout && !strcmp(layout, "xbox")) {
+		raw_a = 0;
+		raw_b = 1;
+	}
 	RESOLVE(RenderPresent);
 	RESOLVE(PollEvent);
 	RESOLVE(GetTicks);
@@ -211,10 +216,11 @@ static uint32_t read_pad(unsigned* mask) {
 		menu = (held >> PAD_GUIDE) & 1 ||
 			   raw_down(sdl.GameControllerGetJoystick ? sdl.GameControllerGetJoystick(pad) : NULL, RAW_MENU);
 	} else {
-		held = (uint32_t)raw_down(joy, RAW_A) << PAD_A | (uint32_t)raw_down(joy, RAW_B) << PAD_B;
+		held = (uint32_t)raw_down(joy, raw_a) << PAD_A | (uint32_t)raw_down(joy, raw_b) << PAD_B;
 		menu = raw_down(joy, RAW_MENU);
 	}
-	// the dialog goes by the labels on the pad: its A (Quit) is SDL's B, its B (Cancel) SDL's A
+	// the dialog's A (Quit) is SDL's B and its B (Cancel) SDL's A: the mapping puts SDL's B
+	// on the pad's A, or on its B under the Xbox layout, where that is the system's A
 	*mask = (menu ? DLG_MENU : 0) | ((held >> PAD_B) & 1 ? DLG_A : 0) | ((held >> PAD_A) & 1 ? DLG_B : 0) |
 			(held & ~(1u << PAD_A | 1u << PAD_B | 1u << PAD_GUIDE) ? DLG_OTHER : 0);
 	return held;
@@ -244,8 +250,8 @@ static int hidden_event(const uint8_t* ev) {
 	if (type == SDL_CONTROLLERBUTTONDOWN || type == SDL_CONTROLLERBUTTONUP)
 		return button == PAD_GUIDE || dlg_hides(&dlg, button);
 	if (type == SDL_JOYBUTTONDOWN || type == SDL_JOYBUTTONUP)
-		return button == RAW_MENU || (button == RAW_A && dlg_hides(&dlg, PAD_A)) ||
-			   (button == RAW_B && dlg_hides(&dlg, PAD_B));
+		return button == RAW_MENU || (button == raw_a && dlg_hides(&dlg, PAD_A)) ||
+			   (button == raw_b && dlg_hides(&dlg, PAD_B));
 	return 0;
 }
 
@@ -444,8 +450,11 @@ static void layout(void* r, struct look* k) {
 	k->title = (struct label){"Quit Splore?", {0xff, 0xff, 0xff, 0xff}, NULL, 0, 0, 0};
 	k->quit = (struct label){"Quit", {0xc8, 0xc8, 0xc8, 0xff}, NULL, 0, 0, 0};
 	k->cancel = (struct label){"Cancel", {0xc8, 0xc8, 0xc8, 0xff}, NULL, 0, 0, 0};
-	k->a = (struct label){"A", {0x1c, 0x1c, 0x20, 0xff}, NULL, 0, 0, 0};
-	k->b = (struct label){"B", {0x1c, 0x1c, 0x20, 0xff}, NULL, 0, 0, 0};
+	// Hint labels = printed caps under the Xbox layout (P8SHIM_CAP_LABELS=1): the letter on the cap
+	const char* caps = getenv("P8SHIM_CAP_LABELS");
+	int swap = caps && !strcmp(caps, "1");
+	k->a = (struct label){swap ? "B" : "A", {0x1c, 0x1c, 0x20, 0xff}, NULL, 0, 0, 0};
+	k->b = (struct label){swap ? "A" : "B", {0x1c, 0x1c, 0x20, 0xff}, NULL, 0, 0, 0};
 	make_label(r, title_font, title_px, &k->title);
 	make_label(r, hint_font, hint_px, &k->quit);
 	make_label(r, hint_font, hint_px, &k->cancel);
@@ -701,8 +710,8 @@ uint8_t st_pad_button(void* p, int button) {
 
 uint8_t st_joy_button(void* j, int button) {
 	resolve();
-	if (quitting || button == RAW_MENU || (button == RAW_A && dlg_hides(&dlg, PAD_A)) ||
-		(button == RAW_B && dlg_hides(&dlg, PAD_B)) || !sdl.JoystickGetButton)
+	if (quitting || button == RAW_MENU || (button == raw_a && dlg_hides(&dlg, PAD_A)) ||
+		(button == raw_b && dlg_hides(&dlg, PAD_B)) || !sdl.JoystickGetButton)
 		return 0;
 	return sdl.JoystickGetButton(j, button);
 }

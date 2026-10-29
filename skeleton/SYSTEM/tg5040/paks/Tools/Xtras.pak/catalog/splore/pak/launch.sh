@@ -32,18 +32,29 @@ mkdir -p "$P8_HOME"
 
 # The TrimUI pad as SDL sees it: A, B, Start b7 and Menu reported as guide b8
 # (mapping from minui-pico-8-pak, MIT, LICENSE-minui-pico-8-pak.txt in P8.pak).
-# Added once; PICO-8 reads sdl_controllers.txt from its home.
-MAP='030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,x:b3,y:b2,platform:Linux'
-PADS="$P8_HOME/sdl_controllers.txt"
-if ! grep -q "^${MAP%%,*}," "$PADS" 2>/dev/null; then
-    # a last line without its newline would run into the mapping
-    [ -s "$PADS" ] && [ -n "$(tail -c 1 "$PADS")" ] && echo >>"$PADS"
-    echo "$MAP" >>"$PADS"
+# PICO-8's O is SDL's A and its X SDL's B: the pad's B and A, as carts in the roms
+# folder have them through minarch. The Xbox button layout swaps A/B and X/Y there,
+# so it does here too. Rewritten each time (the layout can change); PICO-8 reads
+# sdl_controllers.txt from its home.
+. "$SYSTEM_PATH/bin/nx_button_layout.sh"
+FACES='a:b1,b:b0,x:b3,y:b2'
+CAPS=0
+if [ "$NX_BUTTON_LAYOUT" = xbox ]; then
+    FACES='a:b0,b:b1,x:b2,y:b3'
+    # Hint labels = printed caps: the quit dialog names the cap you press
+    nextval.elf hintlabels 2>/dev/null | grep -q '"hintlabels": 1' && CAPS=1
 fi
+GUID=030003f05e0400008e02000014010000
+MAP="$GUID,X360 Controller,$FACES,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,platform:Linux"
+PADS="$P8_HOME/sdl_controllers.txt"
+{
+    grep -v "^$GUID," "$PADS" 2>/dev/null
+    echo "$MAP"
+} >"$PADS.new" && mv -f "$PADS.new" "$PADS"
 
 echo "splore: pico8_64 -splore from $RUNTIME, roms in $ROMS" >"$LOG"
 cd "$RUNTIME" || exit 1
-P8SHIM_STANDALONE=1 P8NATIVE_HOME="$P8_HOME" P8NATIVE_CDATA="$SAVES_PATH/P8/cdata" LD_PRELOAD="$P8_PAK/pico8shim.so" \
+P8SHIM_STANDALONE=1 P8SHIM_CAP_LABELS=$CAPS P8NATIVE_HOME="$P8_HOME" P8NATIVE_CDATA="$SAVES_PATH/P8/cdata" LD_PRELOAD="$P8_PAK/pico8shim.so" \
     "$RUNTIME/pico8_64" -home "$P8_HOME" -joystick 0 -desktop "$SDCARD_PATH/Screenshots" -root_path "$ROMS" -splore \
     >>"$LOG" 2>&1
 echo "splore: pico8_64 exited with status $?" >>"$LOG"

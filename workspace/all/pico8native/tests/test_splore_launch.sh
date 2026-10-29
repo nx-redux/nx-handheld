@@ -6,8 +6,10 @@
 #   Tools/ with them, and uninstall removes it
 # - Splore runs pico8_64 -splore itself, no minarch: pico8shim.so preloaded in
 #   standalone mode, cart saves in Saves/P8/cdata, the device's SDL (not P8.pak's
-#   lib/), the pad's mapping added to sdl_controllers.txt once; favourites are
-#   copied after it exits, and its exit status is logged
+#   lib/), the pad's mapping in sdl_controllers.txt once, rewritten each time to
+#   follow the button layout (Xbox swaps A/B and X/Y; with printed-cap hint
+#   labels the quit dialog shows the caps); favourites are copied after it
+#   exits, and its exit status is logged
 # - P8.pak given a cart runs pico8native with the PICO-8 files, fake08 without;
 #   a .splore/Splore.p8 left from the old minarch Splore is just a cart now
 # - Splore.pak whose PICO-8 files went missing shows its message and runs nothing
@@ -16,7 +18,8 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 REPO=$(cd ../../../.. && pwd)
-T=${TMPDIR:-/tmp}/nx_test_splore_launch.$$
+T=${TMPDIR:-/tmp}
+T=${T%/}/nx_test_splore_launch.$$
 trap 'rm -rf "$T"' EXIT INT TERM
 
 FAILS=0
@@ -37,10 +40,18 @@ for PLAT in tg5040 tg5050; do
 	mkdir -p "$T/bin" "$T/sys/paks/Emus" "$T/sys/paks/Tools" "$SD/Roms/Pico-8 (P8)" \
 		"$SD/.userdata/$PLAT/logs" "$SD/.userdata/shared/P8-native/home/bbs/carts"
 	ln -s "$REPO/skeleton/SYSTEM/$PLAT/paks/Emus/P8.pak" "$T/sys/paks/Emus/P8.pak"
+	ln -s "$REPO/skeleton/SYSTEM/$PLAT/bin" "$T/sys/bin"
+	# Settings as nextval.elf prints them, from T_LAYOUT (0 Nintendo, 1 Xbox) and T_CAPS
+	cat >"$T/bin/nextval.elf" <<-'EOF'
+		#!/bin/sh
+		v=${T_CAPS:-0}
+		[ "$1" = buttonlayout ] && v=${T_LAYOUT:-0}
+		echo "{\"$1\": $v}"
+	EOF
 	CATALOG="$REPO/skeleton/SYSTEM/$PLAT/paks/Tools/Xtras.pak/catalog/splore"
 	printf '#!/bin/sh\necho "minarch splore=${P8NATIVE_SPLORE:-} $*" >>"%s/calls"\n' "$T" >"$T/bin/minarch.elf"
 	printf '#!/bin/sh\necho "show2 $*" >>"%s/calls"\n' "$T" >"$T/bin/show2.elf"
-	chmod +x "$T/bin/minarch.elf" "$T/bin/show2.elf"
+	chmod +x "$T/bin/minarch.elf" "$T/bin/show2.elf" "$T/bin/nextval.elf"
 	printf '|a-1 |a |1 |x | |a game\n' >"$SD/.userdata/shared/P8-native/home/favourites.txt"
 	printf 'cart' >"$SD/.userdata/shared/P8-native/home/bbs/carts/a-1.p8.png"
 	MARKER="$SD/Roms/Pico-8 (P8)/.splore/Splore.p8"
@@ -49,7 +60,7 @@ for PLAT in tg5040 tg5050; do
 	run() { # <pak launch.sh> <args...>; synchronous: P8.pak's &> backgrounds minarch in some shells
 		_l=$1
 		shift
-		env PATH="$T/bin:$PATH" SDCARD_PATH="$SD" ROMS_PATH="$SD/Roms" SAVES_PATH="$SD/Saves" SYSTEM_PATH="$T/sys" \
+		env T_LAYOUT="${T_LAYOUT:-0}" T_CAPS="${T_CAPS:-0}" PATH="$T/bin:$PATH" SDCARD_PATH="$SD" ROMS_PATH="$SD/Roms" SAVES_PATH="$SD/Saves" SYSTEM_PATH="$T/sys" \
 			LD_LIBRARY_PATH="/usr/trimui/lib" \
 			SHARED_SYSTEM_PATH="$REPO/skeleton/SYSTEM/shared" USERDATA_PATH="$SD/.userdata/$PLAT" \
 			SHARED_USERDATA_PATH="$SD/.userdata/shared" LOGS_PATH="$SD/.userdata/$PLAT/logs" \
@@ -83,7 +94,7 @@ for PLAT in tg5040 tg5050; do
 	cat >"$SD/Bios/P8/pico8_64" <<-EOF
 		#!/bin/sh
 		[ -e "$SD/Roms/Pico-8 (P8)/a game.p8.png" ] && copied=yes || copied=no
-		echo "pico8_64 standalone=\${P8SHIM_STANDALONE:-} preload=\${LD_PRELOAD:-} home=\${P8NATIVE_HOME:-} cdata=\${P8NATIVE_CDATA:-} libs=\${LD_LIBRARY_PATH:-} cwd=\$(pwd) copied=\$copied \$*" >>"$T/calls"
+		echo "pico8_64 standalone=\${P8SHIM_STANDALONE:-} preload=\${LD_PRELOAD:-} caps=\${P8SHIM_CAP_LABELS:-} layout=\${NX_BUTTON_LAYOUT:-} home=\${P8NATIVE_HOME:-} cdata=\${P8NATIVE_CDATA:-} libs=\${LD_LIBRARY_PATH:-} cwd=\$(pwd) copied=\$copied \$*" >>"$T/calls"
 		exit 7
 	EOF
 	chmod +x "$SD/Bios/P8/pico8_64"
@@ -115,11 +126,12 @@ for PLAT in tg5040 tg5050; do
 	check "$PLAT splore runs pico8_64 -splore" has "copied=no -home $H -joystick 0 -desktop $SD/Screenshots -root_path $SD/Roms/Pico-8 (P8) -splore"
 	check "$PLAT splore preloads the shim standalone" has "pico8_64 standalone=1 preload=$T/sys/paks/Emus/P8.pak/pico8shim.so "
 	check "$PLAT splore keeps PICO-8's home and cart saves" has " home=$H cdata=$SD/Saves/P8/cdata "
+	check "$PLAT splore on the Nintendo layout names the system's buttons" has " caps=0 layout=nintendo "
 	check "$PLAT splore runs on the device SDL" has " libs=/usr/trimui/lib "
 	check "$PLAT splore runs from the runtime folder" has " cwd=$SD/Bios/P8 "
 	check "$PLAT splore makes no marker cart" test ! -e "$MARKER"
 	check "$PLAT splore logs pico8_64's exit status" grep -q "pico8_64 exited with status 7" "$SD/.userdata/$PLAT/logs/splore.txt"
-	check "$PLAT splore adds the pad mapping" test "$(grep -c '^030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,.*guide:b8,.*start:b7,' "$PADS")" -eq 1
+	check "$PLAT splore adds the pad mapping" test "$(grep -c '^030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,x:b3,y:b2,.*guide:b8,.*start:b7,' "$PADS")" -eq 1
 	check "$PLAT splore copies favourites after pico8_64" test -f "$SD/Roms/Pico-8 (P8)/a game.p8.png"
 	for c in $CACHES; do check "$PLAT a copy clears $(basename "$c")" test ! -e "$c"; done
 
@@ -137,6 +149,21 @@ for PLAT in tg5040 tg5050; do
 	run "$SPLORE"
 	check "$PLAT the user's mapping is kept" grep -q '^ffff0000000000000000000000000000,Other Pad,a:b0,platform:Linux$' "$PADS"
 	check "$PLAT the pad's mapping on its own line" test "$(grep -c '^030003f05e0400008e02000014010000,' "$PADS")" -eq 1
+
+	# the Xbox layout swaps A/B and X/Y, the line replaced, not added; printed-cap hints reach the dialog
+	rm -f "$T/calls"
+	(T_LAYOUT=1 T_CAPS=1 && run "$SPLORE") # a subshell: bash keeps a function's prefix assignments
+	check "$PLAT xbox swaps the faces" grep -q '^030003f05e0400008e02000014010000,X360 Controller,a:b0,b:b1,x:b2,y:b3,' "$PADS"
+	check "$PLAT xbox keeps one pad line" test "$(grep -c '^030003f05e0400008e02000014010000,' "$PADS")" -eq 1
+	check "$PLAT xbox keeps the user's mapping" grep -q '^ffff0000000000000000000000000000,Other Pad' "$PADS"
+	check "$PLAT xbox with printed caps tells the shim" has " caps=1 layout=xbox "
+	rm -f "$T/calls"
+	(T_LAYOUT=1 && run "$SPLORE")
+	check "$PLAT xbox with system labels" has " caps=0 layout=xbox "
+	# back to Nintendo: the faces go back
+	rm -f "$T/calls"
+	run "$SPLORE"
+	check "$PLAT nintendo again" grep -q '^030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,x:b3,y:b2,' "$PADS"
 
 	# uninstall removes the tool and its version marker, keeps the copied carts
 	mkdir -p "$SD/.userdata/shared/xtras"
