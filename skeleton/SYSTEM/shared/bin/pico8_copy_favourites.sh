@@ -16,7 +16,7 @@
 #   same bytes is taken as the copy; a different one (the user's) is left alone and
 #   the cart goes to "<title> (<slug>).p8.png" instead.
 # - Copies are recorded in <roms>/.splore/copied.txt as
-#   slug<TAB>rev<TAB>filename<TAB>crc/size (cksum of the copy). Only a recorded copy
+#   slug<TAB>rev<TAB>filename<TAB>md5 of the copy. Only a recorded copy
 #   is ever replaced, only by a newer revision, and only while the file still holds
 #   what was copied: a file the user changed is left alone. A row from before the
 #   checksum column counts as the copy only while the file matches that revision in
@@ -142,9 +142,9 @@ LC_ALL=C awk -F'\t' '
 	"$WORK/cache" "$WORK/favs" >"$WORK/todo" 2>"$WORK/missing"
 [ -s "$WORK/missing" ] && while IFS= read -r line; do log "$line"; done <"$WORK/missing"
 
-# sum_of <file>: crc/size from cksum, empty if it cannot be read
+# sum_of <file>: its md5 (the TrimUI busybox has md5sum, not cksum), empty if it cannot be read
 sum_of() {
-	cksum "$1" 2>/dev/null | awk '{ print $1 "/" $2; exit }'
+	md5sum "$1" 2>/dev/null | awk '{ print $1; exit }'
 }
 
 # record <slug> <rev> <filename>: one row per slug in copied.txt, with the copy's sum

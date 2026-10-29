@@ -49,9 +49,9 @@ run() { # home roms; the count the script prints goes to $copied
 	if [ $rc -ne 0 ]; then fail "exit $rc for $1"; else ok; fi
 }
 count_is() { if [ "$copied" = "$1" ]; then ok; else fail "printed '$copied' copied, want $1"; fi; }
-# sum_is <roms> <slug> <file>: copied.txt holds the file's cksum for the slug
+# sum_is <roms> <slug> <file>: copied.txt holds the file's md5 for the slug
 sum_is() {
-	want=$(cksum "$1/$3" | awk '{ print $1 "/" $2 }')
+	want=$(md5sum "$1/$3" | awk '{ print $1 }')
 	got=$(awk -F'\t' -v s="$2" '$1 == s { print $4 }' "$1/.splore/copied.txt")
 	if [ -n "$want" ] && [ "$got" = "$want" ]; then ok; else fail "copied.txt sum for $2 is '$got', want '$want'"; fi
 }
