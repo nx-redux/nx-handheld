@@ -6,10 +6,10 @@
 #   Tools/ with them, and uninstall removes it
 # - Splore runs pico8_64 -splore itself, no minarch: pico8shim.so preloaded in
 #   standalone mode, cart saves in Saves/P8/cdata, the device's SDL (not P8.pak's
-#   lib/), the pad's mapping in sdl_controllers.txt once, rewritten each time to
-#   follow the button layout (Xbox swaps A/B and X/Y; with printed-cap hint
-#   labels the quit dialog shows the caps); favourites are copied after it
-#   exits, and its exit status is logged
+#   lib/), the pad's mapping in sdl_controllers.txt once, the button layout
+#   handed to the shim (which swaps for Xbox; with printed-cap hint labels the
+#   quit dialog shows the caps); favourites are copied after it exits, and its
+#   exit status is logged
 # - P8.pak given a cart runs pico8native with the PICO-8 files, fake08 without;
 #   a .splore/Splore.p8 left from the old minarch Splore is just a cart now
 # - Splore.pak whose PICO-8 files went missing shows its message and runs nothing
@@ -150,20 +150,16 @@ for PLAT in tg5040 tg5050; do
 	check "$PLAT the user's mapping is kept" grep -q '^ffff0000000000000000000000000000,Other Pad,a:b0,platform:Linux$' "$PADS"
 	check "$PLAT the pad's mapping on its own line" test "$(grep -c '^030003f05e0400008e02000014010000,' "$PADS")" -eq 1
 
-	# the Xbox layout swaps A/B and X/Y, the line replaced, not added; printed-cap hints reach the dialog
+	# the Xbox layout goes to the shim, which does the swap; the mapping stays; printed-cap hints reach the dialog
 	rm -f "$T/calls"
 	(T_LAYOUT=1 T_CAPS=1 && run "$SPLORE") # a subshell: bash keeps a function's prefix assignments
-	check "$PLAT xbox swaps the faces" grep -q '^030003f05e0400008e02000014010000,X360 Controller,a:b0,b:b1,x:b2,y:b3,' "$PADS"
+	check "$PLAT xbox keeps the mapping" grep -q '^030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,x:b3,y:b2,' "$PADS"
 	check "$PLAT xbox keeps one pad line" test "$(grep -c '^030003f05e0400008e02000014010000,' "$PADS")" -eq 1
 	check "$PLAT xbox keeps the user's mapping" grep -q '^ffff0000000000000000000000000000,Other Pad' "$PADS"
 	check "$PLAT xbox with printed caps tells the shim" has " caps=1 layout=xbox "
 	rm -f "$T/calls"
 	(T_LAYOUT=1 && run "$SPLORE")
 	check "$PLAT xbox with system labels" has " caps=0 layout=xbox "
-	# back to Nintendo: the faces go back
-	rm -f "$T/calls"
-	run "$SPLORE"
-	check "$PLAT nintendo again" grep -q '^030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,x:b3,y:b2,' "$PADS"
 
 	# uninstall removes the tool and its version marker, keeps the copied carts
 	mkdir -p "$SD/.userdata/shared/xtras"

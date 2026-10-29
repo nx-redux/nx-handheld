@@ -36,7 +36,7 @@ lacks_re() { ! grep -qE -- "$1" "$T/log"; }
 run() { # <name> <FAKE_PAD> [FAKE_QUIT_AT]; the log in $T/log, exit status in $STATUS
 	NAME=$1
 	env P8SHIM_STANDALONE=1 P8NATIVE_HOME="$T/home" P8NATIVE_CDATA="$T/cdata" FAKE_FRAMES=40 FAKE_PAD="$2" \
-		${3:+FAKE_QUIT_AT=$3} SDCARD_PATH="$T/nosd" LD_PRELOAD="$SHIM" "$GAME" >"$T/log" 2>&1
+		${3:+FAKE_QUIT_AT=$3} ${LAYOUT:+NX_BUTTON_LAYOUT=$LAYOUT} SDCARD_PATH="$T/nosd" LD_PRELOAD="$SHIM" "$GAME" >"$T/log" 2>&1
 	STATUS=$?
 }
 # no game frame between the dialog opening and closing, and it drew and presented
@@ -117,6 +117,21 @@ check "game sees Start" has "game: button 6 held"
 check "game sees Start's events" has "game: event down 6"
 check "game never sees Menu" lacks_re "game: (event (down|up)|button) 5( |$)"
 check "runs all frames" has "game: done"
+
+# the Xbox layout: the game gets A/B swapped, the dialog's Quit is the pad's B (SDL's A)
+LAYOUT=xbox
+run "xbox pass-through" "3:0x1,6:0"
+check "game gets SDL's A as B" has "game: button 1 held"
+check "game gets SDL's A's events as B's" has "game: event down 1"
+check "game never sees SDL's A as A" lacks_re "game: (event (down|up)|button) 0( |$)"
+run "xbox menu then pad B" "5:0x20,8:0,14:0x1,30:0"
+check "pad B quits" has "pico8shim: quit dialog: Quit"
+check "game gets SDL_QUIT" has "game: quit at frame"
+run "xbox menu then pad A" "5:0x20,8:0,14:0x2,18:0"
+check "pad A cancels" has "pico8shim: quit dialog: Cancel"
+check "no quit" lacks "game: quit"
+check "the cancelling button stays hidden" lacks_re "game: (event (down|up)|button) 0( |$)"
+LAYOUT=
 
 # with no font, it still draws text (the built-in font): many rects a present
 run "bitmap font" "5:0x20,8:0,14:0x1,18:0"

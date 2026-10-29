@@ -42,6 +42,8 @@
 #define SDL_CONTROLLERBUTTONUP 0x652
 #define PAD_A 0
 #define PAD_B 1
+#define PAD_X 2
+#define PAD_Y 3
 #define PAD_GUIDE 5
 #define PAD_BUTTONS 21
 #define SDL_PIXELFORMAT_ARGB8888 0x16362004u
@@ -52,10 +54,54 @@
 
 // The TrimUI pad as the controller mapping Splore's launcher writes has it: SDL's A
 // (PICO-8's O) is raw button 1, the pad's B; SDL's B (PICO-8's X) is raw 0, the pad's
-// A; the Xbox button layout (NX_BUTTON_LAYOUT=xbox) swaps the two, as the mapping does.
-// Menu (guide) is raw 8. Used when PICO-8 opened the joystick only.
-static int raw_a = 1, raw_b = 0;
+// A; SDL's X raw 3, Y raw 2; Menu (guide) raw 8. Used when PICO-8 opened the joystick only.
+#define RAW_A 1
+#define RAW_B 0
+#define RAW_X 3
+#define RAW_Y 2
 #define RAW_MENU 8
+
+// The Xbox button layout (NX_BUTTON_LAYOUT=xbox): PICO-8 gets A/B and X/Y swapped, as
+// minarch swaps them for the carts in the roms folder, and the dialog's Quit is the
+// system's A, the pad's B. Done here, not in the mapping, which PICO-8 does not apply.
+static int xbox;
+
+// The button PICO-8 is told about for a real SDL controller button, and back (the swap
+// is its own inverse)
+static int pad_face(int button) {
+	if (!xbox)
+		return button;
+	switch (button) {
+	case PAD_A:
+		return PAD_B;
+	case PAD_B:
+		return PAD_A;
+	case PAD_X:
+		return PAD_Y;
+	case PAD_Y:
+		return PAD_X;
+	default:
+		return button;
+	}
+}
+
+// The same for raw joystick buttons
+static int raw_face(int button) {
+	if (!xbox)
+		return button;
+	switch (button) {
+	case RAW_A:
+		return RAW_B;
+	case RAW_B:
+		return RAW_A;
+	case RAW_X:
+		return RAW_Y;
+	case RAW_Y:
+		return RAW_X;
+	default:
+		return button;
+	}
+}
 
 // How long PICO-8 has to exit after Quit: the SDL_QUIT goes again every second, and
 // after this the shim ends it, so Splore's launcher never waits on a hung PICO-8
@@ -140,10 +186,7 @@ static void resolve(void) {
 		return;
 	done = 1;
 	const char* layout = getenv("NX_BUTTON_LAYOUT");
-	if (layout && !strcmp(layout, "xbox")) {
-		raw_a = 0;
-		raw_b = 1;
-	}
+	xbox = layout && !strcmp(layout, "xbox");
 	RESOLVE(RenderPresent);
 	RESOLVE(PollEvent);
 	RESOLVE(GetTicks);
@@ -216,12 +259,13 @@ static uint32_t read_pad(unsigned* mask) {
 		menu = (held >> PAD_GUIDE) & 1 ||
 			   raw_down(sdl.GameControllerGetJoystick ? sdl.GameControllerGetJoystick(pad) : NULL, RAW_MENU);
 	} else {
-		held = (uint32_t)raw_down(joy, raw_a) << PAD_A | (uint32_t)raw_down(joy, raw_b) << PAD_B;
+		held = (uint32_t)raw_down(joy, RAW_A) << PAD_A | (uint32_t)raw_down(joy, RAW_B) << PAD_B;
 		menu = raw_down(joy, RAW_MENU);
 	}
-	// the dialog's A (Quit) is SDL's B and its B (Cancel) SDL's A: the mapping puts SDL's B
-	// on the pad's A, or on its B under the Xbox layout, where that is the system's A
-	*mask = (menu ? DLG_MENU : 0) | ((held >> PAD_B) & 1 ? DLG_A : 0) | ((held >> PAD_A) & 1 ? DLG_B : 0) |
+	// the dialog's A (Quit) is the system's A: SDL's B (the pad's A), or SDL's A (the pad's
+	// B) under the Xbox layout; its B (Cancel) the other one
+	int quit_bit = xbox ? PAD_A : PAD_B, cancel_bit = xbox ? PAD_B : PAD_A;
+	*mask = (menu ? DLG_MENU : 0) | ((held >> quit_bit) & 1 ? DLG_A : 0) | ((held >> cancel_bit) & 1 ? DLG_B : 0) |
 			(held & ~(1u << PAD_A | 1u << PAD_B | 1u << PAD_GUIDE) ? DLG_OTHER : 0);
 	return held;
 }
@@ -239,6 +283,16 @@ static void sample(void) {
 	}
 }
 
+// A button event as PICO-8 gets it, under the button layout
+static void face_event(uint8_t* ev) {
+	uint32_t type;
+	memcpy(&type, ev, 4);
+	if (type == SDL_CONTROLLERBUTTONDOWN || type == SDL_CONTROLLERBUTTONUP)
+		ev[12] = (uint8_t)pad_face(ev[12]);
+	else if (type == SDL_JOYBUTTONDOWN || type == SDL_JOYBUTTONUP)
+		ev[12] = (uint8_t)raw_face(ev[12]);
+}
+
 // Input PICO-8 must not see: Menu ever, a button hidden since the dialog closed, and
 // everything once Quit was chosen
 static int hidden_event(const uint8_t* ev) {
@@ -250,8 +304,8 @@ static int hidden_event(const uint8_t* ev) {
 	if (type == SDL_CONTROLLERBUTTONDOWN || type == SDL_CONTROLLERBUTTONUP)
 		return button == PAD_GUIDE || dlg_hides(&dlg, button);
 	if (type == SDL_JOYBUTTONDOWN || type == SDL_JOYBUTTONUP)
-		return button == RAW_MENU || (button == raw_a && dlg_hides(&dlg, PAD_A)) ||
-			   (button == raw_b && dlg_hides(&dlg, PAD_B));
+		return button == RAW_MENU || (button == RAW_A && dlg_hides(&dlg, PAD_A)) ||
+			   (button == RAW_B && dlg_hides(&dlg, PAD_B));
 	return 0;
 }
 
@@ -670,8 +724,10 @@ int st_poll_event(void* event) {
 				sample(); // PICO-8 has read all its events for this frame
 			return 0;
 		}
-		if (!hidden_event(event))
+		if (!hidden_event(event)) {
+			face_event(event);
 			return 1;
+		}
 	}
 }
 
@@ -701,17 +757,19 @@ void st_joystick_opened(void* opened) {
 		joy = opened;
 }
 
-uint8_t st_pad_button(void* p, int button) {
+uint8_t st_pad_button(void* p, int face) {
 	resolve();
+	int button = pad_face(face); // the real button behind the one PICO-8 asks about
 	if (quitting || button == PAD_GUIDE || dlg_hides(&dlg, button) || !sdl.GameControllerGetButton)
 		return 0;
 	return sdl.GameControllerGetButton(p, button);
 }
 
-uint8_t st_joy_button(void* j, int button) {
+uint8_t st_joy_button(void* j, int face) {
 	resolve();
-	if (quitting || button == RAW_MENU || (button == raw_a && dlg_hides(&dlg, PAD_A)) ||
-		(button == raw_b && dlg_hides(&dlg, PAD_B)) || !sdl.JoystickGetButton)
+	int button = raw_face(face);
+	if (quitting || button == RAW_MENU || (button == RAW_A && dlg_hides(&dlg, PAD_A)) ||
+		(button == RAW_B && dlg_hides(&dlg, PAD_B)) || !sdl.JoystickGetButton)
 		return 0;
 	return sdl.JoystickGetButton(j, button);
 }

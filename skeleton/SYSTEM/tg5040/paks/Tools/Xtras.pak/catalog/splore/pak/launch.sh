@@ -33,24 +33,24 @@ mkdir -p "$P8_HOME"
 # The TrimUI pad as SDL sees it: A, B, Start b7 and Menu reported as guide b8
 # (mapping from minui-pico-8-pak, MIT, LICENSE-minui-pico-8-pak.txt in P8.pak).
 # PICO-8's O is SDL's A and its X SDL's B: the pad's B and A, as carts in the roms
-# folder have them through minarch. The Xbox button layout swaps A/B and X/Y there,
-# so it does here too. Rewritten each time (the layout can change); PICO-8 reads
+# folder have them through minarch. Kept to one line of ours; PICO-8 reads
 # sdl_controllers.txt from its home.
-. "$SYSTEM_PATH/bin/nx_button_layout.sh"
-FACES='a:b1,b:b0,x:b3,y:b2'
-CAPS=0
-if [ "$NX_BUTTON_LAYOUT" = xbox ]; then
-    FACES='a:b0,b:b1,x:b2,y:b3'
-    # Hint labels = printed caps: the quit dialog names the cap you press
-    nextval.elf hintlabels 2>/dev/null | grep -q '"hintlabels": 1' && CAPS=1
-fi
 GUID=030003f05e0400008e02000014010000
-MAP="$GUID,X360 Controller,$FACES,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,platform:Linux"
+MAP="$GUID,X360 Controller,a:b1,b:b0,x:b3,y:b2,back:b6,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b8,leftshoulder:b4,leftstick:b9,lefttrigger:a2,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b10,righttrigger:a5,rightx:a3,righty:a4,start:b7,platform:Linux"
 PADS="$P8_HOME/sdl_controllers.txt"
 {
     grep -v "^$GUID," "$PADS" 2>/dev/null
     echo "$MAP"
 } >"$PADS.new" && mv -f "$PADS.new" "$PADS"
+
+# The Xbox button layout: the shim swaps A/B and X/Y for PICO-8, as minarch does for
+# the carts in the roms folder, and puts the quit dialog's Quit on the system's A.
+# With Hint labels = printed caps the dialog names the cap you press.
+. "$SYSTEM_PATH/bin/nx_button_layout.sh"
+CAPS=0
+if [ "$NX_BUTTON_LAYOUT" = xbox ]; then
+    nextval.elf hintlabels 2>/dev/null | grep -q '"hintlabels": 1' && CAPS=1
+fi
 
 echo "splore: pico8_64 -splore from $RUNTIME, roms in $ROMS" >"$LOG"
 cd "$RUNTIME" || exit 1
