@@ -73,7 +73,6 @@ int main(void) {
 		{"MSX", "bluemsx", "a.rom", RC_CONSOLE_MSX},
 		{"NGP", "race", "a.ngp", RC_CONSOLE_NEOGEO_POCKET},
 		{"NGPC", "race", "a.ngc", RC_CONSOLE_NEOGEO_POCKET},
-		{"P8", "fake08", "a.p8.png", RC_CONSOLE_PICO},
 		{"PCE", "mednafen_pce_fast", "a.pce", RC_CONSOLE_PC_ENGINE},
 		{"PCE", "mednafen_pce_fast", "a.chd", RC_CONSOLE_PC_ENGINE_CD},
 		{"PCE", "mednafen_pce_fast", "a.m3u", RC_CONSOLE_PC_ENGINE_CD},
@@ -100,6 +99,8 @@ int main(void) {
 		{"PET", "vice_xpet", "a.prg", RC_CONSOLE_UNKNOWN},
 		{"PLUS4", "vice_xplus4", "a.prg", RC_CONSOLE_UNKNOWN},
 		{"PRBOOM", "prboom", "doom.wad", RC_CONSOLE_UNKNOWN},
+		{"P8", "fake08", "a.p8.png", RC_CONSOLE_UNKNOWN},
+		{"P8", "pico8native", "a.p8", RC_CONSOLE_UNKNOWN},
 		// --- new: what the tag alone got wrong ---
 		{"DC", "flycast", "naomi.zip", RC_CONSOLE_ARCADE},		  // Naomi/Atomiswave sets
 		{"MGBA", "mgba", "a.gbc", RC_CONSOLE_GAMEBOY_COLOR},	  // mGBA runs GB/GBC too

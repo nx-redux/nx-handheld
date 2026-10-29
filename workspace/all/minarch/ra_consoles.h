@@ -75,8 +75,8 @@ static const RA_ConsoleMapping ra_console_table[] = {
 	{"NGP", RC_CONSOLE_NEOGEO_POCKET},
 	// Neo Geo Pocket Color
 	{"NGPC", RC_CONSOLE_NEOGEO_POCKET},
-	// PICO-8
-	{"P8", RC_CONSOLE_PICO},
+	// PICO-8: not on RA (RC_CONSOLE_PICO is the Sega Pico)
+	{"P8", RC_CONSOLE_UNKNOWN},
 	// PC Engine
 	{"PCE", RC_CONSOLE_PC_ENGINE},
 	// Not supported (no RA)
@@ -173,7 +173,6 @@ static const RA_CoreFamily ra_core_families[] = {
 	{"bluemsx", {RC_CONSOLE_MSX, RC_CONSOLE_COLECOVISION, RC_CONSOLE_SG1000}},
 	{"bsnes*", {RC_CONSOLE_SUPER_NINTENDO}},
 	{"cap32", {RC_CONSOLE_AMSTRAD_PC}},
-	{"fake08", {RC_CONSOLE_PICO}},
 	{"fbalpha*", {RC_CONSOLE_ARCADE}},
 	{"fbneo", {RC_CONSOLE_ARCADE}},
 	{"fceumm", {RC_CONSOLE_NINTENDO, RC_CONSOLE_FAMICOM_DISK_SYSTEM}},
@@ -275,7 +274,6 @@ static const RA_ExtConsole ra_ext_consoles[] = {
 	{"nes", RC_CONSOLE_NINTENDO},
 	{"ngc", RC_CONSOLE_NEOGEO_POCKET},
 	{"ngp", RC_CONSOLE_NEOGEO_POCKET},
-	{"p8", RC_CONSOLE_PICO},
 	{"pbp", RC_CONSOLE_PSP},
 	{"pce", RC_CONSOLE_PC_ENGINE},
 	{"sfc", RC_CONSOLE_SUPER_NINTENDO},
