@@ -1166,7 +1166,8 @@ static void artFetchLanded(const char* rom, const char* out_png) {
 	// hold a placeholder or a miss for it)
 	char variant[MAX_PATH];
 	thumbCacheInvalidate(out_png);
-	thumbCacheInvalidate(rom); // a .p8.png cart's own picture, shown until now
+	if (ROM_cartLabelPath(rom, variant, sizeof(variant)))
+		thumbCacheInvalidate(variant); // a .p8.png cart's label, shown until now
 	ROM_displayArtPath(rom, ART_TYPE_SCREENSHOT, false, variant, sizeof(variant));
 	thumbCacheInvalidate(variant);
 	ROM_displayArtPath(rom, ART_TYPE_BOXART, false, variant, sizeof(variant));
@@ -1204,6 +1205,9 @@ static void deleteGameArt(const char* art_rom) {
 			thumbCacheInvalidate(alt);
 		}
 	}
+	char label[MAX_PATH]; // a .p8.png cart's label, cut from the deleted cart
+	if (ROM_cartLabelPath(art_rom, label, sizeof(label)))
+		thumbCacheInvalidate(label);
 }
 
 // Fetches cancelled (B) or timed out while their scraper runs on: watched from the game list (artFetchPoll) so their

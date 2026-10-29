@@ -14,6 +14,7 @@
 #include "placeholder_art.h"
 #include "area_scale.h"
 #include "image_probe.h"
+#include "cart_label.h"
 
 // One worker thread decodes and shapes pictures into a small cache. The UI thread only looks slots up, queues misses
 // and evicts; the worker fills a queued slot under the mutex, and a generation number drops a result whose slot was
@@ -96,12 +97,16 @@ static bool dropIfCancelled(SDL_Surface* s) {
 }
 
 static SDL_Surface* loadArgb(const char* path) {
-	if (!path || !path[0] || access(path, F_OK) != 0)
+	if (!path || !path[0])
+		return NULL;
+	char cart[MAX_PATH];
+	const char* file = ROM_cartLabelCart(path, cart, sizeof(cart)) ? cart : path; // a cart's label: read from the cart
+	if (access(file, F_OK) != 0)
 		return NULL;
 	// not decoded: hundreds of MB for a picture shown small
-	if (ImageProbe_isOversized(path, IMAGE_PROBE_MAX_SIDE))
+	if (ImageProbe_isOversized(file, IMAGE_PROBE_MAX_SIDE))
 		return NULL;
-	SDL_Surface* img = IMG_Load(path); // the resume preview is PNG data despite its .bmp name
+	SDL_Surface* img = CartLabel_load(path); // the resume preview is PNG data despite its .bmp name
 	if (!img)
 		return NULL;
 	SDL_Surface* argb = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_ARGB8888, 0);
@@ -158,7 +163,8 @@ static SDL_Surface* cropFill(SDL_Surface* src, HomeArtRect keep, int w, int h, f
 
 static SDL_Surface* screenshotFor(const char* rom, HomeArtRect* keep) {
 	char path[MAX_PATH];
-	ROM_findScreenshot(rom, path, sizeof(path)); // the scraped screenshot, else the root .media picture (Ports)
+	// the scraped screenshot, else the root .media picture (Ports), else a .p8.png cart's label
+	ROM_findScreenshot(rom, path, sizeof(path));
 	SDL_Surface* s = loadArgb(path);
 	if (s)
 		*keep = (HomeArtRect){0, 0, s->w, s->h};
@@ -310,15 +316,13 @@ static SDL_Surface* addShadow(SDL_Surface* art, int pad, int off, int r) {
 
 // Box art fitted (contain) into w×h with its soft shadow; *ox/*oy = the art's top-left in the result. KIND_BOXART_2D and
 // KIND_WHEEL fit the scraped 2D box art or wheel the same way (a wheel keeps its wide aspect), falling back to the 3D
-// box art when the game has none (or it can't be read). A .p8.png cart's own picture (ROM_findListArt's last fallback,
-// the ROM path) waits until the 3D box art misses too: ROM_displayArtPath ends in it.
+// box art when the game has none (or it can't be read). A .p8.png cart's whole picture comes last: ROM_displayArtPath
+// ends in it.
 static SDL_Surface* buildBoxart(int kind, const char* rom, int w, int h, int* ox, int* oy) {
 	char path[MAX_PATH];
 	SDL_Surface* src = NULL;
 	if (kind != KIND_BOXART &&
-		ROM_findListArt(rom, kind == KIND_BOXART_2D ? GAME_LIST_ART_BOXART2D : GAME_LIST_ART_WHEEL, path,
-						sizeof(path)) &&
-		strcmp(path, rom) != 0)
+		ROM_findListArt(rom, kind == KIND_BOXART_2D ? GAME_LIST_ART_BOXART2D : GAME_LIST_ART_WHEEL, path, sizeof(path)))
 		src = loadArgb(path);
 	if (!src) {
 		ROM_displayArtPath(rom, ART_TYPE_BOXART, false, path, sizeof(path));
@@ -768,8 +772,9 @@ void HomeArt_listPath(const char* rom_path, const char* preview_path, char* out,
 		return;
 	if (preview_path && preview_path[0] && HomeArt_listPathCont(preview_path, rom_path, out, size))
 		return;
-	ROM_findScreenshot(rom_path, out, size); // the scraped screenshot, else the root .media picture (Ports)
-	if (out[0] && access(out, F_OK) == 0)
+	// the scraped screenshot, else the root .media picture (Ports), else a .p8.png cart's label (not a file: the
+	// loader's CartLabel_load reads it)
+	if (ROM_findScreenshot(rom_path, out, size))
 		return;
 	HomeArt_listPathAbs(rom_path, out, size);
 }
@@ -822,7 +827,7 @@ SDL_Surface* HomeArt_loadListPath(const char* path) {
 		SDL_FreeSurface(src);
 	}
 	char shot[MAX_PATH];
-	ROM_findScreenshot(rom, shot, sizeof(shot));
+	ROM_findScreenshot(rom, shot, sizeof(shot)); // a .p8.png cart's label too (loadArgb reads it)
 	src = loadArgb(shot);
 	return src ? src : listAbstract(rom);
 }

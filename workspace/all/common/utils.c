@@ -911,12 +911,38 @@ static bool folderGameArtPath(const char* rom_path, const char* variant, char* o
 	return true;
 }
 
-// The last art fallback: a PICO-8 .p8.png cart (any case) that is on disk is its own cartridge picture, so a cart
-// with no scraped or hand-made art still shows one. true = out is the ROM path; a miss leaves out untouched.
-static bool cartPictureFallback(const char* rom_path, char* out, size_t out_size) {
+// Whether the first len chars of path end in .p8.png, any case.
+static bool isCartName(const char* path, size_t len) {
+	return len >= 7 && strncasecmp(path + len - 7, ".p8.png", 7) == 0;
+}
+
+bool ROM_cartLabelPath(const char* rom_path, char* out, size_t out_size) {
 	size_t len = strlen(rom_path);
-	if (len < 7 || len >= out_size || strcasecmp(rom_path + len - 7, ".p8.png") != 0 || !exists((char*)rom_path))
+	if (!isCartName(rom_path, len) || len + sizeof(CART_LABEL_MARK) > out_size)
 		return false;
+	snprintf(out, out_size, "%s" CART_LABEL_MARK, rom_path);
+	return true;
+}
+
+bool ROM_cartLabelCart(const char* path, char* cart, size_t cart_size) {
+	size_t len = strlen(path), mark = sizeof(CART_LABEL_MARK) - 1;
+	if (len <= mark || strcmp(path + len - mark, CART_LABEL_MARK) != 0 || !isCartName(path, len - mark) ||
+		len - mark >= cart_size)
+		return false;
+	snprintf(cart, cart_size, "%.*s", (int)(len - mark), path);
+	return true;
+}
+
+// The last art fallback: a PICO-8 .p8.png cart (any case) that is on disk is its own cartridge picture, so a cart
+// with no scraped or hand-made art still shows one. true = out is the ROM path (a box art or mix slot: the whole
+// cart) or, with `label`, its label path (a screenshot slot: the picture printed on the cart, ROM_cartLabelPath); a
+// miss leaves out untouched.
+static bool cartPictureFallback(const char* rom_path, bool label, char* out, size_t out_size) {
+	size_t len = strlen(rom_path);
+	if (!isCartName(rom_path, len) || len >= out_size || !exists((char*)rom_path))
+		return false;
+	if (label)
+		return ROM_cartLabelPath(rom_path, out, out_size);
 	snprintf(out, out_size, "%s", rom_path);
 	return true;
 }
@@ -932,7 +958,7 @@ void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix
 		// so nothing is drawn, rather than substituting a different image
 		// (a .p8.png cart's own picture aside: that is the game's only art).
 		if (!fallback_to_mix) {
-			cartPictureFallback(rom_path, out, out_size);
+			cartPictureFallback(rom_path, art_type == 1, out, out_size); // 1 = ART_TYPE_SCREENSHOT: its label
 			return;
 		}
 	}
@@ -951,7 +977,7 @@ void ROM_displayArtPath(const char* rom_path, int art_type, bool fallback_to_mix
 			return;
 		}
 	}
-	cartPictureFallback(rom_path, out, out_size);
+	cartPictureFallback(rom_path, art_type == 1, out, out_size);
 }
 
 bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
@@ -964,17 +990,17 @@ bool ROM_findArt(const char* rom_path, char* out, size_t out_size) {
 	dir[sizeof(dir) - 1] = '\0';
 	char* slash = strrchr(dir, '/');
 	if (!slash)
-		return cartPictureFallback(rom_path, out, out_size);
+		return cartPictureFallback(rom_path, false, out, out_size);
 	*slash = '\0';
 	char* parent_slash = strrchr(dir, '/');
 	if (!parent_slash || parent_slash == dir)
-		return cartPictureFallback(rom_path, out, out_size);
+		return cartPictureFallback(rom_path, false, out, out_size);
 	*parent_slash = '\0';
 	snprintf(out, out_size, "%s/.media/%s.png", dir, parent_slash + 1);
-	return ROM_artExists(out, out_size) || cartPictureFallback(rom_path, out, out_size);
+	return ROM_artExists(out, out_size) || cartPictureFallback(rom_path, false, out, out_size);
 }
 
-// ROM_findScreenshot's chain without the cart picture (ROM_findListArt tells the two apart).
+// ROM_findScreenshot's chain without the cart's label (ROM_hasRealArt tells the two apart).
 static bool findScreenshotArt(const char* rom_path, char* out, size_t out_size) {
 	ROM_mediaArtVariantPath(rom_path, "screenshot", out, out_size);
 	if (ROM_artExists(out, out_size))
@@ -991,7 +1017,7 @@ static bool findScreenshotArt(const char* rom_path, char* out, size_t out_size) 
 }
 
 bool ROM_findScreenshot(const char* rom_path, char* out, size_t out_size) {
-	return findScreenshotArt(rom_path, out, out_size) || cartPictureFallback(rom_path, out, out_size);
+	return findScreenshotArt(rom_path, out, out_size) || cartPictureFallback(rom_path, true, out, out_size);
 }
 
 bool ROM_hasRealArt(const char* rom_path) {
@@ -1032,10 +1058,9 @@ bool ROM_findListArt(const char* rom_path, int art, char* out, size_t out_size) 
 				return true;
 		}
 	}
-	// the screenshot (false); with none, a .p8.png cart's own picture counts as found
-	if (findScreenshotArt(rom_path, out, out_size))
-		return false;
-	return cartPictureFallback(rom_path, out, out_size);
+	// the screenshot (false), a .p8.png cart's label with none
+	ROM_findScreenshot(rom_path, out, out_size);
+	return false;
 }
 
 bool M3U_findForRom(const char* rom_path, char* m3u_path, size_t m3u_size) {
