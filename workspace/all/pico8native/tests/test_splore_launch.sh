@@ -1,13 +1,15 @@
 #!/bin/sh
 # The P8.pak and Splore.pak launchers (both platforms) and Splore's Xtras
-# install/uninstall against a fake SD card, with minarch.elf and show2.elf
-# stubbed to record how they were called:
+# install/uninstall against a fake SD card, with minarch.elf, show2.elf and the
+# user's pico8_64 stubbed to record how they were called:
 # - Xtras refuses to install Splore without the PICO-8 files, installs it into
 #   Tools/ with them, and uninstall removes it
-# - P8.pak given Splore's marker cart (an auto-resumed Splore session) opens
-#   Splore in Splore mode and copies favourites, and Splore does not loop back;
-#   with Splore uninstalled, it runs nothing
-# - P8.pak given a cart runs pico8native with the PICO-8 files, fake08 without
+# - Splore runs pico8_64 -splore itself, no minarch: pico8shim.so preloaded in
+#   standalone mode, cart saves in Saves/P8/cdata, the device's SDL (not P8.pak's
+#   lib/), the pad's mapping added to sdl_controllers.txt once; favourites are
+#   copied after it exits, and its exit status is logged
+# - P8.pak given a cart runs pico8native with the PICO-8 files, fake08 without;
+#   a .splore/Splore.p8 left from the old minarch Splore is just a cart now
 # - Splore.pak whose PICO-8 files went missing shows its message and runs nothing
 #
 #   sh workspace/all/pico8native/tests/test_splore_launch.sh
@@ -42,11 +44,13 @@ for PLAT in tg5040 tg5050; do
 	printf '|a-1 |a |1 |x | |a game\n' >"$SD/.userdata/shared/P8-native/home/favourites.txt"
 	printf 'cart' >"$SD/.userdata/shared/P8-native/home/bbs/carts/a-1.p8.png"
 	MARKER="$SD/Roms/Pico-8 (P8)/.splore/Splore.p8"
+	PADS="$SD/.userdata/shared/P8-native/home/sdl_controllers.txt"
 	CART="$SD/Roms/Pico-8 (P8)/game.p8"
 	run() { # <pak launch.sh> <args...>; synchronous: P8.pak's &> backgrounds minarch in some shells
 		_l=$1
 		shift
-		env PATH="$T/bin:$PATH" SDCARD_PATH="$SD" ROMS_PATH="$SD/Roms" SYSTEM_PATH="$T/sys" \
+		env PATH="$T/bin:$PATH" SDCARD_PATH="$SD" ROMS_PATH="$SD/Roms" SAVES_PATH="$SD/Saves" SYSTEM_PATH="$T/sys" \
+			LD_LIBRARY_PATH="/usr/trimui/lib" \
 			SHARED_SYSTEM_PATH="$REPO/skeleton/SYSTEM/shared" USERDATA_PATH="$SD/.userdata/$PLAT" \
 			SHARED_USERDATA_PATH="$SD/.userdata/shared" LOGS_PATH="$SD/.userdata/$PLAT/logs" \
 			NX_GPU_GOVERNOR_PATH="$T/no-governor" sh "$_l" "$@"
@@ -68,23 +72,33 @@ for PLAT in tg5040 tg5050; do
 	run "$CATALOG/pak/launch.sh"
 	check "$PLAT splore whose runtime went missing shows the message" has "Splore needs PICO-8"
 	check "$PLAT splore whose runtime went missing runs no minarch" lacks "minarch"
+	check "$PLAT splore whose runtime went missing runs no pico8_64" lacks "pico8_64 standalone"
 	rm -f "$T/calls"
 	run "$P8" "$CART"
 	check "$PLAT cart without runtime runs fake08" has "P8.pak/fake08_libretro.so $CART"
 	rm -f "$T/calls"
 
+	# the user's pico8_64: records how it was started, and whether favourites were copied yet
 	mkdir -p "$SD/Bios/P8"
-	: >"$SD/Bios/P8/pico8_64"
+	cat >"$SD/Bios/P8/pico8_64" <<-EOF
+		#!/bin/sh
+		[ -e "$SD/Roms/Pico-8 (P8)/a game.p8.png" ] && copied=yes || copied=no
+		echo "pico8_64 standalone=\${P8SHIM_STANDALONE:-} preload=\${LD_PRELOAD:-} home=\${P8NATIVE_HOME:-} cdata=\${P8NATIVE_CDATA:-} libs=\${LD_LIBRARY_PATH:-} cwd=\$(pwd) copied=\$copied \$*" >>"$T/calls"
+		exit 7
+	EOF
+	chmod +x "$SD/Bios/P8/pico8_64"
 	: >"$SD/Bios/P8/pico8.dat"
 	run "$P8" "$CART"
 	check "$PLAT cart with runtime runs pico8native" has "minarch splore= $T/sys/paks/Emus/P8.pak/pico8native_libretro.so $CART"
 	rm -f "$T/calls"
 
-	# a Splore marker left from before Splore was uninstalled: nothing to reopen
+	# the old minarch Splore's marker cart is no longer special
 	mkdir -p "$(dirname "$MARKER")"
 	: >"$MARKER"
 	run "$P8" "$MARKER"
-	check "$PLAT marker without Splore runs nothing" lacks "minarch"
+	check "$PLAT old marker is just a cart" has "minarch splore= $T/sys/paks/Emus/P8.pak/pico8native_libretro.so $MARKER"
+	check "$PLAT old marker opens no Splore" lacks "pico8_64 standalone"
+	rm -f "$T/calls" "$MARKER"
 
 	# with the files, Xtras installs Splore into Tools/ and refreshes the lists
 	for c in $CACHES; do : >"$c"; done
@@ -92,20 +106,37 @@ for PLAT in tg5040 tg5050; do
 	check "$PLAT install puts Splore in Tools" test -x "$SPLORE"
 	for c in $CACHES; do check "$PLAT install clears $(basename "$c")" test ! -e "$c"; done
 
-	# the auto-resumed Splore marker reopens Splore, once, and copies favourites
+	# Splore runs pico8_64 itself, then copies favourites
 	for c in $CACHES; do : >"$c"; done
-	run "$P8" "$MARKER"
-	check "$PLAT resumed marker opens Splore mode" has "minarch splore=1 $T/sys/paks/Emus/P8.pak/pico8native_libretro.so $MARKER"
-	check "$PLAT resumed marker runs minarch once" count 1
-	check "$PLAT resumed marker copies favourites" test -f "$SD/Roms/Pico-8 (P8)/a game.p8.png"
+	H="$SD/.userdata/shared/P8-native/home"
+	run "$SPLORE"
+	check "$PLAT splore runs pico8_64 once" count 1
+	check "$PLAT splore runs no minarch" lacks "minarch"
+	check "$PLAT splore runs pico8_64 -splore" has "copied=no -home $H -joystick 0 -desktop $SD/Screenshots -root_path $SD/Roms/Pico-8 (P8) -splore"
+	check "$PLAT splore preloads the shim standalone" has "pico8_64 standalone=1 preload=$T/sys/paks/Emus/P8.pak/pico8shim.so "
+	check "$PLAT splore keeps PICO-8's home and cart saves" has " home=$H cdata=$SD/Saves/P8/cdata "
+	check "$PLAT splore runs on the device SDL" has " libs=/usr/trimui/lib "
+	check "$PLAT splore runs from the runtime folder" has " cwd=$SD/Bios/P8 "
+	check "$PLAT splore makes no marker cart" test ! -e "$MARKER"
+	check "$PLAT splore logs pico8_64's exit status" grep -q "pico8_64 exited with status 7" "$SD/.userdata/$PLAT/logs/splore.txt"
+	check "$PLAT splore adds the pad mapping" test "$(grep -c '^030003f05e0400008e02000014010000,X360 Controller,a:b1,b:b0,.*guide:b8,.*start:b7,' "$PADS")" -eq 1
+	check "$PLAT splore copies favourites after pico8_64" test -f "$SD/Roms/Pico-8 (P8)/a game.p8.png"
 	for c in $CACHES; do check "$PLAT a copy clears $(basename "$c")" test ! -e "$c"; done
 
-	# a Splore session that copies nothing keeps the game list caches
+	# a Splore session that copies nothing keeps the game list caches, and the mapping once
 	rm -f "$T/calls"
 	for c in $CACHES; do : >"$c"; done
 	run "$SPLORE"
-	check "$PLAT splore with runtime runs minarch" count 1
+	check "$PLAT splore again runs pico8_64" count 1
 	for c in $CACHES; do check "$PLAT nothing copied keeps $(basename "$c")" test -e "$c"; done
+	check "$PLAT the pad mapping is added once" test "$(grep -c '^030003f05e0400008e02000014010000,' "$PADS")" -eq 1
+
+	# a mapping file of the user's own, its last line without a newline: kept, the pad's on a line of its own
+	rm -f "$T/calls"
+	printf 'ffff0000000000000000000000000000,Other Pad,a:b0,platform:Linux' >"$PADS"
+	run "$SPLORE"
+	check "$PLAT the user's mapping is kept" grep -q '^ffff0000000000000000000000000000,Other Pad,a:b0,platform:Linux$' "$PADS"
+	check "$PLAT the pad's mapping on its own line" test "$(grep -c '^030003f05e0400008e02000014010000,' "$PADS")" -eq 1
 
 	# uninstall removes the tool and its version marker, keeps the copied carts
 	mkdir -p "$SD/.userdata/shared/xtras"
