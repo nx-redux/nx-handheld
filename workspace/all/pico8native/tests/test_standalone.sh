@@ -6,7 +6,8 @@
 #   and cart data still goes to P8NATIVE_CDATA
 # - a tap of Menu opens the quit dialog, which freezes the game (presents with no
 #   game frame between), pauses its audio and keeps the time from its clock
-# - B, or Menu again, closes it and resumes audio; A, or an SDL_QUIT (SIGTERM), quits:
+# - B, or Menu again, closes it and resumes audio; A, or an SDL_QUIT (SIGTERM), quits
+#   (A and B as labelled on the pad: SDL's B and A in Splore's mapping):
 #   the game gets SDL_QUIT
 # - the game never sees Menu, nor a button that closed the dialog, held or let go
 # - Menu with another button opens nothing, and that button is the game's
@@ -70,7 +71,7 @@ check "no cart data in home" test ! -e "$T/home/cdata/splore.p8d.txt"
 check "no ipc needed" lacks "IPC"
 
 # Menu tap, then B: back to the game
-run "menu then B" "5:0x20,8:0,14:0x2,18:0"
+run "menu then B" "5:0x20,8:0,14:0x1,18:0"
 check "exits 0" test "$STATUS" -eq 0
 check "runs all frames" has "game: done"
 check "opens" has "pico8shim: Menu: opening the quit dialog"
@@ -82,7 +83,7 @@ check "freezes the game while drawn" frozen "pico8shim: quit dialog: Cancel"
 check "puts the viewport back" has "sdl: viewport 128,0 768x768"
 check "keeps the dialog's time from the clock" ticks_kept
 check "game never sees Menu" lacks_re "game: (event (down|up)|button) 5( |$)"
-check "game never sees B" lacks_re "game: (event (down|up)|button) 1( |$)"
+check "game never sees B" lacks_re "game: (event (down|up)|button) 0( |$)"
 check "no quit" lacks "game: quit"
 
 # Menu tap, then Menu again
@@ -96,13 +97,13 @@ check "game never sees Menu" lacks_re "game: (event (down|up)|button) 5( |$)"
 check "opens once" test "$(grep -c 'opening the quit dialog' "$T/log")" -eq 1
 
 # Menu tap, then A: PICO-8 gets SDL_QUIT
-run "menu then A" "5:0x20,8:0,14:0x1,30:0"
+run "menu then A" "5:0x20,8:0,14:0x2,30:0"
 check "exits 0" test "$STATUS" -eq 0
 check "A quits" has "pico8shim: quit dialog: Quit"
 check "freezes the game" frozen "pico8shim: quit dialog: Quit"
 check "game gets SDL_QUIT" grep -qE "game: quit at frame (9|10)$" "$T/log"
 check "audio stays paused" lacks "sdl: pause device 1 0"
-check "game never sees A" lacks_re "game: (event (down|up)|button) 0( |$)"
+check "game never sees A" lacks_re "game: (event (down|up)|button) 1( |$)"
 
 # Menu tap, then power-off's SIGTERM (an SDL_QUIT) while it is open
 run "menu then SIGTERM" "5:0x20,8:0" 13
@@ -118,7 +119,7 @@ check "game never sees Menu" lacks_re "game: (event (down|up)|button) 5( |$)"
 check "runs all frames" has "game: done"
 
 # with no font, it still draws text (the built-in font): many rects a present
-run "bitmap font" "5:0x20,8:0,14:0x2,18:0"
+run "bitmap font" "5:0x20,8:0,14:0x1,18:0"
 check "says there is no SDL2_ttf or font" grep -qE "pico8shim: (no SDL2_ttf|cannot open .*font1.ttf)" "$T/log"
 check "draws text" awk '/^sdl: present/ && $5 > 100 { ok = 1 } END { exit !ok }' "$T/log"
 

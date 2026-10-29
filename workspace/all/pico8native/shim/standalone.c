@@ -50,8 +50,9 @@
 #define SDL_BLENDMODE_BLEND 1
 #define SDL_AUDIO_PLAYING 1
 
-// The TrimUI pad as the controller mapping Splore's launcher writes has it: A is raw
-// button 1, B raw 0, Menu (guide) raw 8. Used when PICO-8 opened the joystick only.
+// The TrimUI pad as the controller mapping Splore's launcher writes has it: SDL's A
+// (south, PICO-8's O) is raw button 1, the pad's B; SDL's B (east, PICO-8's X) is raw
+// 0, the pad's A; Menu (guide) raw 8. Used when PICO-8 opened the joystick only.
 #define RAW_A 1
 #define RAW_B 0
 #define RAW_MENU 8
@@ -213,7 +214,8 @@ static uint32_t read_pad(unsigned* mask) {
 		held = (uint32_t)raw_down(joy, RAW_A) << PAD_A | (uint32_t)raw_down(joy, RAW_B) << PAD_B;
 		menu = raw_down(joy, RAW_MENU);
 	}
-	*mask = (menu ? DLG_MENU : 0) | ((held >> PAD_A) & 1 ? DLG_A : 0) | ((held >> PAD_B) & 1 ? DLG_B : 0) |
+	// the dialog goes by the labels on the pad: its A (Quit) is SDL's B, its B (Cancel) SDL's A
+	*mask = (menu ? DLG_MENU : 0) | ((held >> PAD_B) & 1 ? DLG_A : 0) | ((held >> PAD_A) & 1 ? DLG_B : 0) |
 			(held & ~(1u << PAD_A | 1u << PAD_B | 1u << PAD_GUIDE) ? DLG_OTHER : 0);
 	return held;
 }
