@@ -1131,9 +1131,11 @@ bool PICO8_findRuntime(char* dir_out, size_t size) {
 		pico8_cached = 0;
 		for (int i = 0; i < 2 && !pico8_cached; i++) {
 			char dir[MAX_PATH], bin[MAX_PATH], dat[MAX_PATH];
-			snprintf(dir, sizeof(dir), "%s/Bios/%s", pico8_root, bios[i]);
-			snprintf(bin, sizeof(bin), "%s/pico8_64", dir);
-			snprintf(dat, sizeof(dat), "%s/pico8.dat", dir);
+			// a root too long for the paths: nothing to find there
+			if (snprintf(dir, sizeof(dir), "%s/Bios/%s", pico8_root, bios[i]) >= (int)sizeof(dir) ||
+				snprintf(bin, sizeof(bin), "%s/pico8_64", dir) >= (int)sizeof(bin) ||
+				snprintf(dat, sizeof(dat), "%s/pico8.dat", dir) >= (int)sizeof(dat))
+				continue;
 			if (exists(bin) && exists(dat)) {
 				snprintf(pico8_dir, sizeof(pico8_dir), "%s", dir);
 				pico8_cached = 1;
