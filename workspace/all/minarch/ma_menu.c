@@ -1904,10 +1904,12 @@ void Menu_loop(void) {
 				if (i == selected) {
 					text_color = uintToColour(THEME_COLOR5_255);
 
-					// disc change
+					// disc change: "< Disc N >" like a cycleable settings value
 					if (menu.total_discs > 1 && i == ITEM_CONT) {
 						GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){pill_x, SCALE1(oy + PADDING), screen->w - SCALE1(PADDING) - pill_x, SCALE1(PILL_SIZE)});
-						SDL_Surface* disc_text = GFX_renderText(font.large, disc_name, text_color);
+						char disc_label[32];
+						snprintf(disc_label, sizeof(disc_label), "< %s >", disc_name);
+						SDL_Surface* disc_text = GFX_renderText(font.large, disc_label, text_color);
 						if (disc_text) {
 							SDL_BlitSurface(disc_text, NULL, screen, &(SDL_Rect){screen->w - SCALE1(PADDING + BUTTON_PADDING) - disc_text->w, SCALE1(oy + PADDING + 4)});
 							SDL_FreeSurface(disc_text);
