@@ -110,6 +110,8 @@ static void readyResumePath(char* rom_path, int type, ResumeState* r) {
 
 	char emu_name[MAX_PATH];
 	getEmuName(path, emu_name);
+	char resume_tag[MAX_PATH]; // native PICO-8 keeps its markers apart from fake08's
+	ROM_resumeTag(emu_name, resume_tag, sizeof(resume_tag));
 
 	char rom_file[MAX_PATH];
 	tmp = strrchr(path, '/');
@@ -117,7 +119,7 @@ static void readyResumePath(char* rom_path, int type, ResumeState* r) {
 		return;
 	strcpy(rom_file, tmp + 1);
 
-	snprintf(r->slot_path, sizeof(r->slot_path), "%s/.minui/%s/%s.txt", SHARED_USERDATA_PATH, emu_name, rom_file); // /.userdata/.minui/<EMU>/<romname>.ext.txt
+	snprintf(r->slot_path, sizeof(r->slot_path), "%s/.minui/%s/%s.txt", SHARED_USERDATA_PATH, resume_tag, rom_file); // /.userdata/.minui/<EMU>/<romname>.ext.txt
 	r->can_resume = exists(r->slot_path);
 
 	// r->slot_path contains a single integer representing the last used slot
@@ -126,8 +128,8 @@ static void readyResumePath(char* rom_path, int type, ResumeState* r) {
 		getFile(r->slot_path, slot, 16);
 		int s = atoi(slot);
 		if (s < 0 || s > AUTO_RESUME_SLOT)
-			s = 0;																												   // corrupt slot file
-		snprintf(r->preview_path, sizeof(r->preview_path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, emu_name, rom_file, s); // /.userdata/.minui/<EMU>/<romname>.ext.<n>.bmp
+			s = 0;																													 // corrupt slot file
+		snprintf(r->preview_path, sizeof(r->preview_path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, resume_tag, rom_file, s); // /.userdata/.minui/<EMU>/<romname>.ext.<n>.bmp
 		r->has_preview = exists(r->preview_path);
 	}
 
@@ -372,8 +374,10 @@ void openRom(char* path, char* last) {
 			strcpy(rom_file, m3u_slash + 1);
 
 			// get disc for state
+			char resume_tag[MAX_PATH]; // the marker dir minarch wrote (native PICO-8 apart from fake08)
+			ROM_resumeTag(emu_name, resume_tag, sizeof(resume_tag));
 			char disc_path_path[MAX_PATH];
-			snprintf(disc_path_path, sizeof(disc_path_path), "%s/.minui/%s/%s.%s.txt", SHARED_USERDATA_PATH, emu_name, rom_file, slot); // /.userdata/arm-480/.minui/<EMU>/<romname>.ext.0.txt
+			snprintf(disc_path_path, sizeof(disc_path_path), "%s/.minui/%s/%s.%s.txt", SHARED_USERDATA_PATH, resume_tag, rom_file, slot); // /.userdata/arm-480/.minui/<EMU>/<romname>.ext.0.txt
 
 			if (exists(disc_path_path)) {
 				// switch to disc path (written by minarch; a hand edit may end it with CR/LF)

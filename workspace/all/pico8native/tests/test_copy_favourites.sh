@@ -1,0 +1,215 @@
+#!/bin/sh
+# pico8_copy_favourites.sh against favourites.txt files in PICO-8 0.2.7's layout
+# (fixtures/favourites/): |file |slug |id |author |... |title, fields padded with
+# spaces, a CRLF line, the older |0|bbs/1/<id>.p8.png|<id> layout, and an empty file.
+#
+#   sh workspace/all/pico8native/tests/test_copy_favourites.sh
+#
+# The script runs under the shell named by TEST_SH (default sh). With --busybox it
+# runs itself again in the Linux toolchain container with busybox's sh and applets
+# first on PATH, as on device.
+set -u
+cd "$(dirname "$0")" || exit 1
+TESTS=$(pwd)
+if [ "${1:-}" = --busybox ]; then
+	WS=$(cd ../../.. && pwd)
+	ROOT=$(cd "$WS/.." && pwd)
+	exec docker run --rm -v "$ROOT/skeleton:/root/skeleton" -v "$WS:/root/workspace" \
+		ghcr.io/loveretro/tg5040-toolchain:latest \
+		/bin/sh -c 'B=$(command -v busybox) || { echo "no busybox in the container"; exit 1; }
+			mkdir -p /tmp/bb && $B --install -s /tmp/bb &&
+			PATH=/tmp/bb:$PATH exec sh /root/workspace/all/pico8native/tests/test_copy_favourites.sh'
+fi
+SH=${TEST_SH:-sh}
+SCRIPT=$(cd ../../../.. && pwd)/skeleton/SYSTEM/shared/bin/pico8_copy_favourites.sh
+FIX=$TESTS/fixtures/favourites
+T=${TMPDIR:-/tmp}/nx_test_copy_favourites.$$
+trap 'rm -rf "$T"' EXIT INT TERM
+
+FAILS=0
+PASSES=0
+ok() { PASSES=$((PASSES + 1)); }
+fail() { FAILS=$((FAILS + 1)); echo "FAIL: $*"; }
+# file_is <path> <expected content>
+file_is() {
+	if [ ! -f "$1" ]; then
+		fail "missing $1"
+	elif [ "$(cat "$1")" != "$2" ]; then
+		fail "$1 holds '$(cat "$1")', want '$2'"
+	else
+		ok
+	fi
+}
+absent() { if [ -e "$1" ]; then fail "unexpected $1"; else ok; fi; }
+# the visible carts in a roms folder, one per line, sorted
+carts() { (cd "$1" && ls | sort); }
+run() { # home roms; the count the script prints goes to $copied
+	copied=$(LOGS_PATH="$T/logs" $SH "$SCRIPT" "$1" "$2")
+	rc=$?
+	if [ $rc -ne 0 ]; then fail "exit $rc for $1"; else ok; fi
+}
+count_is() { if [ "$copied" = "$1" ]; then ok; else fail "printed '$copied' copied, want $1"; fi; }
+# sum_is <roms> <slug> <file>: copied.txt holds the file's md5 for the slug
+sum_is() {
+	want=$(md5sum "$1/$3" | awk '{ print $1 }')
+	got=$(awk -F'\t' -v s="$2" '$1 == s { print $4 }' "$1/.splore/copied.txt")
+	if [ -n "$want" ] && [ "$got" = "$want" ]; then ok; else fail "copied.txt sum for $2 is '$got', want '$want'"; fi
+}
+cart() { mkdir -p "$(dirname "$1")" && printf '%s' "$2" >"$1"; }
+
+rm -rf "$T"
+mkdir -p "$T/logs"
+
+# --- main case: padded fields, CRLF, a title with / and :, a name clash, revisions
+H=$T/home
+R=$T/roms
+mkdir -p "$H" "$R"
+cp "$FIX/favourites.txt" "$H/favourites.txt"
+cart "$H/bbs/carts/suika_demake-8.p8.png" "suika 8"
+cart "$H/bbs/carts/suika_demake-9.p8.png" "suika 9"
+cart "$H/bbs/5/56576.p8.png" "buns"
+cart "$H/bbs/carts/celeste_classic-2.p8.png" "celeste 2"
+cart "$H/bbs/carts/picodriller-0.p8.png" "driller"
+cart "$H/bbs/carts/otherthing-1.p8.png" "not a favourite"
+cart "$H/bbs/carts/jamcart-3.p8.png" "jam"
+cart "$H/bbs/carts/temp-celeste_classic-3.p8.png" "partial download"
+printf 'my own driller' >"$R/picodriller.p8.png"
+printf 'my own game' >"$R/mine.p8.png"
+
+run "$H" "$R"
+count_is 5
+file_is "$R/suika game demake.p8.png" "suika 9"
+file_is "$R/mai-chan's sweet buns.p8.png" "buns"
+file_is "$R/celeste- classic - remix.p8.png" "celeste 2"
+file_is "$R/picodriller.p8.png" "my own driller"
+file_is "$R/picodriller (picodriller).p8.png" "driller"
+file_is "$R/mine.p8.png" "my own game"
+file_is "$R/jam cart.p8.png" "jam"
+absent "$R/otherthing.p8.png"
+want=$(printf '%s\n' "celeste- classic - remix.p8.png" "mai-chan's sweet buns.p8.png" "mine.p8.png" "jam cart.p8.png" \
+	"picodriller (picodriller).p8.png" "picodriller.p8.png" "suika game demake.p8.png" | sort)
+if [ "$(carts "$R")" = "$want" ]; then ok; else fail "first run carts:
+$(carts "$R")"; fi
+if grep -q "$(printf 'suika_demake\t9\tsuika game demake.p8.png')" "$R/.splore/copied.txt" 2>/dev/null; then ok; else
+	fail "copied.txt lacks suika_demake rev 9: $(cat "$R/.splore/copied.txt" 2>/dev/null)"; fi
+if [ -s "$T/logs/splore.txt" ]; then ok; else fail "nothing logged to splore.txt"; fi
+
+sum_is "$R" suika_demake "suika game demake.p8.png"
+sum_is "$R" picodriller "picodriller (picodriller).p8.png"
+
+# --- a second run with nothing new changes nothing
+before=$(carts "$R")
+lines=$(wc -l <"$R/.splore/copied.txt")
+run "$H" "$R"
+count_is 0
+if [ "$(carts "$R")" = "$before" ]; then ok; else fail "second run changed the carts"; fi
+if [ "$(wc -l <"$R/.splore/copied.txt")" = "$lines" ]; then ok; else fail "second run grew copied.txt"; fi
+file_is "$R/picodriller (picodriller).p8.png" "driller"
+
+# --- a newer revision replaces the earlier copy in place; nothing is deleted
+cart "$H/bbs/carts/suika_demake-10.p8.png" "suika 10"
+run "$H" "$R"
+count_is 1
+file_is "$R/suika game demake.p8.png" "suika 10"
+sum_is "$R" suika_demake "suika game demake.p8.png"
+if [ "$(carts "$R")" = "$before" ]; then ok; else fail "the update added or removed carts:
+$(carts "$R")"; fi
+if grep -q "$(printf 'suika_demake\t10\t')" "$R/.splore/copied.txt"; then ok; else fail "copied.txt not at rev 10"; fi
+file_is "$H/bbs/carts/suika_demake-8.p8.png" "suika 8"
+
+# --- an older cached revision never replaces a newer copy
+rm -f "$H/bbs/carts/suika_demake-10.p8.png"
+run "$H" "$R"
+file_is "$R/suika game demake.p8.png" "suika 10"
+
+# --- a copy the user replaced with their own file is never updated over
+cart "$H/bbs/carts/suika_demake-10.p8.png" "suika 10"
+printf 'my suika' >"$R/suika game demake.p8.png"
+cart "$H/bbs/carts/suika_demake-11.p8.png" "suika 11"
+run "$H" "$R"
+count_is 0
+file_is "$R/suika game demake.p8.png" "my suika"
+if grep -q "$(printf 'suika_demake\t10\t')" "$R/.splore/copied.txt"; then ok; else fail "copied.txt moved past rev 10"; fi
+if grep -q "suika game demake.p8.png is not the copy" "$T/logs/splore.txt"; then ok; else fail "the skipped update was not logged"; fi
+# same size, other bytes: the checksum, not just the size, tells them apart
+printf 'suika 99' >"$R/suika game demake.p8.png"
+run "$H" "$R"
+file_is "$R/suika game demake.p8.png" "suika 99"
+
+# --- rows from before the checksum column (slug, rev, file)
+H7=$T/home7
+R7=$T/roms7
+mkdir -p "$H7" "$R7/.splore"
+printf '|aa-2 |aa |1 |x | |cart a\n|bb-2 |bb |2 |x | |cart b\n|cc-2 |cc |3 |x | |cart c\n' >"$H7/favourites.txt"
+for c in aa bb cc; do
+	cart "$H7/bbs/carts/$c-2.p8.png" "$c 2"
+done
+cart "$H7/bbs/carts/aa-1.p8.png" "aa 1"
+cart "$H7/bbs/carts/bb-1.p8.png" "bb 1"
+printf 'aa\t1\tcart a.p8.png\nbb\t1\tcart b.p8.png\ncc\t1\tcart c.p8.png\n' >"$R7/.splore/copied.txt"
+printf 'aa 1' >"$R7/cart a.p8.png"      # still revision 1: updated
+printf 'my own b' >"$R7/cart b.p8.png"  # changed by the user: kept
+printf 'cc 1' >"$R7/cart c.p8.png"      # revision 1 no longer cached: cannot tell, kept
+run "$H7" "$R7"
+count_is 1
+file_is "$R7/cart a.p8.png" "aa 2"
+file_is "$R7/cart b.p8.png" "my own b"
+file_is "$R7/cart c.p8.png" "cc 1"
+sum_is "$R7" aa "cart a.p8.png"
+if grep -q "$(printf '^bb\t1\tcart b.p8.png$')" "$R7/.splore/copied.txt"; then ok; else
+	fail "the old bb row changed: $(cat "$R7/.splore/copied.txt")"; fi
+
+# --- a file the user made identical to a favourite is adopted, not duplicated
+H2=$T/home2
+R2=$T/roms2
+mkdir -p "$H2" "$R2"
+printf '|picodriller-0   |picodriller   |1794   |johanp   |   |picodriller\n' >"$H2/favourites.txt"
+cart "$H2/bbs/carts/picodriller-0.p8.png" "driller"
+printf 'driller' >"$R2/picodriller.p8.png"
+run "$H2" "$R2"
+if [ "$(carts "$R2")" = "picodriller.p8.png" ]; then ok; else fail "identical file duplicated:
+$(carts "$R2")"; fi
+
+# --- empty favourites: nothing copied, exit 0
+H3=$T/home3
+R3=$T/roms3
+mkdir -p "$H3" "$R3"
+cp "$FIX/favourites-empty.txt" "$H3/favourites.txt"
+cart "$H3/bbs/carts/suika_demake-9.p8.png" "suika 9"
+run "$H3" "$R3"
+if [ -z "$(carts "$R3")" ]; then ok; else fail "empty favourites copied: $(carts "$R3")"; fi
+
+# --- no favourites.txt and no bbs at all: exit 0, nothing copied
+H4=$T/home4
+R4=$T/roms4
+mkdir -p "$H4" "$R4"
+run "$H4" "$R4"
+if [ -z "$(carts "$R4")" ]; then ok; else fail "missing favourites copied: $(carts "$R4")"; fi
+
+# --- the .lexaloffle/pico-8 layout and the older |0|bbs/1/<id>.p8.png|<id> rows
+H5=$T/home5
+R5=$T/roms5
+mkdir -p "$H5/.lexaloffle/pico-8" "$R5"
+cp "$FIX/favourites-lexaloffle.txt" "$H5/.lexaloffle/pico-8/favourites.txt"
+cart "$H5/.lexaloffle/pico-8/bbs/1/15133.p8.png" "id cart"
+cart "$H5/.lexaloffle/pico-8/bbs/carts/freecell.p8.png" "freecell"
+run "$H5" "$R5"
+file_is "$R5/15133.p8.png" "id cart"
+file_is "$R5/freecell.p8.png" "freecell"
+
+# --- a long title is cut to 120 bytes without splitting a UTF-8 character
+H6=$T/home6
+R6=$T/roms6
+mkdir -p "$H6" "$R6"
+long=a$(printf 'é%.0s' $(seq 1 70))
+printf '|long-1   |long   |1   |a   |   |  %s  \n' "$long" >"$H6/favourites.txt"
+cart "$H6/bbs/carts/long-1.p8.png" "long"
+run "$H6" "$R6"
+name=$(carts "$R6")
+stem=${name%.p8.png}
+bytes=$(printf '%s' "$stem" | LC_ALL=C wc -c | tr -d ' ')
+if [ "$bytes" = 119 ] && [ "$stem" = "a$(printf 'é%.0s' $(seq 1 59))" ]; then ok; else
+	fail "long title gave '$name' ($bytes bytes)"; fi
+
+echo "test_copy_favourites ($SH): $PASSES passed, $FAILS failed"
+[ "$FAILS" -eq 0 ]

@@ -125,7 +125,9 @@ void Menu_init(void) {
 		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/minui", netplay_saves);
 		mkdir_p(menu.minui_dir);
 	} else {
-		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, emu_name);
+		char resume_tag[MAX_PATH]; // native PICO-8 keeps its markers apart from fake08's
+		ROM_resumeTag(emu_name, resume_tag, sizeof(resume_tag));
+		snprintf(menu.minui_dir, sizeof(menu.minui_dir), "%s/.minui/%s", SHARED_USERDATA_PATH, resume_tag);
 		mkdir(menu.minui_dir, 0755);
 	}
 

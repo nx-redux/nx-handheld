@@ -1,0 +1,9 @@
+pico-8 cartridge // http://www.pico-8.com
+version 41
+__lua__
+-- shim spike: a moving circle and a looping sound
+t=0
+function _update60() t+=1 if t%30==1 then sfx(0) end end
+function _draw() cls(1) circfill(64+40*cos(t/120),64+40*sin(t/120),12,8) print(t,2,2,7) end
+__sfx__
+000800001805018050240502405018050180502405024050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000

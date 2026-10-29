@@ -456,8 +456,10 @@ SDL_Surface* State_loadResumePreview(const char* rom_path, const char* tag_name)
 	// named like Menu_init's slot files: the m3u's name for a multi-disc game
 	char m3u_path[MAX_PATH];
 	const char* name = M3U_findForRom(rom_path, m3u_path, sizeof(m3u_path)) ? baseName(m3u_path) : baseName(rom_path);
+	char resume_tag[MAX_PATH]; // the marker dir Menu_init uses (native PICO-8 apart from fake08)
+	ROM_resumeTag(tag_name, resume_tag, sizeof(resume_tag));
 	char path[MAX_PATH];
-	snprintf(path, sizeof(path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, tag_name, name, slot);
+	snprintf(path, sizeof(path), "%s/.minui/%s/%s.%d.bmp", SHARED_USERDATA_PATH, resume_tag, name, slot);
 	if (!exists(path))
 		return NULL;
 	SDL_Surface* image = IMG_Load(path); // a PNG despite the name

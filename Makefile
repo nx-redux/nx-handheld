@@ -234,6 +234,17 @@ cores: # TODO: can't assume every platform will have the same stock cores (platf
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/handy.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/LYNX.pak/LICENSE-handy.txt
 	cp ./workspace/$(PLATFORM)/cores/output/fake08_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/fake-08.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/LICENSE-fake-08.txt
+	# native PICO-8 (user's own pico8_64): bridge core, LD_PRELOAD shim, and the toolchain SDL2
+	# (offscreen video driver) that only the pico8_64 child loads, from P8.pak/lib
+	cp ./workspace/all/pico8native/build/$(PLATFORM)/pico8native_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak
+	cp ./workspace/all/pico8native/build/$(PLATFORM)/pico8shim.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak
+	mkdir -p ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/lib
+	cp ./workspace/all/pico8native/build/$(PLATFORM)/lib/libSDL2-2.0.so.0 ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/lib/
+	cp ./workspace/all/pico8native/LICENSE-SDL2.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/lib/LICENSE-SDL2.txt
+	# pico8shim.so's save states: ported from minui-pico-8-pak, with dlmalloc and LZ4 built in
+	cp ./workspace/all/pico8native/LICENSE-minui-pico-8-pak.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/LICENSE-minui-pico-8-pak.txt
+	cp ./workspace/all/pico8native/LICENSE-dlmalloc.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/LICENSE-dlmalloc.txt
+	cp ./workspace/all/pico8native/LICENSE-lz4.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/P8.pak/LICENSE-lz4.txt
 	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/MGBA.pak
 	cp ./workspace/$(PLATFORM)/cores/output/licenses/mgba.txt ./build/SYSTEM/$(PLATFORM)/paks/Emus/MGBA.pak/LICENSE-mgba.txt
 	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/SYSTEM/$(PLATFORM)/paks/Emus/SGB.pak

@@ -11,6 +11,8 @@
 #include "artbg.h"
 #include "area_scale.h"
 #include "image_probe.h"
+#include "cart_label.h"
+#include "utils.h"
 #include "homeart.h"
 #include "ui_image.h"
 
@@ -200,14 +202,18 @@ static LoadBackgroundTask* dequeueTask(TaskQueue* q) {
 static SDL_Surface* decodeTask(const LoadBackgroundTask* task) {
 	SDL_Surface* result = NULL;
 	// Huge user art (a camera photo dropped in .media) would decode to
-	// hundreds of MB while up to four loaders run: skipped on its header.
-	if (!HomeArt_isListPath(task->imagePath) && ImageProbe_isOversized(task->imagePath, IMAGE_PROBE_MAX_SIDE)) {
+	// hundreds of MB while up to four loaders run: skipped on its header
+	// (a .p8.png cart's label path: its cart's).
+	char cart[MAX_PATH];
+	const char* file = ROM_cartLabelCart(task->imagePath, cart, sizeof(cart)) ? cart : task->imagePath;
+	if (!HomeArt_isListPath(task->imagePath) && ImageProbe_isOversized(file, IMAGE_PROBE_MAX_SIDE)) {
 		LOG_warn("Skipping oversized image: %s\n", task->imagePath);
 		return NULL;
 	}
-	// Home's List: a resume frame or an abstract picture by a path of Home's own (homeart.h)
+	// Home's List: a resume frame or an abstract picture by a path of Home's own (homeart.h); a cart's label cut
+	// from its cart (CartLabel_load)
 	SDL_Surface* image = HomeArt_isListPath(task->imagePath) ? HomeArt_loadListPath(task->imagePath)
-															 : IMG_Load(task->imagePath);
+															 : CartLabel_load(task->imagePath);
 	if (image) {
 		result = SDL_ConvertSurfaceFormat(image, cachedScreenFormat, 0);
 		SDL_FreeSurface(image);
