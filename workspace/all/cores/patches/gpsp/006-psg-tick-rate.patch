@@ -1,0 +1,27 @@
+# license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
+diff --git forkSrcPrefix/sound.c forkDstPrefix/sound.c
+index 97380cb..3feca21 100644
+--- forkSrcPrefix/sound.c
++++ forkDstPrefix/sound.c
+@@ -36,7 +36,10 @@ u32 sound_on;
+ static s32 sound_buffer[BUFFER_SIZE];
+ static u32 sound_buffer_base;
+ 
+-static fixed16_16 gbc_sound_tick_step;
++/* NXRedux: the PSG length/envelope/sweep clock (256 Hz) in output samples,
++ * 256 / sound_frequency in 16.16. Upstream sets it once to 256 (the 65536 Hz
++ * value), so at 32768 Hz those units ran at half speed. */
++#define gbc_sound_tick_step ((fixed16_16)(1u << (24 - sound_freq_bits)))
+ 
+ /* Queue 4 samples to the top of the DS FIFO, wrap around circularly */
+ 
+@@ -600,9 +603,6 @@ void reset_sound(void)
+ 
+ void init_sound()
+ {
+-  /* 256 / sound_frequency in 16.16 == 256 (sound_frequency == 2^16). */
+-  gbc_sound_tick_step = (fixed16_16)256u;
+-
+   init_noise_table(noise_table15, 32767, 14);
+   init_noise_table(noise_table7, 127, 6);
+ 
