@@ -1756,15 +1756,19 @@ static CardKind cardKind(const HomeTile* t) {
 	return CARD_PICK;
 }
 
-// dst's clip rect is the page band: a tile wholly outside it costs nothing. The selection is its lit look: a game
-// (Continue, a pin) and Pick a game in colour, a tool square filled.
+// dst's clip rect is the page band: a tile wholly outside it costs nothing. The selection is its lit look (a game in
+// colour, a tool's icon in the Main color) and, with Layouts > Grid selection ring on, the HOME_RING ring outside it.
 static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px) {
 	SDL_Rect r = toScreen(t->r, scroll_px);
+	int ring = CFG_getGridRing() ? px(HOME_RING) : 0; // Layouts > Grid selection ring
 	const SDL_Rect* band = &dst->clip_rect;
-	if (r.w <= 0 || r.h <= 0 || r.y + r.h <= band->y || r.y >= band->y + band->h)
+	if (r.w <= 0 || r.h <= 0 || r.y + r.h + ring <= band->y || r.y - ring >= band->y + band->h)
 		return; // outside the band
 	CardKind kind = cardKind(t);
 	float lit = litAmount(id);
+	if (ring && lit > 0.0f) // the selection ring, outside the card in the Main color
+		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
+					  cardBg(true), (int)(lit * 255 + 0.5f));
 	if (lit > 0.0f && lit < 1.0f) { // a crossfade: both looks in one pass
 		blitCardOver(dst, cachedCard(kind, t->ref, r.w, r.h, true), cachedCard(kind, t->ref, r.w, r.h, false), r,
 					 (int)(lit * 255 + 0.5f), 0);

@@ -74,6 +74,7 @@ void CFG_defaults(NextUISettings* cfg) {
 		.backdropArt = CFG_DEFAULT_BACKDROPART,
 		.buttonHints = CFG_DEFAULT_BUTTONHINTS,
 		.extraInfo = CFG_DEFAULT_EXTRAINFO,
+		.gridRing = CFG_DEFAULT_GRIDRING,
 		.switcherLayout = CFG_DEFAULT_SWITCHERLAYOUT,
 		.pageTitle = CFG_DEFAULT_PAGETITLE,
 		.showCollections = CFG_DEFAULT_SHOWCOLLECTIONS,
@@ -332,6 +333,10 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			}
 			if (sscanf(line, "extraInfo=%i", &temp_value) == 1) {
 				CFG_setExtraInfo((bool)temp_value);
+				continue;
+			}
+			if (sscanf(line, "gridRing=%i", &temp_value) == 1) {
+				CFG_setGridRing((bool)temp_value);
 				continue;
 			}
 			if (sscanf(line, "switcherLayout=%i", &temp_value) == 1) {
@@ -751,6 +756,15 @@ bool CFG_getExtraInfo(void) {
 
 void CFG_setExtraInfo(bool show) {
 	settings.extraInfo = show;
+	CFG_sync();
+}
+
+bool CFG_getGridRing(void) {
+	return settings.gridRing;
+}
+
+void CFG_setGridRing(bool show) {
+	settings.gridRing = show;
 	CFG_sync();
 }
 
@@ -1344,6 +1358,8 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getHomeStyle());
 	} else if (strcmp(key, "extraInfo") == 0) {
 		sprintf(value, "%i", CFG_getExtraInfo());
+	} else if (strcmp(key, "gridRing") == 0) {
+		sprintf(value, "%i", CFG_getGridRing());
 	} else if (strcmp(key, "switcherLayout") == 0) {
 		sprintf(value, "%i", CFG_getSwitcherLayout());
 	} else if (strcmp(key, "wifi") == 0) {
@@ -1447,6 +1463,7 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("gameListVerticalAlign=%i\n", settings.gameListVAlign);
 	EMIT("homeStyle=%i\n", settings.homeStyle);
 	EMIT("extraInfo=%i\n", settings.extraInfo);
+	EMIT("gridRing=%i\n", settings.gridRing);
 	EMIT("switcherLayout=%i\n", settings.switcherLayout);
 	EMIT("wifi=%i\n", settings.wifi);
 	EMIT("defaultView=%i\n", settings.defaultView);
@@ -1705,6 +1722,7 @@ void CFG_print(void) {
 	printf("\t\"gameListVerticalAlign\": %i,\n", settings.gameListVAlign);
 	printf("\t\"homeStyle\": %i,\n", settings.homeStyle);
 	printf("\t\"extraInfo\": %i,\n", settings.extraInfo);
+	printf("\t\"gridRing\": %i,\n", settings.gridRing);
 	printf("\t\"switcherLayout\": %i,\n", settings.switcherLayout);
 	printf("\t\"wifi\": %i,\n", settings.wifi);
 	printf("\t\"defaultView\": %i,\n", settings.defaultView);

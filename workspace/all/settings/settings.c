@@ -840,6 +840,17 @@ static void reset_extra_info(void) {
 	CFG_setExtraInfo(CFG_DEFAULT_EXTRAINFO);
 }
 
+/* Grid selection ring */
+static int get_grid_ring(void) {
+	return CFG_getGridRing() ? 1 : 0;
+}
+static void set_grid_ring(int v) {
+	CFG_setGridRing(v != 0);
+}
+static void reset_grid_ring(void) {
+	CFG_setGridRing(CFG_DEFAULT_GRIDRING);
+}
+
 /* Game Switcher layout */
 static const char* switcher_layout_labels[] = {"Full screen", "List"};
 static int switcher_layout_values[] = {SWITCHER_LAYOUT_FULL, SWITCHER_LAYOUT_LIST};
@@ -2039,6 +2050,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		reset_backdrop_art);
 #undef LAYOUTS_ORIENT_ROW
 
+	LAYOUTS_CYCLE_ROW(
+		"Grid selection ring", "A ring in the Main color around the selected item in every Grid layout.",
+		on_off_labels, 2, on_off_values, get_grid_ring, set_grid_ring, reset_grid_ring);
 	LAYOUTS_CYCLE_ROW(
 		"Extra info", "A game's play time and achievements, in the menus and the Game Switcher.",
 		hide_show_labels, 2, on_off_values, get_extra_info, set_extra_info, reset_extra_info);

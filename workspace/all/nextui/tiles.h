@@ -42,7 +42,12 @@ typedef struct {
 	// a console's "N games" left off (its line too: the logo alone, centred): the Consoles Grid shows the selection's
 	// in its header (gridview.c)
 	bool no_count;
+	// the Grid's selection ring (Layouts > Grid selection ring): lit, a TILE_RING_DP ring in the Main color outside r
+	// (the caller leaves that room around the tile)
+	bool ring;
 } TileSpec;
+
+#define TILE_RING_DP 3.0f // the Grid's selection ring, outside the tile (and the room every Grid tile keeps for it)
 
 // lit 0..1 crossfades plain → lit: GAME/TITLE their picture grey at 25% plain and in colour lit (no ring), their
 // edge on both, the caption lit; LOGO/TOOL/COLLECTION their content (icon, logo, name) dimmed plain and in the Main
@@ -55,6 +60,9 @@ void Tiles_drawCaption(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float li
 // GPU pieces of a game tile drawn as sprites (no composed look): a w x h mask, black where the rounded tile isn't (its
 // corners, over a picture drawn square). The caller owns it.
 SDL_Surface* Tiles_cornerMask(int w, int h);
+// The selection ring as it shows around a w x h tile: the colour c's rounded rect TILE_RING_DP px bigger each side, less
+// the tile's own rounded rect ((w + 2 ring) x (h + 2 ring)), its coverage in the alpha. The caller owns it.
+SDL_Surface* Tiles_ringOverlay(int w, int h, SDL_Color c);
 // A game tile's 2 dp edge at full alpha (draw it at Tiles_borderAlpha(), over the picture, on both looks), w x h; the
 // caller owns it.
 SDL_Surface* Tiles_borderOverlay(int w, int h);

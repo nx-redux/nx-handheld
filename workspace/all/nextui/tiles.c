@@ -658,6 +658,29 @@ static void drawTool(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float s, S
 
 // Console logo, inset 22 dp at the sides and 30 dp top and bottom (scaled with the tile); the name when
 // there's no logo (the Grid's as a collection tile, the Carousel's as a word). A Grid tile adds "N games" 6 dp under what's drawn (count_a), the two centred as one block.
+SDL_Surface* Tiles_ringOverlay(int w, int h, SDL_Color c) {
+	int ring = NX_DPF(TILE_RING_DP);
+	int W = w + 2 * ring, H = h + 2 * ring;
+	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
+	if (!s)
+		return NULL;
+	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
+	int rad = NX_DPF(TILE_RADIUS_DP);
+	float orad = (float)clampRadius(rad + ring, W, H), irad = (float)clampRadius(rad, w, h);
+	Uint32 rgb = (Uint32)c.r << 16 | (Uint32)c.g << 8 | c.b;
+	for (int y = 0; y < H; y++) {
+		Uint32* row = (Uint32*)((Uint8*)s->pixels + y * s->pitch);
+		for (int x = 0; x < W; x++) {
+			float outer = roundedCoverage(x, y, W, H, orad);
+			float inner = x >= ring && x < ring + w && y >= ring && y < ring + h
+							  ? roundedCoverage(x - ring, y - ring, w, h, irad)
+							  : 0.0f;
+			row[x] = (Uint32)(outer * (1.0f - inner) * 255.0f + 0.5f) << 24 | rgb;
+		}
+	}
+	return s;
+}
+
 SDL_Surface* Tiles_cornerMask(int w, int h) {
 	SDL_Surface* s = w > 0 && h > 0 ? SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888) : NULL;
 	if (!s)
@@ -967,6 +990,11 @@ void Tiles_draw(SDL_Surface* dst, SDL_Rect r, const TileSpec* t, float lit) {
 	if (game) { // its edge, white 14%, on both looks
 		int b = NX_DPF(GAME_EDGE_DP);
 		blitShape(dst, SHAPE_OUTLINE, r.x, r.y, r.w, r.h, rad, b < 1 ? 1 : b, 255, TILE_BORDER_ALPHA);
+	}
+	if (t->ring && lit_a) { // the Grid's selection ring, in the room outside the tile
+		int ring = NX_DPF(TILE_RING_DP);
+		blitShapeColor(dst, SHAPE_OUTLINE, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, rad + ring, ring,
+					   (SDL_Color){ac.r, ac.g, ac.b, 255}, lit_a);
 	}
 	if (game && lit_a && !t->carousel && !t->no_caption) {
 		SDL_Surface* cap = litCaption(r, t, s);
