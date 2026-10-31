@@ -77,6 +77,13 @@ typedef enum {
 // platform power-off event powers the device off.
 DarkScreenAction ModuleCommon_handleDarkScreenInput(SDL_Surface* screen, bool* screen_off);
 
+// SELECT tap on a page without its own screen-off handling (lists, menus,
+// settings): while background audio is loaded, show the screen-off hint and
+// run the dark screen (A toggles play/pause, power tap re-shows the hint)
+// until SELECT + A wakes it. Returns true after waking: the caller redraws
+// the page. Call once per frame, after global input.
+bool ModuleCommon_screenOffOnSelect(SDL_Surface* screen);
+
 // Record last input time (for auto screen-off timeout)
 void ModuleCommon_recordInputTime(void);
 

@@ -621,6 +621,11 @@ int PWR_deepSleep(void);
 
 void PWR_disableSleep(void);
 void PWR_enableSleep(void);
+// Opt-in (the launcher): asked on a power-button tap, and every second while
+// dark. True turns only the screen off instead of sleeping (background music
+// keeps playing); a tap turns it back on, a hold still powers off. Once it has
+// stayed false for a few seconds while dark the device sleeps as usual.
+void PWR_setScreenOffCheck(int (*check)(void));
 
 void PWR_disableAutosleep(void);
 void PWR_enableAutosleep(void);

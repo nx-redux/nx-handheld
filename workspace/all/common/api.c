@@ -230,6 +230,7 @@ static struct PWR_Context {
 	int requested_sleep;
 	int requested_wake;
 	int resume_tick;
+	int (*screen_off_check)(void); // see PWR_setScreenOffCheck
 
 	pthread_t battery_pt;
 	SDL_atomic_t is_charging;
@@ -4306,6 +4307,55 @@ IndicatorType PWR_getShowSetting(void) {
 	return GetHDMI() ? INDICATOR_NONE : pwr.show_setting;
 }
 
+// Screen off instead of sleep (PWR_setScreenOffCheck): only the backlight goes
+// off, so background music keeps playing. Mirrors PWR_update's power button: a
+// tap turns the screen back on, a 1 s hold or the power-off event powers off.
+// Returns true when the check stayed false for SCREEN_OFF_SLEEP_GRACE_MS (the
+// music stopped, ended or was paused): the caller then sleeps as the tap asked.
+// The grace keeps a radio rebuffer from ending it.
+#define SCREEN_OFF_CHECK_MS 1000
+#define SCREEN_OFF_SLEEP_GRACE_MS 5000
+static bool PWR_screenOff(void) {
+	LOG_info("Screen off (background audio playing)\n");
+	PAD_reset();
+	PLAT_enableBacklight(0);
+
+	uint32_t power_pressed_at = 0;
+	uint32_t checked_at = SDL_GetTicks();
+	uint32_t idle_since = 0; // when the check first failed, 0 while it holds
+	bool sleep_now = false;
+	while (!sleep_now) {
+		SDL_Delay(16);
+		PAD_poll();
+		uint32_t now = SDL_GetTicks();
+
+		if (PAD_justPressed(BTN_POWER))
+			power_pressed_at = now;
+		if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now - power_pressed_at >= 1000)) {
+			power_pressed_at = 0;
+			system("gametimectl.elf stop_all");
+			PWR_powerOff(0);
+		}
+		if (PAD_justReleased(BTN_SLEEP) && power_pressed_at)
+			break;
+
+		if (now - checked_at >= SCREEN_OFF_CHECK_MS) {
+			checked_at = now;
+			if (pwr.screen_off_check())
+				idle_since = 0;
+			else if (!idle_since)
+				idle_since = now;
+			else
+				sleep_now = now - idle_since >= SCREEN_OFF_SLEEP_GRACE_MS;
+		}
+	}
+
+	PAD_reset();
+	if (!sleep_now)
+		PLAT_enableBacklight(1);
+	return sleep_now;
+}
+
 void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t before_sleep, PWR_callback_t after_sleep) {
 	bool dirty = _dirty ? *_dirty : false;
 	IndicatorType show_setting = _show_setting ? *_show_setting : INDICATOR_NONE;
@@ -4385,10 +4435,17 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		last_input_at = now;
 
 	const bool autosleep_expired = screenOffDelay > 0 && now - last_input_at >= screenOffDelay;
-	const bool explicit_sleep = pwr.requested_sleep ||
-								(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at);
+	const bool power_tap = pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at;
+	bool sleep_now = pwr.requested_sleep || power_tap || autosleep_expired;
 
-	if (explicit_sleep || autosleep_expired) {
+	if (power_tap && pwr.screen_off_check && !GetHDMI() && pwr.screen_off_check()) {
+		sleep_now = PWR_screenOff();
+		last_input_at = now = SDL_GetTicks();
+		power_pressed_at = 0;
+		dirty = true;
+	}
+
+	if (sleep_now) {
 		pwr.requested_sleep = 0;
 		if (before_sleep)
 			before_sleep();
@@ -4486,6 +4543,10 @@ void PWR_disableSleep(void) {
 }
 void PWR_enableSleep(void) {
 	pwr.can_sleep = 1;
+}
+
+void PWR_setScreenOffCheck(int (*check)(void)) {
+	pwr.screen_off_check = check;
 }
 
 void PWR_disablePowerOff(void) {

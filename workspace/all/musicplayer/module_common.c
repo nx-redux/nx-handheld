@@ -57,6 +57,17 @@ void ModuleCommon_init(void) {
 	IndicatorAutoHide_reset();
 }
 
+// Clear the text/status GPU layers a page may have up; the page re-renders
+// them on its next draw. (LAYER_PLAYTIME shares its plane with
+// LAYER_PODCAST_PROGRESS.)
+static void clear_gpu_layers(void) {
+	GFX_clearLayers(LAYER_SCROLLTEXT);
+	PLAT_clearLayers(LAYER_SPECTRUM);
+	PLAT_clearLayers(LAYER_PLAYTIME);
+	PLAT_clearLayers(LAYER_BUFFER);
+	PlayTime_clear();
+}
+
 // app_state of the music Now Playing page (see module_player.c): the only
 // page where a MENU tap still opens the controls-help modal directly.
 #define APP_STATE_MUSIC_PLAYING 2
@@ -131,12 +142,7 @@ GlobalInputResult ModuleCommon_handleGlobalInput(SDL_Surface* screen, IndicatorT
 			ContextMenu_open((ContextMenuItem*)menu_items, menu_count);
 			// Clear text/status GPU layers so they don't float above the
 			// menu's dim backdrop; they re-render after close.
-			// (LAYER_PLAYTIME shares its plane with LAYER_PODCAST_PROGRESS.)
-			GFX_clearLayers(LAYER_SCROLLTEXT);
-			PLAT_clearLayers(LAYER_SPECTRUM);
-			PLAT_clearLayers(LAYER_PLAYTIME);
-			PLAT_clearLayers(LAYER_BUFFER);
-			PlayTime_clear();
+			clear_gpu_layers();
 			ContextMenu_render(screen);
 			PLAT_GPU_Flip();
 		}
@@ -267,6 +273,41 @@ DarkScreenAction ModuleCommon_handleDarkScreenInput(SDL_Surface* screen, bool* s
 	if (PAD_justPressed(BTN_A))
 		return DARK_SCREEN_TOGGLE;
 	return DARK_SCREEN_NONE;
+}
+
+bool ModuleCommon_screenOffOnSelect(SDL_Surface* screen) {
+	// Tap checked first: the tap state machine must see every SELECT press.
+	if (!PAD_tappedSelect(SDL_GetTicks()) || !Background_isPlaying())
+		return false;
+
+	clear_gpu_layers();
+	PLAT_GPU_Flip();
+	GFX_clear(screen);
+	render_screen_off_hint(screen);
+	GFX_flip(screen);
+	ModuleCommon_startScreenOffHint();
+
+	// Same hint -> dark -> wake flow as the playing pages, run here until the
+	// screen is woken so the calling page needs no screen-off state of its own.
+	bool screen_off = false;
+	DarkScreenAction action = DARK_SCREEN_NONE;
+	while (action != DARK_SCREEN_WAKE) {
+		GFX_startFrame();
+		PAD_poll();
+		action = ModuleCommon_handleDarkScreenInput(screen, &screen_off);
+		if (action == DARK_SCREEN_TOGGLE)
+			MusicClient_toggle();
+		if (ModuleCommon_processScreenOffHintTimeout()) {
+			screen_off = true;
+			GFX_clear(screen);
+			GFX_flip(screen);
+		}
+		MusicClient_update();
+		if (screen_off)
+			ModuleCommon_setAutosleepDisabled(Background_isPlaying());
+		GFX_sync();
+	}
+	return true;
 }
 
 void ModuleCommon_quit(void) {
