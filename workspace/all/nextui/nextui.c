@@ -24,6 +24,7 @@
 #include "home.h"
 #include "homeart.h"
 #include "infoband.h"
+#include "scroll_fade.h"
 #include "gameswitcher.h"
 #include "imgloader.h"
 #include "launcher.h"
@@ -102,6 +103,7 @@ static void Menu_quit(void) {
 	MenuTabs_quit(); // the parked roots (never in the stack)
 
 	InfoBand_quit();
+	ScrollFade_quit();
 	UI_fadeCacheClear();
 	ArtLoader_quit(); // the worker first: it decodes into surfaces the caches below would otherwise never see freed
 	MenuArt_quit();
@@ -356,7 +358,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// the menu's close guard (ContextMenu_isOpen stays true a few frames after it closed) ran out: one more frame, so
-		// what a List leaves off under the menu (its info band and arrows: renderInfoBand) comes back
+		// what a List leaves off under the menu (its info band: renderInfoBand) comes back
 		{
 			static bool cm_was_open = false;
 			bool cm_now = ContextMenu_isOpen();
@@ -548,9 +550,11 @@ int main(int argc, char* argv[]) {
 					UI_fillFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
 				else if (fade)
 					UI_blitFade(fade, strip_only ? &(SDL_Rect){0, 0, screen->w, bar_h} : NULL, screen, 0, 0);
-				// a game list's title on the side margin, where its content starts (the List's pill edge, the Grid's
-				// tiles, the Carousel's and Backdrop's captions) and the tab row's labels do
-				int title_x = currentScreen == SCREEN_GAMELIST ? NX_DP(NX_MENU_GUTTER_DP) : -1;
+				// a game list's title where its content starts: a List's rows' text (as its hint bar), else the side
+				// margin (the Grid's tiles, the Carousel's and Backdrop's captions)
+				int title_x = currentScreen != SCREEN_GAMELIST ? -1
+							  : GameList_listShown()		   ? GameList_textX()
+															   : NX_DP(NX_MENU_GUTTER_DP);
 				ow = UI_renderMenuBarAt(screen, menu_title, NULL, title_x, false, over_art);
 			} else {
 				ow = UI_renderMenuBar(screen, menu_title);

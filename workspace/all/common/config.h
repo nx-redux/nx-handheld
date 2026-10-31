@@ -167,6 +167,7 @@ typedef struct
 	bool buttonHints;	// the launcher lists' bottom button hint bar (Layouts > Bottom bar)
 	bool pageTitle;		// the main menu's tab row and a game list's title (Layouts > Top bar)
 	bool extraInfo;		// play time, achievements and Home's monthly stats in the menus (Layouts > Extra info)
+	bool gridRing;		// the Grid's selected item ringed in the Main color (Layouts > Grid selection ring)
 	int switcherLayout; // SWITCHER_LAYOUT_*: how the Game Switcher draws (Layouts > Game Switcher layout)
 	bool showCollections;
 	bool showEmulators;
@@ -292,6 +293,7 @@ typedef struct
 #define CFG_DEFAULT_BUTTONHINTS true
 #define CFG_DEFAULT_PAGETITLE true
 #define CFG_DEFAULT_EXTRAINFO true
+#define CFG_DEFAULT_GRIDRING false
 #define CFG_DEFAULT_SWITCHERLAYOUT SWITCHER_LAYOUT_FULL
 #define CFG_DEFAULT_FN1_TOOL ""
 #define CFG_DEFAULT_FN2_TOOL ""
@@ -410,6 +412,10 @@ void CFG_setButtonHints(bool show);
 // Home, in the game lists and in the Game Switcher, and Home's monthly stats strip.
 bool CFG_getExtraInfo(void);
 void CFG_setExtraInfo(bool show);
+// Ring the selected item in the Grid layouts (Home's Grid, the tabs' and the game lists') in the Main color (Layouts >
+// Grid selection ring); off, the colour alone marks it.
+bool CFG_getGridRing(void);
+void CFG_setGridRing(bool show);
 // The Game Switcher's layout (SWITCHER_LAYOUT_*). An out-of-range value reads as Full screen.
 int CFG_getSwitcherLayout(void);
 void CFG_setSwitcherLayout(int layout);

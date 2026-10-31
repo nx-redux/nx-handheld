@@ -796,7 +796,7 @@ void PLAT_GPU_Flip();
 // free such a surface with PLAT_freeSurfaceTexture first. A texture freed (either way) leaves the sprite lists too.
 // PLAT_spriteAddUnder: the same, in a second list drawn under the screen layer (over the background layers), seen
 // through the screen's transparent pixels (a Backdrop game list's full-screen picture). PLAT_spritesClear clears both,
-// as does GFX_clearLayers(LAYER_ALL) (with the PLAT_setScreenDim band): a modal's own loop must not show them.
+// as does GFX_clearLayers(LAYER_ALL): a modal's own loop must not show them.
 void PLAT_spritesClear(void);
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
 void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
@@ -804,6 +804,18 @@ void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* 
 // transparent corners stay transparent, as a black sprite over it would not).
 void PLAT_spriteAddShaded(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, Uint8 shade,
 						  const SDL_Rect* clip);
+// PLAT_spriteAdd with a colour mod: the texture's colours times tint/255 (a white main-menu Carousel item in the Main
+// color).
+void PLAT_spriteAddTinted(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, SDL_Color tint,
+						  const SDL_Rect* clip);
+// The scroll fade over a list's own sprites (the launcher lists' "more this way" cue, ui_scroll_fade.h): the sprites
+// added over the screen between Begin and End fade out toward the outer edge of either band, rows top_y .. top_y +
+// top_h toward top_y and bottom_y - bottom_h .. bottom_y toward bottom_y (screen px; a band 0 tall is none), at
+// UI_scrollFadeKeep's alpha (strong: ease-in), as a DstIn mask over them would: they fade into whatever is under
+// them. Sprites added before Begin or after End (bars, a transition's band) are drawn as they are. One range a
+// frame, cleared with the sprites.
+void PLAT_spriteFadeBegin(void);
+void PLAT_spriteFadeEnd(int top_y, int top_h, int bottom_y, int bottom_h, bool strong);
 // Drop tex's sprites from both lists before the next clear: for a sprite the next present must no longer show (a List
 // marquee's held title, once its GPU scroll takes over between full frames).
 void PLAT_spriteRemove(SDL_Texture* tex);
@@ -840,10 +852,6 @@ void PLAT_spriteAddUnderOpaque(SDL_Texture* tex, const SDL_Rect* dst);
 // transparent outside them (a Backdrop game list's sprite frame: its picture and row are sprites), so a full-screen
 // blend of clear pixels is skipped. Consumed by that flip; n <= 0 = the whole screen.
 void PLAT_setScreenDrawBands(const int* y, const int* h, int n);
-// Draw rows [y, y + h) of the screen texture at opacity a (a colour and alpha mod: the premultiplied layer at true
-// opacity over what is under it), on every composite until set again; a = 255 (or h <= 0) clears it. False when the
-// screen doesn't composite premultiplied (nothing set: the caller dims in software instead).
-bool PLAT_setScreenDim(int y, int h, Uint8 a);
 // Re-upload a surface's pixels into its texture (one it already has; a no-op otherwise): for a small surface redrawn
 // every frame (the Grid's edge shade), without making a new texture each time.
 void PLAT_textureRefresh(SDL_Surface* s);

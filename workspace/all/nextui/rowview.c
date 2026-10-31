@@ -524,6 +524,8 @@ static SDL_Surface* stretchScratch(int w, int h) {
 static bool sprite_mode = false;
 static bool sprites_used = false;
 static bool draw_selected = false; // the item RowView_render is drawing is the selection (its crisp logo)
+// The main-menu item being drawn: its mark's colour mod (white: as composed), RowView_setMarkLit
+static SDL_Color mark_tint = {255, 255, 255, 255};
 // a Consoles logo or controller was still on the art loader's thread in the last render: redraw until it lands
 static bool art_waiting = false;
 
@@ -611,14 +613,18 @@ static Uint8 spriteAlpha(int a) {
 										: a);
 }
 
-// s's texture into rect r at alpha a, clipped as the screen is
+static bool markTinted(void) {
+	return mark_tint.r != 255 || mark_tint.g != 255 || mark_tint.b != 255;
+}
+
+// s's texture into rect r at alpha a, clipped as the screen is (in mark_tint)
 static void surfaceSprite(SDL_Surface* screen, SDL_Surface* s, const SDL_Rect* src, SDL_Rect r, int a) {
 	if (!s || r.w <= 0 || r.h <= 0)
 		return;
 	Uint8 sa = spriteAlpha(a);
 	SDL_Texture* t = sa ? PLAT_textureForSurface(s) : NULL;
 	if (t)
-		PLAT_spriteAdd(t, src, &r, sa, &screen->clip_rect);
+		PLAT_spriteAddTinted(t, src, &r, sa, mark_tint, &screen->clip_rect);
 }
 
 static void blitCentred(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float factor, Uint8 a, Uint8 c) {
@@ -642,7 +648,7 @@ static void blitCentred(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float 
 	SDL_GetSurfaceAlphaMod(s, &oa);
 	SDL_GetSurfaceColorMod(s, &orr, &og, &ob);
 	SDL_GetSurfaceBlendMode(s, &bm);
-	if (c == 255) {
+	if (c == 255 && !markTinted()) {
 		if (exact) {
 			UI_blitBlendOpaque(s, NULL, dst, r.x, r.y, a);
 			return;
@@ -662,7 +668,7 @@ static void blitCentred(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float 
 	}
 	SDL_SetSurfaceBlendMode(s, SDL_BLENDMODE_BLEND);
 	SDL_SetSurfaceAlphaMod(s, a);
-	SDL_SetSurfaceColorMod(s, c, c, c);
+	SDL_SetSurfaceColorMod(s, c * mark_tint.r / 255, c * mark_tint.g / 255, c * mark_tint.b / 255);
 	if (exact)
 		SDL_BlitSurface(s, NULL, dst, &r);
 	else
@@ -1552,9 +1558,10 @@ static void drawBackdropItem(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 		return;
 	}
 	Uint8 a8 = (Uint8)(alpha * 255.0f + 0.5f);
-	if (RowView_drawConsoleLogo(screen, g, e, kind, cx, cy, scale, a8, draw_selected))
-		return; // a Consoles logo as a GPU sprite (sprite mode)
-	drawRested(screen, slotItem, g, e, kind, scale, cx, cy, a8);
+	RowView_setMarkLit(kind, d);
+	if (!RowView_drawConsoleLogo(screen, g, e, kind, cx, cy, scale, a8, draw_selected)) // else a GPU sprite
+		drawRested(screen, slotItem, g, e, kind, scale, cx, cy, a8);
+	RowView_setMarkLit(kind, -1.0f);
 }
 
 ///////////////////////////////////////
@@ -1651,9 +1658,10 @@ static int captionLines(const CapStyle* cs, int name_h, const SegRow* rows, int 
 static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const char* name, const SegRow* rows,
 								   int nrows) {
 	char key[CAPTION_KEY];
-	int n = snprintf(key, sizeof(key), "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%08x|%s|", (int)FIXED_SCALE, cs->w, cs->max_h,
-					 cs->reserve_h, cs->name_lines, cs->gap, cs->left, cs->shadow, cs->right, cs->game,
-					 (unsigned)View_fnvStr(2166136261u, path), name ? name : "");
+	SDL_Color main = UI_accent(); // the name's colour (the Main color, as the selection elsewhere)
+	int n = snprintf(key, sizeof(key), "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%02x%02x%02x|%08x|%s|", (int)FIXED_SCALE, cs->w,
+					 cs->max_h, cs->reserve_h, cs->name_lines, cs->gap, cs->left, cs->shadow, cs->right, cs->game,
+					 main.r, main.g, main.b, (unsigned)View_fnvStr(2166136261u, path), name ? name : "");
 	int look_n = n; // the key up to the name: the same game in the same look, whatever its info rows
 	for (int r = 0; r < nrows && n > 0 && (size_t)n < sizeof(key); r++) {
 		for (int i = 0; i < rows[r].n && n > 0 && (size_t)n < sizeof(key); i++)
@@ -1735,6 +1743,18 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const c
 			 : cs->left			   ? Tiles_textBlockLeft(caption.s, fn, name, 0, 0, w, cs->name_lines, 255, cs->shadow)
 								   : Tiles_textBlock(caption.s, fn, name, w / 2, 0, w, cs->name_lines, false, 255, 255,
 													 cs->shadow);
+		// the white name in the Main color: its rows multiplied by it (the dark shadow stays dark)
+		for (int yy = 0; yy < y && yy < h; yy++) {
+			Uint32* row = (Uint32*)((Uint8*)caption.s->pixels + yy * caption.s->pitch);
+			for (int xx = 0; xx < w; xx++) {
+				Uint32 p = row[xx];
+				if (!(p >> 24))
+					continue;
+				Uint32 r = ((p >> 16) & 0xFF) * main.r / 255, g = ((p >> 8) & 0xFF) * main.g / 255,
+					   b = (p & 0xFF) * main.b / 255;
+				row[xx] = (p & 0xFF000000u) | (r << 16) | (g << 8) | b;
+			}
+		}
 	}
 	TTF_Font* fi = UIFont_get(capInfoSp(cs), false);
 	for (int l = 0; fi && l < nlines; l++) {
@@ -2085,7 +2105,7 @@ bool RowView_drawConsoleLogo(SDL_Surface* screen, const RowGeo* g, Entry* e, Til
 	SDL_Surface* src = m->small && m->small->w >= dw && m->small->h >= dh ? m->small : m->level;
 	SDL_Texture* t = PLAT_textureForSurface(src);
 	if (t) // the off-white is in the PNG; clipped as the screen is
-		PLAT_spriteAdd(t, NULL, &(SDL_Rect){cx - dw / 2, cy - dh / 2, dw, dh}, a, &screen->clip_rect);
+		PLAT_spriteAddTinted(t, NULL, &(SDL_Rect){cx - dw / 2, cy - dh / 2, dw, dh}, a, mark_tint, &screen->clip_rect);
 	return true;
 }
 
@@ -3222,6 +3242,30 @@ TileKind RowView_kindFor(int index, Entry* e) {
 
 SDL_Surface* RowView_slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side) {
 	return slotItem(g, e, kind, side);
+}
+
+// The main-menu Carousel's marks (a console's logo or name, a collection's name, a tool's icon and name) ease from
+// their white to the Main color as they slide into the selection (nx-mobile's SlotTile): d items from the row's
+// position, the colour mod for the items drawn next; d < 0 sets it back to white. A logo's baked off-white
+// (TILE_MENU_GREY) is lifted so the lit logo reads as the Main color itself.
+void RowView_setMarkLit(TileKind kind, float d) {
+	float lit = d < 0.0f ? 0.0f : d < 1.0f ? 1.0f - d
+										   : 0.0f;
+	if (!(lit > 0.0f)) {
+		mark_tint = (SDL_Color){255, 255, 255, 255};
+		return;
+	}
+	SDL_Color ac = UI_accent();
+	int base = kind == TILE_LOGO ? TILE_MENU_GREY : 255;
+	Uint8 ch[3];
+	const Uint8 src[3] = {ac.r, ac.g, ac.b};
+	for (int i = 0; i < 3; i++) {
+		int to = src[i] * 255 / base;
+		if (to > 255)
+			to = 255;
+		ch[i] = (Uint8)(255.0f + (to - 255) * lit + 0.5f);
+	}
+	mark_tint = (SDL_Color){ch[0], ch[1], ch[2], 255};
 }
 
 void RowView_blitItem(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float factor, Uint8 a) {

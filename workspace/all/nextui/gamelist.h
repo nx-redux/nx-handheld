@@ -44,6 +44,9 @@ int GameList_currentOrientation(void);
 bool GameList_entryIsFolderGame(Entry* entry);
 // The List rows' text start: the 24 dp gutter on the main menu, the 14 dp list inset in game lists.
 int GameList_textX(void);
+// The List style is on screen (Home's List, a tab's or a game list's; not the Game Switcher's): its rows' text start
+// (GameList_textX) is the hint bar's and the tab row's too.
+bool GameList_listShown(void);
 // Rows on List screens for the current level (the stack's depth), down to the fixed band (InfoBand_fixedLayout):
 // main-menu tabs start 12 dp under the tab row, game lists right under their header. GameList_rowCountAt names the level, for a
 // Directory built before it reaches the stack (root = a tab's own list at stack[0]).

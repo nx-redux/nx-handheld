@@ -201,14 +201,16 @@ static void drawItem(SDL_Surface* screen, const StackGeo* sg, Entry* e, TileKind
 	Uint8 a = (Uint8)(it->alpha * 255.0f + 0.5f);
 	if (a == 0)
 		return;
-	if (RowView_drawConsoleLogo(screen, &sg->g, e, kind, sg->g.cx, cy, it->scale, a, selected))
-		return;				   // a Consoles logo as a GPU sprite (sprite mode)
-	if (!ContextMenu_isOpen()) // GPU sprites (every frameless stack): the full surface, scaled by the GPU
-		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
-	else if (fabsf(it->scale - sg->ss.scale) < SCALE_EPS)
-		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, true), sg->g.cx, cy, 1.0f, a);
-	else
-		RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
+	RowView_setMarkLit(kind, it->d);															   // the mark in the Main color as it reaches the selection
+	if (!RowView_drawConsoleLogo(screen, &sg->g, e, kind, sg->g.cx, cy, it->scale, a, selected)) { // else a GPU sprite
+		if (!ContextMenu_isOpen())																   // GPU sprites (every frameless stack): the full surface, scaled by the GPU
+			RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
+		else if (fabsf(it->scale - sg->ss.scale) < SCALE_EPS)
+			RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, true), sg->g.cx, cy, 1.0f, a);
+		else
+			RowView_blitItem(screen, RowView_slotItem(&sg->g, e, kind, false), sg->g.cx, cy, it->scale, a);
+	}
+	RowView_setMarkLit(kind, -1.0f);
 }
 
 // The Consoles tab's controller art (docs/controller-art.md): a console's pad in 2.6 h x 1.7 h, centred on its logo

@@ -21,7 +21,7 @@ int UI_pageTitleBaseline(void);
 // 2 dp (LIST-LAYOUT §10.2: a list is centred between the title's letters and the hint bar's icons, not the
 // boxes), so a block that fills the band never touches the title.
 int UI_pageTitleBandTop(void);
-// Default title x: the standard pill list's text start, the list inset (NX_DP(NX_LIST_INSET_DP)), 24 dp.
+// Default title x: the standard pill list's text start (UI_listTextX).
 int UI_pageTitleX(void);
 // The page title's font: UI_PAGE_TITLE_SP at FIXED_SCALE.
 // NULL if the font fails to open.

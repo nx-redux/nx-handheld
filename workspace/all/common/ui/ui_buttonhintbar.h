@@ -5,11 +5,16 @@
 
 // Render the bottom button hint bar: full-width semi-transparent background,
 // hardware hints first (priority), then the caller's NULL-terminated
-// {button, hint} pairs, up to 4 hints total. Returns the total hint width.
+// {button, hint} pairs, up to 4 hints total; over that, or wider than the
+// screen, the least needed are dropped (UI_hintDropRank: B, A, START, SELECT,
+// MENU, Y, X, the rest; never a hardware hint). Returns the total hint width.
 // The scrim is black at 80% (alpha 204).
 int UI_renderButtonHintBar(SDL_Surface* dst, char** pairs);
 // The same with a chosen scrim alpha (the Game Switcher uses 230).
 int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha);
+// The same with the first glyph's circle at x = left; left < 0 (every other call): in line with the list rows' text
+// (UI_listTextX).
+int UI_renderButtonHintBarAt(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha, int left);
 
 // y of the hint icons' top in a screen of screen_h rows (the bar is SCALE1(BUTTON_SIZE + 2 x BUTTON_MARGIN)
 // tall at the bottom, its icons centred in it): where a list's band ends (LIST-LAYOUT §10.2).

@@ -230,7 +230,32 @@ static void fit_count_line_is_cut(void) {
 	assert(fit(a, 0, 60) == 0);
 }
 
+// The hint bar's drop order: START, SELECT, MENU, Y, X, the rest; A, B and hardware hints never.
+static void hint_drop_order(void) {
+	assert(UI_hintDropRank("B") == 0 && UI_hintDropRank("A") == 1);
+	assert(UI_hintDropRank("START") == 2 && UI_hintDropRank("SELECT") == 3 && UI_hintDropRank("MENU") == 4);
+	assert(UI_hintDropRank("Y") == 5 && UI_hintDropRank("X") == 6 && UI_hintDropRank("L1") == 7);
+	assert(UI_hintDropRank(NULL) == -1);
+	// the game list's full set: B BACK goes first, then A OPEN, then START SEARCH
+	const char* list[] = {"SELECT", "START", "B", "Y", "X", "MENU", "A"};
+	assert(UI_hintDropPick(list, NULL, 7) == 2);
+	const char* no_b[] = {"SELECT", "START", "Y", "X", "MENU", "A"};
+	assert(UI_hintDropPick(no_b, NULL, 6) == 5);
+	const char* no_ab[] = {"SELECT", "START", "Y", "X", "MENU"};
+	assert(UI_hintDropPick(no_ab, NULL, 5) == 1);
+	const char* faces[] = {"Y", "X"};
+	assert(UI_hintDropPick(faces, NULL, 2) == 0); // Y (NETPLAY) before X (RESUME)
+	// a tie: the rightmost
+	const char* ties[] = {"L1", "R1"};
+	assert(UI_hintDropPick(ties, NULL, 2) == 1);
+	// only kept hardware hints: nothing to drop
+	const char* hw[] = {"SELECT", "MENU"};
+	int keep[] = {1, 1};
+	assert(UI_hintDropPick(hw, keep, 2) == -1);
+}
+
 int main(void) {
+	hint_drop_order();
 	fit_time_falls_back_to_duration_then_drops();
 	fit_next_gives_way_before_the_time();
 	fit_count_line_is_cut();

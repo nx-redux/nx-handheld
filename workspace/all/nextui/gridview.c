@@ -344,7 +344,6 @@ static const char* plainCount(int i, char* out, size_t size, bool* asked) {
 
 #define TILE_CACHE_MAX 112 // a sliding screen's columns (+1 each side) in both rows, the lit looks around the selection,
 						   // and (a main-menu tab) every tile's plain and lit look, composed while the grid is still
-#define TILE_RING_DP 3.0f  // the room around a tile (the selection ring's, before the colour marked the selection)
 
 typedef struct {
 	bool used, lit;
@@ -367,7 +366,7 @@ static struct {
 	int n, sel;
 } pf;
 
-// The room around a tile: 3 dp and an anti-aliased edge's px (the tiles keep their spacing).
+// The room around a tile for its selection ring (TILE_RING_DP) and an anti-aliased edge's px.
 // GPU sprite mode (the frame's tiles, captions and edge shade drawn by the GPU over a black body, RowView_beginSprites):
 // on for every Grid frame but one under a context menu (it draws over the body on the screen, under the sprites)
 static bool grid_sprites = false;
@@ -392,6 +391,8 @@ static Uint32 tileStamp(const TileSpec* t, bool lit) {
 		SDL_Color ac = UI_accent();
 		Uint8 rgb[3] = {ac.r, ac.g, ac.b};
 		h = View_fnv(h, rgb, sizeof(rgb));
+		bool ring = CFG_getGridRing(); // Layouts > Grid selection ring
+		h = View_fnv(h, &ring, sizeof(ring));
 	}
 	if (lit || t->kind == TILE_COLLECTION || t->kind == TILE_LOGO) // consoles and collections: on the plain look too
 		h = View_fnvStr(h, t->count && t->count[0] ? t->count : "");
@@ -406,6 +407,7 @@ static void composeTile(SDL_Surface* s, int w, int h, const TileSpec* t, bool li
 	look.no_caption = true;
 	look.info = NULL;
 	look.ninfo = 0;
+	look.ring = CFG_getGridRing(); // in the room around the tile
 	if (!lit && t->kind != TILE_COLLECTION && t->kind != TILE_LOGO)
 		look.count = NULL; // a console's and a collection's count is on both looks
 	Tiles_draw(s, (SDL_Rect){room, room, w, h}, &look, lit ? 1.0f : 0.0f);
@@ -516,14 +518,25 @@ static void fillBlack(SDL_Surface* screen, int x, int y, int w, int h) {
 // A game tile with a picture, or one still loading it, as GPU sprites, no composed look (a game list is too long to
 // compose ahead): the picture square, grey (its drained copy) with the colour one fading in over it as it lights, the
 // black corner mask rounding it on the black body and the edge over that (loading: just the edge), then the caption.
-// No ring: the colour marks the selection. The overlays are made once per tile size.
+// The selection ring around it when Layouts > Grid selection ring is on. The overlays are made once per tile size.
 static void drawGameSprites(SDL_Rect r, const TileSpec* t, float lit, const SDL_Rect* clip) {
-	static SDL_Surface *mask, *border;
+	static SDL_Surface *mask, *border, *ring;
+	static SDL_Color ring_c;
 	if (!mask || mask->w != r.w || mask->h != r.h) {
 		GFX_freeSurfaceAndTexture(mask);
 		mask = Tiles_cornerMask(r.w, r.h);
 		GFX_freeSurfaceAndTexture(border);
 		border = Tiles_borderOverlay(r.w, r.h);
+	}
+	// the selection ring (Layouts > Grid selection ring), made again when the tile's size or the Main color changes
+	SDL_Color ac = UI_accent();
+	int room = ringRoom() - 1; // TILE_RING_DP's px: the ring overlay's margin
+	bool ringed = CFG_getGridRing() && lit > 0.0f;
+	if (ringed && (!ring || ring->w != r.w + 2 * room || ring->h != r.h + 2 * room || ring_c.r != ac.r ||
+				   ring_c.g != ac.g || ring_c.b != ac.b)) {
+		GFX_freeSurfaceAndTexture(ring);
+		ring = Tiles_ringOverlay(r.w, r.h, ac);
+		ring_c = ac;
 	}
 	if (lit > 1.0f)
 		lit = 1.0f;
@@ -539,6 +552,9 @@ static void drawGameSprites(SDL_Rect r, const TileSpec* t, float lit, const SDL_
 	}
 	if (border) // the edge, on both looks (still loading: on the body's own black)
 		PLAT_spriteAdd(PLAT_textureForSurface(border), NULL, &r, Tiles_borderAlpha(), clip);
+	if (ringed && ring)
+		PLAT_spriteAdd(PLAT_textureForSurface(ring), NULL,
+					   &(SDL_Rect){r.x - room, r.y - room, r.w + 2 * room, r.h + 2 * room}, lit_a, clip);
 	SDL_Surface* cap = lit > 0.0f ? Tiles_captionSurface(r, t, lit) : NULL;
 	if (cap)
 		PLAT_spriteAdd(PLAT_textureForSurface(cap), NULL, &r, lit_a, clip);

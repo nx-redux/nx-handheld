@@ -76,5 +76,7 @@ bool MenuTabs_rowShown(void);
 // The bottom bar is taken (Layouts > Bottom bar): by the tab row at the root, the hint bar elsewhere. Content that runs
 // to the bottom edge without a bar stops above it.
 bool MenuTabs_bottomBar(void);
+// The tab labels' cap top (px) on a screen_h tall screen: where the row's visible text starts; -1 with no row shown.
+int MenuTabs_rowInkTop(int screen_h);
 
 #endif

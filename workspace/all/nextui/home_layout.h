@@ -29,7 +29,7 @@
 #define HOME_PAGE_BOTTOM ((float)(int)(NX_BOTTOM_GAP_DP * HOME_UNITS_PER_DP + 0.5f))
 #define HOME_BOTTOM 34.0f // the page's margin at either bar (the last row to the hint bar, a scrolled-to row to the tabs)
 #define HOME_RADIUS 24.0f // a tile's corners
-#define HOME_RING 6.0f	  // a lit game's ring, outside the tile
+#define HOME_RING 6.0f	  // the selected tile's ring, outside it (Layouts > Grid selection ring)
 #define HOME_EDGE_W 2.0f  // a tile's edge, white 14%
 
 typedef struct {

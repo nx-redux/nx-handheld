@@ -4,6 +4,7 @@
 #include "defines.h"
 
 #include "ui_font.h"
+#include "ui_list.h"
 #include "../ui_title_fit.h"
 #include "../text_shape.h"
 
@@ -43,8 +44,8 @@ int UI_pageTitleBandTop(void) {
 }
 
 int UI_pageTitleX(void) {
-	// the list label inset (LIST-LAYOUT §10.1): == UI_listTextX(), the shared list rows' text start
-	return NX_DP(NX_LIST_INSET_DP);
+	// the shared list rows' text start (LIST-LAYOUT §10.1)
+	return UI_listTextX();
 }
 
 // A title with Arabic text is drawn with the Arabic fallback face, which has no "|" (U+007C): when the part

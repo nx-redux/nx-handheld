@@ -54,6 +54,8 @@ cc -std=gnu99 -Wall -Werror -Wno-deprecated-declarations -fsanitize=address -g -
 /tmp/nx_test_nextui_types
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_list_window ../../nextui/list_window.c test_list_window.c
 /tmp/nx_test_list_window
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_scroll_fade test_scroll_fade.c
+/tmp/nx_test_scroll_fade
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_emulist_model ../../nextui/emulist_model.c test_emulist_model.c
 /tmp/nx_test_emulist_model
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_gameinfo_text ../../nextui/gameinfo_text.c test_gameinfo_text.c

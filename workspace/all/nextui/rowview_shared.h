@@ -72,6 +72,8 @@ void RowView_syncKinds(int n);
 TileKind RowView_kindFor(int index, Entry* e);
 // A frameless slot item (Consoles, Collections, Tools) at a rest size: the selected one, or a neighbour (side). Cached.
 SDL_Surface* RowView_slotItem(const RowGeo* g, Entry* e, TileKind kind, bool side);
+// The main-menu marks' Main color for the items drawn next, by their distance d from the row's position (d < 0: none)
+void RowView_setMarkLit(TileKind kind, float d);
 // s centred on (cx, cy), scaled by factor (1:1 at 1), at alpha a, onto an opaque dst.
 void RowView_blitItem(SDL_Surface* dst, SDL_Surface* s, int cx, int cy, float factor, Uint8 a);
 // The main-menu "N games" line for the selection `sel` drawn at `at` (Consoles: under the selection's logo as drawn,

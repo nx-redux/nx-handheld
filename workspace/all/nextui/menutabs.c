@@ -623,6 +623,16 @@ bool MenuTabs_rowShown(void) {
 	return tab_count > 1 && CFG_getButtonHints(); // Layouts > Bottom bar (buttonhints): the tabs and the hints
 }
 
+int MenuTabs_rowInkTop(int screen_h) {
+	if (!MenuTabs_rowShown())
+		return -1;
+	TTF_Font* f = UI_pageTitleFont(); // as MenuTabs_renderRow: each label centred in the bar by its whole height
+	if (!f)
+		f = font.medium;
+	int asc = TTF_FontAscent(f);
+	return screen_h - BAR_HEIGHT + (BAR_HEIGHT - TTF_FontHeight(f)) / 2 + asc - glyphTop(f, 'H', asc * 7 / 10);
+}
+
 bool MenuTabs_bottomBar(void) {
 	return CFG_getButtonHints(); // the tab row at the root, the hint bar elsewhere: both shown by Layouts > Bottom bar
 }
@@ -643,8 +653,8 @@ void MenuTabs_renderRow(SDL_Surface* screen, int ow) {
 	SDL_Surface* sc = UI_getScrimAlpha(&scrim, screen->w, bar_h, 204);
 	if (sc)
 		UI_blitFade(sc, NULL, screen, 0, row_y);
-	int margin = Home_edgePx(); // NX_EDGE_DP, as Home rounds it: in line with the Continue card's left, the tools' right
-	int left = margin;
+	int margin = Home_edgePx();									 // NX_EDGE_DP, as Home rounds it: in line with the Continue card's left, the tools' right
+	int left = GameList_listShown() ? GameList_textX() : margin; // over a List: in line with its rows' text
 
 	int xs[MENU_TAB_COUNT], ws[MENU_TAB_COUNT];
 	// the page title's font; labels that don't fit scroll (never a smaller font)

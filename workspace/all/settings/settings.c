@@ -840,6 +840,17 @@ static void reset_extra_info(void) {
 	CFG_setExtraInfo(CFG_DEFAULT_EXTRAINFO);
 }
 
+/* Grid selection ring */
+static int get_grid_ring(void) {
+	return CFG_getGridRing() ? 1 : 0;
+}
+static void set_grid_ring(int v) {
+	CFG_setGridRing(v != 0);
+}
+static void reset_grid_ring(void) {
+	CFG_setGridRing(CFG_DEFAULT_GRIDRING);
+}
+
 /* Game Switcher layout */
 static const char* switcher_layout_labels[] = {"Full screen", "List"};
 static int switcher_layout_values[] = {SWITCHER_LAYOUT_FULL, SWITCHER_LAYOUT_LIST};
@@ -1450,6 +1461,11 @@ static bool run_confirm_dialog(const char* title, const char* subtitle) {
 	return UI_confirmModal(g_screen, title, subtitle, &app_quit, false, true);
 }
 
+// Every page's "Reset to defaults" asks first: one press would otherwise wipe the whole menu's choices.
+static bool confirm_reset_page(void) {
+	return run_confirm_dialog("Reset to defaults?", "Every option in this menu goes back to its default value.");
+}
+
 // Blocking full-screen help for Simple Mode. B closes.
 static void show_simple_mode_help(void) {
 	if (!g_screen)
@@ -1802,6 +1818,8 @@ static void reset_fn2_tool(void) {
 }
 
 static void reset_fn_keys_page(void) {
+	if (!confirm_reset_page())
+		return;
 	settings_page_reset_all(&fn_keys_page);
 }
 
@@ -1829,21 +1847,33 @@ static void reset_layouts_items(void) {
 	layouts_page.scroll = 0;
 }
 static void reset_appearance_page(void) {
+	if (!confirm_reset_page())
+		return;
 	settings_page_reset_all(&appearance_page);
 }
 static void reset_layouts_page(void) {
+	if (!confirm_reset_page())
+		return;
 	reset_layouts_items();
 }
 static void reset_display_page(void) {
+	if (!confirm_reset_page())
+		return;
 	settings_page_reset_all(&display_page);
 }
 static void reset_system_page(void) {
+	if (!confirm_reset_page())
+		return;
 	settings_page_reset_all(&system_page);
 }
 static void reset_fn_page(void) {
+	if (!confirm_reset_page())
+		return;
 	settings_page_reset_all(&fn_switch_page);
 }
 static void reset_shortcuts_page(void) {
+	if (!confirm_reset_page())
+		return;
 	for (int i = 0; i < SHORTCUT_COUNT; i++)
 		shortcut_labels[i] = 0;
 	shortcuts_save(); // one write, not one per row
@@ -1851,6 +1881,8 @@ static void reset_shortcuts_page(void) {
 		settings_item_sync(&shortcuts_page.items[i]);
 }
 static void reset_notify_page(void) {
+	if (!confirm_reset_page())
+		return;
 	settings_page_reset_all(&notify_page);
 }
 
@@ -2018,6 +2050,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 		reset_backdrop_art);
 #undef LAYOUTS_ORIENT_ROW
 
+	LAYOUTS_CYCLE_ROW(
+		"Grid selection ring", "A ring in the Main color around the selected item in every Grid layout.",
+		on_off_labels, 2, on_off_values, get_grid_ring, set_grid_ring, reset_grid_ring);
 	LAYOUTS_CYCLE_ROW(
 		"Extra info", "A game's play time and achievements, in the menus and the Game Switcher.",
 		hide_show_labels, 2, on_off_values, get_extra_info, set_extra_info, reset_extra_info);

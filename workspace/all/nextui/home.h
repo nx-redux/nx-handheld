@@ -35,8 +35,9 @@ const char* Home_listToolIcon(void);		 // the selected tool's icon (MenuArt file
 void Home_renderListStrip(SDL_Surface* dst); // the stats strip, left-aligned over the rows
 bool Home_listHasStrip(void);
 void Home_renderListHints(SDL_Surface* dst); // Home's hint bar (as Grid's and the Carousel's)
-// The "Continue" tag before Continue's name: its width with the gap after it, and the tag drawn at x, centred on the
-// text line (text_y, text_h); lit under the selection pill; a sprite over the screen when sprite (else into dst).
+// The "Continue" tag after Continue's name: its width with the gap before it, and the tag drawn that gap after x (the
+// name's end), centred on the text line (text_y, text_h); lit under the selection pill; a sprite over the screen when
+// sprite (else into dst).
 int Home_listTagWidth(void);
 void Home_listDrawTag(SDL_Surface* dst, int x, int text_y, int text_h, bool lit, bool sprite);
 void Home_quit(void); // free the drawing surfaces and Continue's entry

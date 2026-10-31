@@ -17,6 +17,9 @@
 #define MIN_OPEN_GROW_MS 350   // then a launch's band grows from the selected name over the screen as it goes black
 #define MIN_BAND_TINT 0.28f	   // the band: this share of the accent over black (a White accent would flash)
 #define MIN_LINE_MAX 256	   // a wrapped line's buffer
+// The names fade out over this at the body's top and bottom edges while more lie past them (nx-mobile's
+// MINIMAL_EDGE_MASK, linear; scroll_fade.h): the Minimal's scroll cue, as the List's rows fade.
+#define MIN_EDGE_FADE_DP 24.0f
 
 // The names' font and spacing at the current scale.
 typedef struct {

@@ -40,5 +40,11 @@ bool ListWindow_step(int total, int rows, int delta, bool may_wrap, int* sel, in
 // One page up (dir < 0) or down (dir > 0), stopping at the ends (no wrap). total <= 0 or dir == 0: no-op (the
 // caller only pages a non-empty list). gamelist GameList_handleInput LEFT/RIGHT.
 void ListWindow_page(int total, int rows, int dir, int* sel, int* start, int* end);
+// The List's scroll fade (nx-mobile's NxList edgeMargin): the window [start, end) slid the least so `margin` rows stay
+// in view past sel on both sides wherever the list goes on that way, so the selection never rests on a row fading out
+// at an edge. The window keeps its size; one under 3 rows is left as it is (no room for a margin both ways, as
+// nx-mobile's). Applied to the shown List at its render (gamelist.c), whatever set the window (a step, a page, a jump,
+// a reload), so every builder above stays as it was.
+void ListWindow_keepMargin(int total, int margin, int sel, int* start, int* end);
 
 #endif

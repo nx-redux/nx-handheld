@@ -48,6 +48,7 @@
 #include "infoband.h"
 #include "launcher.h"
 #include "list_window.h"
+#include "scroll_fade.h"
 #include "menuart.h"
 #include "menutabs.h"
 #include "ui_menubar.h" // UI_statusWidth
@@ -178,7 +179,7 @@ static MinRow min_rows[MIN_ROWS];
 static int min_tops[MIN_ROWS]; // each row's top in the stacked names (px from the first's)
 static MinMetrics min_m;
 static int min_area_top = 0;
-static SDL_Surface* min_tags[3] = {NULL, NULL, NULL}; // the tag pills by kind (minTag)
+static SDL_Surface* min_tags[2] = {NULL, NULL}; // the tag pills by kind (minTag: Continue's, 1)
 static MinOpen min_open;
 static bool min_sprites = false; // this frame draws the names as GPU sprites (not under a context menu: as the Carousel)
 // With Page title or Button hints hidden the names run on to the screen's top or bottom edge under a fade to black
@@ -814,7 +815,7 @@ void Home_reset(void) {
 
 void Home_quit(void) {
 	minFree();
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 2; i++) {
 		GFX_freeSurfaceAndTexture(min_tags[i]);
 		min_tags[i] = NULL;
 	}
@@ -1335,7 +1336,7 @@ static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int 
 
 // The strip under the tab row (not selectable), rendered whole into its own surface when its text changes. The
 // Carousel's: its own baselines (lower), each line centred. The List's: its own baselines, left-aligned at the rows'
-// text start (the tab row's gutter).
+// text start (GameList_textX, as the tab row's labels); Minimal's at the names' gutter.
 static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	int mode = listMode() || minimalMode() ? 2 : carousel() ? 1
 															: 0;
@@ -1345,7 +1346,7 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 		lines = hl_geom.strip_lines;
 		base[0] = hl_geom.strip_base[0];
 		base[1] = hl_geom.strip_base[1];
-		x = NX_DP(NX_MENU_GUTTER_DP);
+		x = listMode() ? GameList_textX() : NX_DP(NX_MENU_GUTTER_DP); // the List's rows' text, Minimal's names
 		right = dst->w - x;
 	} else {
 		bool car_strip = mode == 1; // the Carousel's own geometry (centred under the bar, left-aligned in it)
@@ -1756,15 +1757,19 @@ static CardKind cardKind(const HomeTile* t) {
 	return CARD_PICK;
 }
 
-// dst's clip rect is the page band: a tile wholly outside it costs nothing. The selection is its lit look: a game
-// (Continue, a pin) and Pick a game in colour, a tool square filled.
+// dst's clip rect is the page band: a tile wholly outside it costs nothing. The selection is its lit look (a game in
+// colour, a tool's icon in the Main color) and, with Layouts > Grid selection ring on, the HOME_RING ring outside it.
 static void drawTile(SDL_Surface* dst, const HomeTile* t, int id, int scroll_px) {
 	SDL_Rect r = toScreen(t->r, scroll_px);
+	int ring = CFG_getGridRing() ? px(HOME_RING) : 0; // Layouts > Grid selection ring
 	const SDL_Rect* band = &dst->clip_rect;
-	if (r.w <= 0 || r.h <= 0 || r.y + r.h <= band->y || r.y >= band->y + band->h)
+	if (r.w <= 0 || r.h <= 0 || r.y + r.h + ring <= band->y || r.y - ring >= band->y + band->h)
 		return; // outside the band
 	CardKind kind = cardKind(t);
 	float lit = litAmount(id);
+	if (ring && lit > 0.0f) // the selection ring, outside the card in the Main color
+		strokeRounded(dst, r.x - ring, r.y - ring, r.w + 2 * ring, r.h + 2 * ring, radiusPx() + ring, ring,
+					  cardBg(true), (int)(lit * 255 + 0.5f));
 	if (lit > 0.0f && lit < 1.0f) { // a crossfade: both looks in one pass
 		blitCardOver(dst, cachedCard(kind, t->ref, r.w, r.h, true), cachedCard(kind, t->ref, r.w, r.h, false), r,
 					 (int)(lit * 255 + 0.5f), 0);
@@ -2036,9 +2041,9 @@ static void renderHints(SDL_Surface* dst) {
 ///////////////////////////////////////
 // The Minimal
 
-// A tag's pill (as the List's Continue tag, unlit: the list text at 14% behind its word), made once per kind.
+// The Continue tag's pill (as the List's Continue tag), made once (kind 1; 0 is no tag).
 static SDL_Surface* minTag(int kind) {
-	if (kind < 1 || kind > 2)
+	if (kind != 1)
 		return NULL;
 	if (min_tags[kind])
 		return min_tags[kind];
@@ -2047,7 +2052,7 @@ static SDL_Surface* minTag(int kind) {
 	TTF_Font* f = tag_px > 0 ? UIFont_getPx(tag_px, false) : NULL;
 	if (!f)
 		return NULL;
-	const char* word = kind == 1 ? "Continue" : "Tool";
+	const char* word = "Continue";
 	// solid in the accent with its ink, as a lit card (cardBg / cardInk)
 	SDL_Color fill = cardBg(true), ink = cardInk(true);
 	HomeListTag t = HomeList_tag(TTF_FontHeight(f), textW(f, word));
@@ -2081,7 +2086,8 @@ static void minFree(void) {
 	min_n = 0;
 }
 
-// Row i's name and tag kind: Continue's game (Pick a game with none), a pinned game, a pinned tool.
+// Row i's name and tag kind (1: Continue's game, else 0): Continue's game (Pick a game with none), a pinned game, a
+// pinned tool.
 static const char* minLabel(int i, int* tag) {
 	HomeListItem it = HomeList_item(i, ngames, ntools);
 	*tag = 0;
@@ -2093,8 +2099,7 @@ static const char* minLabel(int i, int* tag) {
 	}
 	if (it.kind == HOMELIST_GAME)
 		return games[it.ref] ? View_displayName(games[it.ref]) : "";
-	*tag = 2;
-	return tools[it.ref] ? View_displayName(tools[it.ref]) : "";
+	return tools[it.ref] ? View_displayName(tools[it.ref]) : ""; // no tag: the tool's own name says what it is
 }
 
 // Every row's surfaces and place: wrapped at the gutters onto up to MIN_MAX_LINES lines, the tag after the last word
@@ -2189,6 +2194,12 @@ static void minDraw(SDL_Surface* dst) {
 	// to its bottom
 	int top = CFG_getPageTitle() ? min_area_top : 0, bottom = MenuTabs_bottomBar() ? dst->h - barPx() : dst->h;
 	SDL_Rect clip = {0, top, dst->w, bottom - top};
+	// the names fade out at the strip's bottom and the hint bar's top while more lie past them (scroll_fade.h; where a
+	// bar is hidden, its edge fade does: minDrawFades)
+	int fade_h = NX_DP(MIN_EDGE_FADE_DP);
+	ScrollFade fade = {top, CFG_getPageTitle() ? fade_h : 0, bottom, MenuTabs_bottomBar() ? fade_h : 0, false,
+					   min_sprites};
+	ScrollFade_begin(dst, &fade);
 	for (int i = 0; i < min_n; i++) {
 		MinRow* r = &min_rows[i];
 		int y = minRowY(i, p);
@@ -2206,6 +2217,10 @@ static void minDraw(SDL_Surface* dst) {
 		if (ts && fill > 0)
 			minBlit(ts, gutter + r->tag_x, y + r->tag_line * min_m.pitch + (min_m.font_h - ts->h) / 2, a * fill, &clip, dst);
 	}
+	// a name above the first one shown (the selection sits a pitch under the top), or the last one running past the
+	// bottom
+	int last = min_n - 1;
+	ScrollFade_end(dst, p > 0.0f, minRowY(last, p) + min_rows[last].h - min_m.gap > bottom);
 }
 
 // Fade i (0 top, 1 bottom) h tall: black at the screen's edge, clear at its inner end.
@@ -2498,18 +2513,23 @@ static SDL_Surface* listTag(bool lit) {
 	return s;
 }
 
+// The gap between the name and the tag (px), 0 with no tag font.
+static int listTagGap(void) {
+	int tag_px = (int)TextPx_for(TEXT_HOME_CONT_BADGE, UIScale_deviceIndex(UI_DEVICE_NAME));
+	TTF_Font* f = tag_px > 0 ? UIFont_getPx(tag_px, false) : NULL;
+	return f ? HomeList_tag(TTF_FontHeight(f), 0).gap : 0;
+}
+
 int Home_listTagWidth(void) {
 	SDL_Surface* s = listTag(false);
-	int tag_px = (int)TextPx_for(TEXT_HOME_CONT_BADGE, UIScale_deviceIndex(UI_DEVICE_NAME));
-	TTF_Font* f = s ? UIFont_getPx(tag_px, false) : NULL;
-	return f ? s->w + HomeList_tag(TTF_FontHeight(f), 0).gap : 0;
+	return s ? listTagGap() + s->w : 0;
 }
 
 void Home_listDrawTag(SDL_Surface* dst, int x, int text_y, int text_h, bool lit, bool sprite) {
 	SDL_Surface* s = listTag(lit);
 	if (!s)
 		return;
-	SDL_Rect r = {x, text_y + (text_h - s->h) / 2, s->w, s->h};
+	SDL_Rect r = {x + listTagGap(), text_y + (text_h - s->h) / 2, s->w, s->h};
 	SDL_Texture* tex = sprite ? PLAT_textureForSurface(s) : NULL;
 	if (tex)
 		PLAT_spriteAdd(tex, NULL, &r, 255, NULL);
