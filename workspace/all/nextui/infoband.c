@@ -468,33 +468,24 @@ unsigned InfoBand_prepare(const InfoBandLayout* layout, const InfoSeg* segs, int
 	return cur.gen;
 }
 
-void InfoBand_draw(int layer, SDL_Surface* dst) {
+void InfoBand_draw(int layer) {
 	SDL_Surface* parts[2] = {cur.blk ? cur.blk->surf : NULL, text ? text->surf : NULL};
 	int ys[2] = {cur.band_top, cur.band_top + (text ? text->y : 0)};
 	for (int i = 0; i < 2; i++) {
 		if (!parts[i])
 			continue;
-		if (dst)
-			SDL_BlitSurface(parts[i], NULL, dst, &(SDL_Rect){0, ys[i]});
-		else { // their textures made once per content
-			SDL_Texture* tex = PLAT_textureForSurface(parts[i]);
-			// the block copied onto the (cleared) layer, not blended: a blend leaves its colour times its alpha in the
-			// layer and the layer's own blend onto the screen multiplies it again (the arrows' 45% showed as 20%). The
-			// text strip blends over it (its glyphs' edges onto the block).
-			if (tex && i == 0)
-				SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
-			PLAT_drawTextureOnLayer(tex, &(SDL_Rect){0, ys[i], parts[i]->w, parts[i]->h}, layer);
-		}
+		// their textures made once per content
+		SDL_Texture* tex = PLAT_textureForSurface(parts[i]);
+		// the block copied onto the (cleared) layer, not blended: a blend leaves its colour times its alpha in the
+		// layer and the layer's own blend onto the screen multiplies it again (the arrows' 45% showed as 20%). The
+		// text strip blends over it (its glyphs' edges onto the block).
+		if (tex && i == 0)
+			SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+		PLAT_drawTextureOnLayer(tex, &(SDL_Rect){0, ys[i], parts[i]->w, parts[i]->h}, layer);
 	}
 }
 
-void InfoBand_render(const InfoBandLayout* layout, const InfoSeg* segs, int nsegs, bool up, bool down, int layer,
-					 SDL_Surface* dst) {
-	InfoBand_prepare(layout, segs, nsegs, up, down);
-	InfoBand_draw(layer, dst);
-}
-
-void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
+void InfoBand_renderUpArrow(int x, int cy, int layer) {
 	static SDL_Surface* baked = NULL; // the arrow at ARROW_ALPHA, as the band bakes it into its block
 	static float baked_scale = 0;
 	ensureArrows();
@@ -521,22 +512,7 @@ void InfoBand_renderUpArrow(int x, int cy, int layer, SDL_Surface* dst) {
 		SDL_FreeSurface(src);
 		baked_scale = (float)FIXED_SCALE;
 	}
-	int y = cy - baked->h / 2;
-	if (dst)
-		SDL_BlitSurface(baked, NULL, dst, &(SDL_Rect){x, y});
-	else
-		GFX_drawOnLayer(baked, x, y, baked->w, baked->h, 1.0f, 0, layer);
-}
-
-void InfoBand_renderText(const InfoBandLayout* layout, const char* text, bool up, bool down, int layer,
-						 SDL_Surface* dst) {
-	InfoSeg seg = {.kind = INFO_SEG_COUNT};
-	if (!text || !text[0]) {
-		InfoBand_render(layout, NULL, 0, up, down, layer, dst);
-		return;
-	}
-	snprintf(seg.text, sizeof(seg.text), "%s", text);
-	InfoBand_render(layout, &seg, 1, up, down, layer, dst);
+	GFX_drawOnLayer(baked, x, cy - baked->h / 2, baked->w, baked->h, 1.0f, 0, layer);
 }
 
 void InfoBand_quit(void) {

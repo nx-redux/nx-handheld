@@ -122,7 +122,6 @@ static struct VID_Context {
 	int pitch;
 	int sharpness;
 } vid;
-static bool screen_premult = false; // the screen texture composites with the premultiplied blend (PLAT_setScreenDim)
 
 // libretro GPU-render (hardware core) support. The core draws into hwr.fbo on
 // the game context. With no shader passes PLAT_GL_Swap scales color_tex to the
@@ -1118,8 +1117,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	SDL_BlendMode premultiplied = SDL_ComposeCustomBlendMode(
 		SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
 		SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
-	screen_premult = SDL_SetTextureBlendMode(vid.stream_layer1, premultiplied) == 0;
-	if (!screen_premult) {
+	if (SDL_SetTextureBlendMode(vid.stream_layer1, premultiplied) != 0) {
 		LOG_info("premultiplied UI blend unsupported (%s), using SDL_BLENDMODE_BLEND\n", SDL_GetError());
 		SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
 	}
@@ -1493,7 +1491,6 @@ static void resizeVideo(int w, int h, int p) {
 	vid.stream_layer1 = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
 	bandShadowInvalidate(); // the texture no longer matches the bars' last copies
 	SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
-	screen_premult = false;
 
 	if (vid.sharpness == SHARPNESS_CRISP) {
 		vid.target = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, w * hard_scale, h * hard_scale);
@@ -2109,21 +2106,7 @@ static void uploadScreen(bool size_kept) {
 	}
 }
 
-// A band of the screen texture's rows drawn at opacity dim_a (PLAT_setScreenDim): kept for every composite until set
-// again. Only with the premultiplied screen blend, where a colour and alpha mod of a is the layer at true opacity.
-static int dim_y = 0, dim_h = 0;
-static Uint8 dim_a = 255;
-
-bool PLAT_setScreenDim(int y, int h, Uint8 a) {
-	if (a >= 255 || h <= 0 || !screen_premult) {
-		dim_a = 255, dim_h = 0;
-		return a >= 255 || h <= 0;
-	}
-	dim_y = y, dim_h = h, dim_a = a;
-	return true;
-}
-
-// Rows [y, y + h) of the screen texture, the dim band's at its opacity
+// Rows [y, y + h) of the screen texture
 static void drawScreenRows(int y, int h, int ow, float sy) {
 	if (y < 0)
 		h += y, y = 0;
@@ -2131,29 +2114,9 @@ static void drawScreenRows(int y, int h, int ow, float sy) {
 		h = vid.screen->h - y;
 	if (h <= 0 || !vid.screen)
 		return;
-	int cut[4] = {y, y + h, y + h, y + h}; // before the band, the band, after it
-	if (dim_a < 255 && dim_h > 0) {
-		int b0 = dim_y < y ? y : (dim_y > y + h ? y + h : dim_y);
-		int b1 = dim_y + dim_h < b0 ? b0 : (dim_y + dim_h > y + h ? y + h : dim_y + dim_h);
-		cut[1] = b0, cut[2] = b1;
-	}
-	for (int k = 0; k < 3; k++) {
-		int py = cut[k], ph = cut[k + 1] - cut[k];
-		if (ph <= 0)
-			continue;
-		bool dimmed = k == 1 && dim_a < 255;
-		if (dimmed) {
-			SDL_SetTextureColorMod(vid.stream_layer1, dim_a, dim_a, dim_a);
-			SDL_SetTextureAlphaMod(vid.stream_layer1, dim_a);
-		}
-		SDL_Rect src = {0, py, vid.screen->w, ph};
-		SDL_Rect dst = {0, (int)(py * sy), ow, (int)(ph * sy + 0.5f)};
-		SDL_RenderCopy(vid.renderer, vid.stream_layer1, &src, &dst);
-		if (dimmed) {
-			SDL_SetTextureColorMod(vid.stream_layer1, 255, 255, 255);
-			SDL_SetTextureAlphaMod(vid.stream_layer1, 255);
-		}
-	}
+	SDL_Rect src = {0, y, vid.screen->w, h};
+	SDL_Rect dst = {0, (int)(y * sy), ow, (int)(h * sy + 0.5f)};
+	SDL_RenderCopy(vid.renderer, vid.stream_layer1, &src, &dst);
 }
 
 // The rows of the screen texture the next composite draws (PLAT_setScreenDrawBands): consumed by it, 0 = all of it.
@@ -2196,15 +2159,12 @@ static void compositeLayers(void) {
 	}
 	// under the screen: seen through its transparent body (from the covering one up, when there is one)
 	drawSpriteList(under_sprites + (cover > 0 ? cover : 0), under_count - (cover > 0 ? cover : 0));
-	if ((bands > 0 || (dim_a < 255 && dim_h > 0)) && vid.screen) {
+	if (bands > 0 && vid.screen) {
 		int ow = 0, oh = 0;
 		SDL_GetRendererOutputSize(vid.renderer, &ow, &oh);
 		float sy = vid.screen->h > 0 ? (float)oh / vid.screen->h : 1.0f;
-		if (bands > 0)
-			for (int i = 0; i < bands; i++)
-				drawScreenRows(draw_band_y[i], draw_band_h[i], ow, sy);
-		else
-			drawScreenRows(0, vid.screen->h, ow, sy);
+		for (int i = 0; i < bands; i++)
+			drawScreenRows(draw_band_y[i], draw_band_h[i], ow, sy);
 	} else {
 		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
 	}
@@ -2224,13 +2184,10 @@ void PLAT_clearLayers(int layer) {
 	// earlier draw — inheriting that here would turn a cleared
 	// thumbnail/transition layer into an opaque black sheet.
 	SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 0);
-	// LAYER_ALL is a clean slate for what comes next (the keyboard, a modal, a game launch): the GPU sprites and the
-	// screen dim band are the outgoing frame's too, and would keep compositing over it (Search's keyboard showed the
-	// Home rows on top of it)
-	if (layer == 0) {
+	// LAYER_ALL is a clean slate for what comes next (the keyboard, a modal, a game launch): the GPU sprites are the
+	// outgoing frame's too, and would keep compositing over it (Search's keyboard showed the Home rows on top of it)
+	if (layer == 0)
 		PLAT_spritesClear();
-		PLAT_setScreenDim(0, 0, 255);
-	}
 	if ((layer == 0 || layer == 1) && layer_has_content[1]) { // an empty layer has nothing to clear
 		SDL_SetRenderTarget(vid.renderer, vid.target_layer1);
 		SDL_RenderClear(vid.renderer);

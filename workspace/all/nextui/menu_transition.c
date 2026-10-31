@@ -28,7 +28,3 @@ bool MenuTransition_exitStep(MenuTransitionExit* x, uint32_t now, bool key_press
 void MenuTransition_exitCancel(MenuTransitionExit* x) {
 	x->active = false;
 }
-
-uint32_t MenuTransition_rebaseStart(uint32_t start, uint32_t now, uint32_t cap) {
-	return now - start > cap ? now - cap : start;
-}

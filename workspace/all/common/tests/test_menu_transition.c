@@ -66,22 +66,12 @@ static void cancel(void) {
 	assert(!x.active && !MenuTransition_exitStep(&x, 1000, false));
 }
 
-// A glide whose first frame took 200 ms (a new layout built its items) shows one frame's progress next, not 200 ms.
-static void rebase(void) {
-	assert(MenuTransition_rebaseStart(1000, 1016, MENU_TRANSITION_FRAME_MS) == 1000); // a normal frame: unchanged
-	assert(MenuTransition_rebaseStart(1000, 1033, MENU_TRANSITION_FRAME_MS) == 1000);
-	assert(MenuTransition_rebaseStart(1000, 1200, MENU_TRANSITION_FRAME_MS) == 1200 - 33);
-	assert(MenuTransition_rebaseStart(0xFFFFFFF0u, 0x00000100u, 33) == 0x00000100u - 33); // across a wrap
-	assert(MenuTransition_rebaseStart(0xFFFFFFF0u, 0x00000005u, 33) == 0xFFFFFFF0u);
-}
-
 int main(void) {
 	exit_begin();
 	exit_runs_out();
 	exit_key_finishes();
 	exit_tick_wrap();
 	cancel();
-	rebase();
 	printf("test_menu_transition: ok\n");
 	return 0;
 }

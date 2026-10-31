@@ -796,7 +796,7 @@ void PLAT_GPU_Flip();
 // free such a surface with PLAT_freeSurfaceTexture first. A texture freed (either way) leaves the sprite lists too.
 // PLAT_spriteAddUnder: the same, in a second list drawn under the screen layer (over the background layers), seen
 // through the screen's transparent pixels (a Backdrop game list's full-screen picture). PLAT_spritesClear clears both,
-// as does GFX_clearLayers(LAYER_ALL) (with the PLAT_setScreenDim band): a modal's own loop must not show them.
+// as does GFX_clearLayers(LAYER_ALL): a modal's own loop must not show them.
 void PLAT_spritesClear(void);
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
 void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip);
@@ -840,10 +840,6 @@ void PLAT_spriteAddUnderOpaque(SDL_Texture* tex, const SDL_Rect* dst);
 // transparent outside them (a Backdrop game list's sprite frame: its picture and row are sprites), so a full-screen
 // blend of clear pixels is skipped. Consumed by that flip; n <= 0 = the whole screen.
 void PLAT_setScreenDrawBands(const int* y, const int* h, int n);
-// Draw rows [y, y + h) of the screen texture at opacity a (a colour and alpha mod: the premultiplied layer at true
-// opacity over what is under it), on every composite until set again; a = 255 (or h <= 0) clears it. False when the
-// screen doesn't composite premultiplied (nothing set: the caller dims in software instead).
-bool PLAT_setScreenDim(int y, int h, Uint8 a);
 // Re-upload a surface's pixels into its texture (one it already has; a no-op otherwise): for a small surface redrawn
 // every frame (the Grid's edge shade), without making a new texture each time.
 void PLAT_textureRefresh(SDL_Surface* s);

@@ -12,7 +12,6 @@
 #include <stdint.h>
 
 #define MENU_TRANSITION_FADE_MS 350 // the Backdrop picture's fade in from / out to black (§8b.4)
-#define MENU_TRANSITION_FRAME_MS 33 // the most a glide advances on the frame after a slow first frame (30 fps)
 
 typedef struct {
 	bool active;
@@ -32,9 +31,5 @@ float MenuTransition_exitDarkness(const MenuTransitionExit* x, uint32_t now);
 bool MenuTransition_exitStep(MenuTransitionExit* x, uint32_t now, bool key_pressed);
 
 void MenuTransition_exitCancel(MenuTransitionExit* x);
-
-// A glide started at `start` (ms); this is its second frame, at `now`. Returns the start to count from: unchanged when
-// the first frame took at most `cap` ms, else `now - cap`, so the glide shows `cap` ms of progress now.
-uint32_t MenuTransition_rebaseStart(uint32_t start, uint32_t now, uint32_t cap);
 
 #endif // MENU_TRANSITION_H

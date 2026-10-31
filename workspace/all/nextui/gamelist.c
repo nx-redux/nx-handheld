@@ -2463,8 +2463,8 @@ static void renderInfoBand(void) {
 		return; // still on the layer as drawn
 	GFX_clearLayers(LAYER_OVERLAY);
 	if (arrow)
-		InfoBand_renderUpArrow(layout.arrow_x, arrow_y, LAYER_OVERLAY, NULL);
-	InfoBand_draw(LAYER_OVERLAY, NULL);
+		InfoBand_renderUpArrow(layout.arrow_x, arrow_y, LAYER_OVERLAY);
+	InfoBand_draw(LAYER_OVERLAY);
 	overlay.valid = true;
 	overlay.serial = PLAT_layerSerial(LAYER_OVERLAY);
 	overlay.band_gen = gen;
