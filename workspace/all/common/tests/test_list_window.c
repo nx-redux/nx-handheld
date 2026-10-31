@@ -407,9 +407,57 @@ static void named(void) {
 	assert(s == 0 && e == 3);
 }
 
+// keepMargin: for every valid window and selection, the window keeps its size, stays in the list, and leaves the
+// margin past the selection wherever the list goes on; it moves only when it had to, and then the least (the selection
+// lands exactly margin rows from the edge it was too near). Under 3 rows: untouched.
+static void keep_margin(void) {
+	for (int total = 0; total <= 14; total++)
+		for (int rows = 1; rows <= 8; rows++) {
+			int win = total < rows ? total : rows;
+			for (int start = 0; start + win <= total; start++)
+				for (int sel = 0; sel < total; sel++)
+					for (int margin = 0; margin <= 2; margin++) {
+						int s = start, e = start + win;
+						ListWindow_keepMargin(total, margin, sel, &s, &e);
+						checks++;
+						assert(e - s == win && s >= 0 && e <= total);
+						int m = margin > (win - 1) / 2 ? (win - 1) / 2 : margin;
+						if (win < 3 || m == 0) {
+							assert(s == start);
+							continue;
+						}
+						assert(sel >= s && sel < e);
+						assert(sel - s >= m || s == 0);
+						assert(e - 1 - sel >= m || e == total);
+						bool ok = (sel - start >= m || start == 0) && (start + win - 1 - sel >= m || start + win == total);
+						if (ok)
+							assert(s == start);
+						else
+							assert(sel - s == m || e - 1 - sel == m || s == 0 || e == total);
+					}
+		}
+	// the named cases: 10 rows in 5, a step down onto the window's last row slides it one (the selection one up)
+	int s = 0, e = 5;
+	ListWindow_keepMargin(10, 1, 4, &s, &e);
+	assert(s == 1 && e == 6);
+	// at the list's end the last row may hold it: nothing past it
+	s = 5, e = 10;
+	ListWindow_keepMargin(10, 1, 9, &s, &e);
+	assert(s == 5 && e == 10);
+	// a wrap to the top, and a selection above the window (a letter jump back): it shows a row above
+	s = 5, e = 10;
+	ListWindow_keepMargin(10, 1, 3, &s, &e);
+	assert(s == 2 && e == 7);
+	// a list that fits: untouched
+	s = 0, e = 4;
+	ListWindow_keepMargin(4, 1, 3, &s, &e);
+	assert(s == 0 && e == 4);
+}
+
 int main(void) {
 	exhaustive();
 	named();
+	keep_margin();
 	printf("test_list_window: ok (%ld comparisons)\n", checks);
 	return 0;
 }

@@ -224,7 +224,7 @@ ListLayout UI_calcListLayoutEx(SDL_Surface* screen, int avail_top, int avail_bot
 	layout.avail_top = avail_top >= 0 ? avail_top : UI_pageTitleBandTop();
 	layout.avail_bottom = avail_bottom >= 0 ? avail_bottom : UI_buttonHintIconTop(screen->h);
 	// the pill runs from UI_listPillX() to PADDING short of the right edge (symmetric with the flush-left pill)
-	layout.max_width = screen->w - SCALE1(PADDING) - UI_listPillX();
+	layout.max_width = screen->w - SCALE1(PADDING) - UI_listEdgeInset() - UI_listPillX();
 	layout.item_h = row_h;
 	layout.titled = true;
 	UI_listLayoutSetRowHeight(&layout, row_h, rows_wanted);
@@ -246,8 +246,14 @@ void UI_listLayoutSetRowHeight(ListLayout* layout, int row_h, int rows_wanted) {
 	layout->down_y = b.down_y;
 }
 
+// The pill's end off the screen's sides: none on the Bricks (the pill's edge on the screen's), 6 dp on the Smart Pros,
+// whose panel edge clips a pill's end flush with it.
+int UI_listEdgeInset(void) {
+	return UIScale_deviceIndex(UI_DEVICE_NAME) == UI_DEVICE_SMARTPRO ? NX_DP(6) : 0;
+}
+
 int UI_listTextX(void) {
-	return NX_DP(NX_LIST_INSET_DP);
+	return UI_listEdgeInset() + SCALE1(BUTTON_PADDING); // the pill's padding in from its edge
 }
 
 int UI_listPillXFor(int text_x) {

@@ -13,7 +13,7 @@ InfoBandLayout InfoBand_layout(int screen_h, int bar_h, int list_top, int row_h,
 	InfoBandLayout l;
 	l.list_top = list_top;
 	l.row_h = row_h;
-	l.arrow_x = 0;
+	l.text_x = 0;
 	l.text_h = text_h;
 	l.band_bottom = screen_h - bar_h;
 	l.fill_bottom = l.band_bottom;
@@ -29,7 +29,7 @@ InfoBandLayout InfoBand_fixedLayout(int screen_h, int bar_h, int list_top, int p
 									int overlap) {
 	InfoBandLayout l;
 	l.list_top = list_top;
-	l.arrow_x = 0;
+	l.text_x = 0;
 	l.text_h = line_h;
 	l.fill_bottom = screen_h - bar_h;
 	l.band_bottom = l.fill_bottom + overlap;

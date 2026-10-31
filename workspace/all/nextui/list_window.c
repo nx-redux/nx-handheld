@@ -127,3 +127,18 @@ void ListWindow_page(int total, int rows, int dir, int* sel, int* start, int* en
 	}
 	*sel = selected;
 }
+
+void ListWindow_keepMargin(int total, int margin, int sel, int* start, int* end) {
+	int rows = *end - *start;
+	if (rows < 3 || margin <= 0 || sel < 0 || sel >= total || *start < 0 || *end > total)
+		return;
+	if (margin > (rows - 1) / 2)
+		margin = (rows - 1) / 2;
+	if (sel - *start < margin && *start > 0) { // too near the top with rows above: up until margin rows show
+		*start = sel - margin > 0 ? sel - margin : 0;
+		*end = *start + rows;
+	} else if (*end - 1 - sel < margin && *end < total) { // too near the bottom with rows below
+		*end = sel + margin + 1 < total ? sel + margin + 1 : total;
+		*start = *end - rows;
+	}
+}

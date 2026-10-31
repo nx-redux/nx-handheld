@@ -24,6 +24,7 @@
 #include "home_list_layout.h" // HomeMin_alpha
 #include "imgloader.h"		  // screen
 #include "list_window.h"
+#include "scroll_fade.h"
 #include "menutabs.h"
 #include "minimal_draw.h"
 #include "rowview.h" // RowView_beginSprites (the frame drew GPU sprites)
@@ -415,6 +416,11 @@ void MinView_render(SDL_Surface* dst, int lastScreen) {
 	if (base > n - 1)
 		base = n - 1;
 	int y = nameY(base, p, body_top, max_w);
+	// the names fade out at the body's top and bottom edges while more lie past them (scroll_fade.h; with the hints
+	// hidden the bottom edge's own fade does, below)
+	int fade_h = NX_DP(MIN_EDGE_FADE_DP);
+	ScrollFade fade = {body_top, fade_h, body_bottom, MenuTabs_bottomBar() ? fade_h : 0, false, sprites};
+	ScrollFade_begin(dst, &fade);
 	int above = 0; // the names drawn above base: the top one rises first
 	for (int i = base, yi = y; i >= 0 && yi + nameH(i, max_w) > body_top; i--) {
 		above++;
@@ -426,10 +432,14 @@ void MinView_render(SDL_Surface* dst, int lastScreen) {
 		if (i > 0)
 			yi -= nameH(i - 1, max_w);
 	}
-	for (int i = base + 1, yi = y + nameH(base, max_w), k = above; i < n && yi < body_bottom; i++, k++) {
+	int i = base + 1, yi = y + nameH(base, max_w);
+	for (int k = above; i < n && yi < body_bottom; i++, k++) {
 		drawName(dst, i, yi, p, sel, k, max_w, &clip);
 		yi += nameH(i, max_w);
 	}
+	// above: a name before the selection's place (it sits a pitch under the top); below: a name not reached, or the
+	// last one drawn running past the bottom (yi: its end and the gap after it)
+	ScrollFade_end(dst, p > 0.0f, i < n || yi - m.gap > body_bottom);
 	if (morph.active && morph.back) // where the name lands: its row on this frame
 		morph.row.y = nameY(sel, p, body_top, max_w);
 	if (!MenuTabs_bottomBar()) { // the names fade out to the screen's bottom edge

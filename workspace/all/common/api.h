@@ -804,6 +804,18 @@ void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* 
 // transparent corners stay transparent, as a black sprite over it would not).
 void PLAT_spriteAddShaded(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, Uint8 shade,
 						  const SDL_Rect* clip);
+// PLAT_spriteAdd with a colour mod: the texture's colours times tint/255 (a white main-menu Carousel item in the Main
+// color).
+void PLAT_spriteAddTinted(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, SDL_Color tint,
+						  const SDL_Rect* clip);
+// The scroll fade over a list's own sprites (the launcher lists' "more this way" cue, ui_scroll_fade.h): the sprites
+// added over the screen between Begin and End fade out toward the outer edge of either band, rows top_y .. top_y +
+// top_h toward top_y and bottom_y - bottom_h .. bottom_y toward bottom_y (screen px; a band 0 tall is none), at
+// UI_scrollFadeKeep's alpha (strong: ease-in), as a DstIn mask over them would: they fade into whatever is under
+// them. Sprites added before Begin or after End (bars, a transition's band) are drawn as they are. One range a
+// frame, cleared with the sprites.
+void PLAT_spriteFadeBegin(void);
+void PLAT_spriteFadeEnd(int top_y, int top_h, int bottom_y, int bottom_h, bool strong);
 // Drop tex's sprites from both lists before the next clear: for a sprite the next present must no longer show (a List
 // marquee's held title, once its GPU scroll takes over between full frames).
 void PLAT_spriteRemove(SDL_Texture* tex);

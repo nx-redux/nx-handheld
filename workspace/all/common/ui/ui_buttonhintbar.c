@@ -9,6 +9,10 @@ int UI_renderButtonHintBar(SDL_Surface* dst, char** pairs) {
 }
 
 int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) {
+	return UI_renderButtonHintBarAt(dst, pairs, scrim_alpha, -1);
+}
+
+int UI_renderButtonHintBarAt(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha, int left) {
 	IndicatorType show_setting = PWR_getShowSetting();
 	char** hw_pairs = show_setting ? GFX_getHardwareHintPairs(show_setting) : NULL;
 
@@ -47,8 +51,8 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 		return 0;
 	total_w += SCALE1(BUTTON_MARGIN);
 
-	// Over UI_HINTBAR_MAX, or wider than the screen: the least needed go first (UI_hintDropRank: START, SELECT,
-	// MENU, Y, X, ...), never A, B or a hardware hint
+	// Over UI_HINTBAR_MAX, or wider than the screen: the least needed go first (UI_hintDropRank: B, A, START,
+	// SELECT, MENU, Y, X, ...), never a hardware hint
 	int room = dst->w - 2 * SCALE1(PADDING);
 	while (count > UI_HINTBAR_MAX || total_w > room) {
 		int d = UI_hintDropPick(buttons, keep, count);
@@ -81,9 +85,9 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 	SDL_BlitSurface(button_bar, NULL, dst, &(SDL_Rect){0, oy});
 
 	// Render all buttons from the left; the first glyph is pulled left so its
-	// circle (inset 16/128 of the glyph) sits on the old text edge
+	// circle (inset 16/128 of the glyph) sits on `left`, else in line with the list rows' text (UI_listTextX)
 	int by = oy + UI_hintBarIconOffset(bar_h, btn_sz);
-	int ox = SCALE1(PADDING) + SCALE1(BUTTON_MARGIN) - (btn_sz * 16 + 64) / 128;
+	int ox = (left >= 0 ? left : UI_listTextX()) - (btn_sz * 16 + 64) / 128;
 	for (int i = 0; i < count; i++) {
 		GFX_blitButton(hints[i].hint, hints[i].button, dst, &(SDL_Rect){ox, by});
 		ox += hints[i].ow + SCALE1(BUTTON_MARGIN);

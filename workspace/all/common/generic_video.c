@@ -28,6 +28,7 @@
 #include <sys/mman.h>
 #include <sys/file.h>
 #include "shader_strip.h"
+#include "ui/ui_scroll_fade.h"
 #include <linux/fb.h>
 #include <sys/ioctl.h>
 
@@ -1724,16 +1725,37 @@ typedef struct {
 	bool has_src, has_clip;
 	bool opaque; // PLAT_spriteAddUnderOpaque: drawn without blending, covering what is under it
 	Uint8 alpha;
-	Uint8 shade; // a grey colour mod (PLAT_spriteAddShaded): 255 = the texture's own colours
+	SDL_Color tint; // a colour mod (PLAT_spriteAddShaded, PLAT_spriteAddTinted): white = the texture's own colours
 } Sprite;
 static Sprite sprites[MAX_SPRITES];
 static int sprite_count = 0;
 static Sprite under_sprites[MAX_UNDER_SPRITES];
 static int under_count = 0;
+// The scroll fade (PLAT_spriteFadeBegin/End): the over-screen sprites [from, to) fade out toward the outer edge of
+// either band (rows top_y .. top_y + top_h, faded toward top_y; bottom_y - bottom_h .. bottom_y, toward bottom_y; a
+// band 0 tall is none) at UI_scrollFadeKeep's alpha. to < 0: begun, not ended (nothing fades yet).
+static struct {
+	int from, to;
+	int top_y, top_h, bottom_y, bottom_h;
+	bool strong;
+} sprite_fade = {0, -1};
 
 void PLAT_spritesClear(void) {
 	sprite_count = 0;
 	under_count = 0;
+	sprite_fade.from = 0, sprite_fade.to = -1;
+}
+
+void PLAT_spriteFadeBegin(void) {
+	sprite_fade.from = sprite_count;
+	sprite_fade.to = -1;
+}
+
+void PLAT_spriteFadeEnd(int top_y, int top_h, int bottom_y, int bottom_h, bool strong) {
+	sprite_fade.to = sprite_count;
+	sprite_fade.top_y = top_y, sprite_fade.top_h = top_h > 0 ? top_h : 0;
+	sprite_fade.bottom_y = bottom_y, sprite_fade.bottom_h = bottom_h > 0 ? bottom_h : 0;
+	sprite_fade.strong = strong;
 }
 
 static void spriteAddTo(Sprite* list, int* count, int max, SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst,
@@ -1751,19 +1773,24 @@ static void spriteAddTo(Sprite* list, int* count, int max, SDL_Texture* tex, con
 		s->clip = *clip;
 	s->opaque = false;
 	s->alpha = alpha;
-	s->shade = 255;
+	s->tint = (SDL_Color){255, 255, 255, 255};
 }
 
 void PLAT_spriteAdd(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, const SDL_Rect* clip) {
 	spriteAddTo(sprites, &sprite_count, MAX_SPRITES, tex, src, dst, alpha, clip);
 }
 
-void PLAT_spriteAddShaded(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, Uint8 shade,
+void PLAT_spriteAddTinted(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, SDL_Color tint,
 						  const SDL_Rect* clip) {
 	int n = sprite_count;
 	spriteAddTo(sprites, &sprite_count, MAX_SPRITES, tex, src, dst, alpha, clip);
 	if (sprite_count > n)
-		sprites[n].shade = shade;
+		sprites[n].tint = (SDL_Color){tint.r, tint.g, tint.b, 255};
+}
+
+void PLAT_spriteAddShaded(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha, Uint8 shade,
+						  const SDL_Rect* clip) {
+	PLAT_spriteAddTinted(tex, src, dst, alpha, (SDL_Color){shade, shade, shade, 255}, clip);
 }
 
 void PLAT_spriteAddUnder(SDL_Texture* tex, const SDL_Rect* src, const SDL_Rect* dst, Uint8 alpha,
@@ -1781,11 +1808,20 @@ void PLAT_spriteAddUnderOpaque(SDL_Texture* tex, const SDL_Rect* dst) {
 // A texture about to be destroyed leaves both lists: they are drawn again by every composite until the next clear
 // (an idle flip between frames included), and a cache may evict a surface after its sprite was added.
 static void spritesForget(SDL_Texture* t) {
-	int n = 0;
-	for (int i = 0; i < sprite_count; i++)
-		if (sprites[i].tex != t)
+	int n = 0, from = sprite_fade.from, to = sprite_fade.to;
+	for (int i = 0; i < sprite_count; i++) {
+		if (sprites[i].tex != t) {
 			sprites[n++] = sprites[i];
+			continue;
+		}
+		// the fade's range closes over the gap
+		if (i < sprite_fade.from)
+			from--;
+		if (i < sprite_fade.to)
+			to--;
+	}
 	sprite_count = n;
+	sprite_fade.from = from, sprite_fade.to = to;
 	n = 0;
 	for (int i = 0; i < under_count; i++)
 		if (under_sprites[i].tex != t)
@@ -1896,8 +1932,51 @@ void PLAT_textureRefresh(SDL_Surface* s) {
 		SDL_UpdateTexture((SDL_Texture*)s->userdata, NULL, s->pixels, s->pitch);
 }
 
-// screen px to output px (the window is the screen's size on our devices: 1, but kept exact if it is not)
-static void drawSpriteList(const Sprite* list, int count) {
+// One sprite's copy under the scroll fade: its rows (inside clip c, output px) in runs of one alpha, each run's rows
+// clipped out and drawn at the sprite's alpha times what the fade keeps of them (UI_scrollFadeKeep, its band's rows in
+// screen px scaled by sy); a run kept at 0 is skipped. Only the few sprites reaching into a band (an edge row's text,
+// a name) come here, and only their band rows are split (one copy a px row there): no offscreen pass for a DstIn mask.
+static void drawSpriteFaded(const Sprite* s, const SDL_Rect* d, const SDL_Rect* c, float sy) {
+	int y0 = d->y > c->y ? d->y : c->y;
+	int y1 = d->y + d->h < c->y + c->h ? d->y + d->h : c->y + c->h;
+	int ty = (int)(sprite_fade.top_y * sy), th = (int)(sprite_fade.top_h * sy + 0.5f);
+	int by = (int)(sprite_fade.bottom_y * sy), bh = (int)(sprite_fade.bottom_h * sy + 0.5f);
+	for (int y = y0; y < y1;) {
+		// this row's keep, and how far it runs: to the next band edge outside a band, a px row inside one
+		int keep = 255, run_end = y1;
+		if (th > 0 && y >= ty && y < ty + th)
+			keep = UI_scrollFadeKeep(y - ty, th, sprite_fade.strong), run_end = y + 1;
+		else if (bh > 0 && y >= by - bh && y < by)
+			keep = UI_scrollFadeKeep(by - 1 - y, bh, sprite_fade.strong), run_end = y + 1;
+		else {
+			if (th > 0 && y < ty && ty < run_end)
+				run_end = ty;
+			if (bh > 0 && y < by - bh && by - bh < run_end)
+				run_end = by - bh;
+		}
+		Uint8 a = (Uint8)((s->alpha * keep + 127) / 255);
+		if (a > 0) {
+			SDL_Rect r = {c->x, y, c->w, run_end - y};
+			SDL_RenderSetClipRect(vid.renderer, &r);
+			SDL_SetTextureAlphaMod(s->tex, a);
+			SDL_RenderCopy(vid.renderer, s->tex, s->has_src ? &s->src : NULL, d);
+		}
+		y = run_end;
+	}
+}
+
+// Whether sprite s (output rect d, clipped to c) reaches into a band of the scroll fade.
+static bool spriteInFade(const SDL_Rect* d, const SDL_Rect* c, float sy) {
+	int y0 = d->y > c->y ? d->y : c->y;
+	int y1 = d->y + d->h < c->y + c->h ? d->y + d->h : c->y + c->h;
+	int ty = (int)(sprite_fade.top_y * sy), th = (int)(sprite_fade.top_h * sy + 0.5f);
+	int by = (int)(sprite_fade.bottom_y * sy), bh = (int)(sprite_fade.bottom_h * sy + 0.5f);
+	return (th > 0 && y0 < ty + th && y1 > ty) || (bh > 0 && y0 < by && y1 > by - bh);
+}
+
+// screen px to output px (the window is the screen's size on our devices: 1, but kept exact if it is not). faded: the
+// over-screen list, whose scroll fade's range applies.
+static void drawSpriteList(const Sprite* list, int count, bool faded) {
 	if (count == 0 || !vid.screen)
 		return;
 	int ow = 0, oh = 0;
@@ -1919,10 +1998,16 @@ static void drawSpriteList(const Sprite* list, int count) {
 			SDL_GetTextureBlendMode(s->tex, &bm);
 			SDL_SetTextureBlendMode(s->tex, SDL_BLENDMODE_NONE);
 		}
-		if (s->shade != 255)
-			SDL_SetTextureColorMod(s->tex, s->shade, s->shade, s->shade);
-		SDL_RenderCopy(vid.renderer, s->tex, s->has_src ? &s->src : NULL, &d);
-		if (s->shade != 255)
+		bool tinted = s->tint.r != 255 || s->tint.g != 255 || s->tint.b != 255;
+		if (tinted)
+			SDL_SetTextureColorMod(s->tex, s->tint.r, s->tint.g, s->tint.b);
+		SDL_Rect whole = {0, 0, ow, oh};
+		if (faded && i >= sprite_fade.from && i < sprite_fade.to &&
+			spriteInFade(&d, s->has_clip ? &c : &whole, sy))
+			drawSpriteFaded(s, &d, s->has_clip ? &c : &whole, sy);
+		else
+			SDL_RenderCopy(vid.renderer, s->tex, s->has_src ? &s->src : NULL, &d);
+		if (tinted)
 			SDL_SetTextureColorMod(s->tex, 255, 255, 255);
 		if (s->opaque)
 			SDL_SetTextureBlendMode(s->tex, bm);
@@ -2158,7 +2243,7 @@ static void compositeLayers(void) {
 			SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
 	}
 	// under the screen: seen through its transparent body (from the covering one up, when there is one)
-	drawSpriteList(under_sprites + (cover > 0 ? cover : 0), under_count - (cover > 0 ? cover : 0));
+	drawSpriteList(under_sprites + (cover > 0 ? cover : 0), under_count - (cover > 0 ? cover : 0), false);
 	if (bands > 0 && vid.screen) {
 		int ow = 0, oh = 0;
 		SDL_GetRendererOutputSize(vid.renderer, &ow, &oh);
@@ -2168,7 +2253,7 @@ static void compositeLayers(void) {
 	} else {
 		SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
 	}
-	drawSpriteList(sprites, sprite_count);
+	drawSpriteList(sprites, sprite_count, true);
 	if (layer_has_content[3])
 		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
 	if (layer_has_content[4])

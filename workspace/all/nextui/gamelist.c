@@ -16,6 +16,7 @@
 #include "ui_font.h"
 #include "ui_confirmdialog.h"
 #include "ui_loadingoverlay.h"
+#include "ui_menubar.h"
 #include "ui_message.h"
 #include "ui_contextmenu.h"
 #include "ui_contextmenu_add.h"
@@ -47,6 +48,7 @@
 #include "infoband.h"
 #include "launcher.h"
 #include "list_window.h"
+#include "scroll_fade.h"
 #include "menuart.h"
 #include "controller_art.h"
 #include "controller_art_model.h"
@@ -2230,8 +2232,8 @@ static bool atRoot(void) {
 	return !stack || stack->count <= 1;
 }
 
-// Top of the first row (no arrow gutter; the arrows live in the info band): game lists right under their header;
-// the main menu 12 dp below the tab row.
+// Top of the first row (no arrow gutter: the rows fade at an edge instead, LIST_FADE_DIV): game lists right under
+// their header; the main menu 12 dp below the tab row.
 static int listTopAt(bool root) {
 	int strip = BAR_HEIGHT; // the header / tab row (MenuTabs_renderRow's bar_h)
 	return root ? strip + NX_DP(12) : strip;
@@ -2264,7 +2266,7 @@ static InfoBandLayout listLayoutFrom(int list_top, bool root) {
 	int overlap = no_bar ? 0 : InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
 	InfoBandLayout l =
 		InfoBand_fixedLayout(screen_h, bar_h, list_top, listPitch(root), NX_DP(18), NX_DP(4), overlap);
-	// The band paints no fade of its own, only its arrows (and text): with the hints shown the bar's scrim is under it
+	// The band paints no fade of its own, only its text: with the hints shown the bar's scrim is under it
 	// and a game's info is off; hidden (Layouts > Bottom bar), the same rows and band, a game list keeping the bar's
 	// scrim alone (renderHintScrim) with the info line moved into its row
 	l.fill_bottom = l.band_top;
@@ -2285,10 +2287,34 @@ static Directory* shownList(void) {
 	return home ? home : top;
 }
 
+// How far a List's rows move down so they sit centred between what is over the first row and the bar's ink: the slot
+// runs to the info band's top, but a band with no line in it leaves the gap under the last row the larger. Over a
+// main-menu List (a tab's, or Home's under its strip) the 12 dp under the tab row or strip; over a game list its
+// title's baseline. Under, the tab labels' cap top at the root, else the hints' ink top (not the bar's edge: its own
+// padding would read as more gap). Half of the difference; the row count and pitch stay the slot's.
+static int listShift(int list_top, bool root) {
+	// a game's info line may sit in the band (the hints hidden, the extra info shown): the rows stay clear of it;
+	// the tabs' rows never carry one
+	if ((!root || Home_isList()) && !CFG_getButtonHints() && CFG_getExtraInfo())
+		return 0;
+	InfoBandLayout l = listLayoutFrom(list_top, root);
+	int screen_h = screen ? screen->h : FIXED_HEIGHT;
+	bool no_bar = !MenuTabs_bottomBar() && !CFG_getExtraInfo(); // as listLayoutFrom: the rows run to the bottom edge
+	int bar_ink = root ? MenuTabs_rowInkTop(screen_h) : -1;
+	if (bar_ink < 0)
+		bar_ink = no_bar ? screen_h : screen_h - BAR_HEIGHT + InfoBand_hintInkTop(BAR_HEIGHT, SCALE1(BUTTON_SIZE));
+	int above = root ? NX_DP(12) : list_top - UI_pageTitleBaseline();
+	int below = bar_ink - (list_top + l.rows * l.row_h);
+	int shift = (below - above) / 2;
+	return shift > 0 ? shift : 0;
+}
+
 static int shownListTop(void) {
 	if (GameSwitcher_isList())
 		return listTopAt(false);
-	return Home_isList() ? Home_listTop() : listTop();
+	bool root = Home_isList() || atRoot();
+	int list_top = Home_isList() ? Home_listTop() : listTop();
+	return list_top + listShift(list_top, root);
 }
 
 static InfoBandLayout listLayout(void) {
@@ -2301,10 +2327,15 @@ int GameList_rowCountFrom(int list_top) {
 	return listLayoutFrom(list_top, true).rows;
 }
 
-// The launcher's List rows (the main menu's and the game lists'): the pill's edge on the side margin, the text its 14 dp
-// (SCALE1(BUTTON_PADDING)) in from there; the Game Switcher's List keeps the shared list inset.
+// The launcher's List rows (the main menu's, the game lists' and the Game Switcher's): the shared list's text start
+// (UI_listTextX: the pill's edge on the screen's left, or UI_listEdgeInset in, the text its padding in from there).
 int GameList_textX(void) {
-	return GameSwitcher_isList() ? UI_listTextX() : NX_DP(NX_MENU_GUTTER_DP) + SCALE1(BUTTON_PADDING);
+	return UI_listTextX();
+}
+
+bool GameList_listShown(void) {
+	return !(Home_active() && !Home_isList()) && !GridView_active() && !RowView_active() &&
+		   !MinView_active() && !GameSwitcher_isList();
 }
 
 int GameList_rowCount(void) {
@@ -2370,16 +2401,21 @@ int GameList_currentStyle(void) {
 	}
 }
 
-// What the info band last put on LAYER_OVERLAY (the band's block and, with the page title hidden, the up arrow), and
-// the layer's serial right after: while neither changed, the layer still holds it and nothing is redrawn (a redraw
-// is a texture made and uploaded, a few ms a frame). nextui.c leaves the layer to this while a List frame keeps it
-// (GameList_keepsOverlay); anyone else's draw or clear changes the serial, and the next frame redraws.
+// The List's scroll fade (scroll_fade.h) in place of scroll arrows: the rows fade out over half a row (a row's
+// LIST_FADE_DIV-th) at an edge with more rows past it, eased in (strong), as nx-mobile's titled pages. Not its main
+// menu's 56 dp: here that reaches into the next row (the Brick's main-menu rows are 90 px, 56 dp is 120). The selection
+// stays LIST_FADE_MARGIN rows clear of such an edge (ListWindow_keepMargin), so it never fades, nor its marquee.
+#define LIST_FADE_DIV 2
+#define LIST_FADE_MARGIN 1
+
+// What the info band last put on LAYER_OVERLAY (the band's block), and the layer's serial right after: while neither
+// changed, the layer still holds it and nothing is redrawn (a redraw is a texture made and uploaded, a few ms a
+// frame). nextui.c leaves the layer to this while a List frame keeps it (GameList_keepsOverlay); anyone else's draw or
+// clear changes the serial, and the next frame redraws.
 static struct {
 	bool valid;
 	unsigned serial, band_gen;
 	int band_top;
-	bool arrow;
-	int arrow_x, arrow_y;
 } overlay;
 
 // The selected game's play time and achievements show in the hint bar's row: Layouts > Bottom bar hidden, Extra
@@ -2409,35 +2445,18 @@ static void renderInfoBand(void) {
 	}
 	Directory* list = shownList(); // Home's List, or the top Directory
 	int total = list->entries->count;
-	bool up = total > 0 && list->start > 0;
-	bool down = total > 0 && list->end < total;
 	InfoBandLayout layout = listLayout(); // the rows' own geometry
-	layout.arrow_x = GameList_textX();	  // the arrows sit at the rows' text start (§3.2)
+	layout.text_x = GameList_textX();	  // the info line's left limit: the rows' text start (§3.2)
 	// On LAYER_OVERLAY, above the thumbnail layer (which would otherwise cover it on 4:3 screens), kept there while it
-	// is unchanged (overlay above).
-	// Layouts > Top bar: Hide: the up arrow moves above the first row, as far above it as the band's down arrow sits
-	// below the last (at the rows' text start), so the List has one at each end, mirrored; the band keeps the down one
-	// (Home's List keeps both in the band, packed, whatever the title: its stats strip sits above the first row)
-	bool arrow = false;
-	int arrow_y = 0;
-	if (!CFG_getPageTitle() && list == top) {
-		if (up) {
-			// the down arrow's centre under the last row's bottom (the rows may leave a few px above the band)
-			int below = layout.text_top + layout.text_h / 2 - INFOBAND_ARROW_RAISE -
-						(layout.list_top + layout.rows * layout.row_h);
-			arrow = true;
-			arrow_y = layout.list_top - below;
-		}
-		up = false;
-	}
-	// The band is always there (fade + arrows), with or without text, so rows never move.
+	// is unchanged (overlay above). No scroll arrows: the rows fade out at an edge with more past it (LIST_FADE_DIV).
+	// The band is always there, with or without text, so rows never move.
 	Entry* entry = total > 0 ? list->entries->items[list->selected] : NULL;
 	MenuTabId tab = MenuTabs_current();
 	bool at_root = stack->count == 1 && !GameSwitcher_isList(); // the Game Switcher's List reads as a game list
 	unsigned gen;
 	// game rows: game lists and the Home tab (same rule as GameList_render's game_art). Their play time and
 	// achievements show only while the button hints are hidden (Layouts > Bottom bar) and the extra info is shown
-	// (Layouts > Extra info); otherwise the band is the fade and arrows alone.
+	// (Layouts > Extra info); otherwise the band is empty.
 	if (entry && (!at_root || tab == MENU_TAB_HOME) && selectedIsGame(entry)) {
 		GameInfo info;
 		InfoSeg segs[3];
@@ -2446,32 +2465,26 @@ static void renderInfoBand(void) {
 			n = GameInfo_segments(time(NULL), info.has_time ? info.last_played : 0,
 								  info.has_time ? info.seconds : -1, info.has_ra ? info.unlocked : 0,
 								  info.has_ra ? info.total : 0, info.has_ra ? info.next : NULL, true, segs);
-		// the hint bar's row is empty (only its scrim): the info line moves down into it, centred, the arrows stay
+		// the hint bar's row is empty (only its scrim): the info line moves down into it, centred
 		if (n > 0) {
 			int bar_top = UI_buttonHintBarTop(screen->h);
 			layout.info_top = bar_top + (screen->h - bar_top - layout.text_h) / 2;
 		}
-		gen = InfoBand_prepare(&layout, segs, n, up, down);
+		gen = InfoBand_prepare(&layout, segs, n);
 	} else {
-		// Collections, Consoles, Tools and folders: the arrows alone (no "N games" line under a collection)
-		gen = InfoBand_prepare(&layout, NULL, 0, up, down);
+		// Collections, Consoles, Tools and folders: no line (no "N games" under a collection)
+		gen = InfoBand_prepare(&layout, NULL, 0);
 	}
 
 	if (overlay.valid && overlay.serial == PLAT_layerSerial(LAYER_OVERLAY) && overlay.band_gen == gen &&
-		overlay.band_top == layout.band_top && overlay.arrow == arrow &&
-		(!arrow || (overlay.arrow_x == layout.arrow_x && overlay.arrow_y == arrow_y)))
+		overlay.band_top == layout.band_top)
 		return; // still on the layer as drawn
 	GFX_clearLayers(LAYER_OVERLAY);
-	if (arrow)
-		InfoBand_renderUpArrow(layout.arrow_x, arrow_y, LAYER_OVERLAY);
 	InfoBand_draw(LAYER_OVERLAY);
 	overlay.valid = true;
 	overlay.serial = PLAT_layerSerial(LAYER_OVERLAY);
 	overlay.band_gen = gen;
 	overlay.band_top = layout.band_top;
-	overlay.arrow = arrow;
-	overlay.arrow_x = layout.arrow_x;
-	overlay.arrow_y = arrow_y;
 }
 
 bool GameList_listBodyClear(SDL_Rect* row) {
@@ -2552,9 +2565,11 @@ static void renderHints(SDL_Surface* screen, IndicatorType show_setting) {
 		right_pairs[p++] = "OPEN";
 	}
 
-	// past four (or the screen's width) the bar drops the least needed itself, START SEARCH first (UI_hintDropRank)
+	// past four (or the screen's width) the bar drops the least needed itself, B BACK first (UI_hintDropRank); over a
+	// List its first hint starts in line with the rows' text, over the Grid, Carousel and Minimal at the bar's padding
 	if (right_pairs[0])
-		UI_renderButtonHintBar(screen, right_pairs);
+		UI_renderButtonHintBarAt(screen, right_pairs, 204,
+								 GameList_listShown() ? GameList_textX() : SCALE1(PADDING) + SCALE1(BUTTON_MARGIN));
 }
 
 // No background at all (no bg.png or folder background): drops whatever is loaded, and forgets the resolve so a
@@ -2754,6 +2769,9 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 	// the rows' geometry: whole px rows of row_h (nxListFit), the band below them
 	InfoBandLayout rows_layout = listLayout();
 	int row_h = rows_layout.row_h;
+	// the selection a row clear of an edge with more past it, whatever set the window (the scroll fade's margin)
+	if (total > 0)
+		ListWindow_keepMargin(total, LIST_FADE_MARGIN, list->selected, &list->start, &list->end);
 	TTF_Font* list_font = listFont(atRoot()); // the rows' text (the main menu's per device), as listLayout()
 
 	// Consoles tab: the selected console's controller (Layouts > Consoles background), else its logo, dimmed, on the
@@ -2827,6 +2845,11 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		int pill_y = -1;		  // current pill top-y; used by the row loop to tint the
 								  // row the pill is over (see color-tracking note below)
 		bool pill_sprite = false; // the pill went to the GPU (over the screen: it hides what the screen has under it)
+		// the pill and the rows fade at an edge with more rows past it (ended before the marquee: its GPU scroll
+		// presents a frame itself)
+		int rows_top = shownListTop(), fade_h = row_h / LIST_FADE_DIV;
+		ScrollFade fade = {rows_top, fade_h, rows_top + rows_layout.rows * row_h, fade_h, true, row_sprites};
+		ScrollFade_begin(screen, &fade);
 		if (list_show_entry_names) {
 			Entry* sel = list->entries->items[list->selected];
 			char* sel_name = sel->name;
@@ -2837,7 +2860,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			char* sel_text = sel_unique ? sel_unique : sel_name;
 			int sel_avail = MAX(0, (had_thumb ? ox + SCALE1(BUTTON_MARGIN)
 											  : screen->w - SCALE1(BUTTON_MARGIN)) -
-									   SCALE1(PADDING) - row_pill_x);
+									   SCALE1(PADDING) - UI_listEdgeInset() - row_pill_x);
 			char sel_trunc[256];
 			int sel_pill_w =
 				UI_calcListPillWidth(list_font, sel_text, sel_trunc, sel_avail, list->selected == 0 ? tag_w : 0);
@@ -2890,8 +2913,10 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			int below = pill_h + pill_off - row_h; // the overhang under the last row, when the pill is taller
 			int band_rows = list->end - list->start;
 			int clip_bottom = shownListTop() + band_rows * row_h + (below > 0 ? below : 0);
-			if (clip_bottom > rows_layout.band_top)
-				clip_bottom = rows_layout.band_top;
+			// the band's top moved as the rows did (listShift: only ever into an empty band)
+			int band_limit = rows_layout.band_top + shownListTop() - rows_layout.list_top;
+			if (clip_bottom > band_limit)
+				clip_bottom = band_limit;
 			SDL_Rect band = {0, shownListTop(), screen->w, clip_bottom - shownListTop()};
 			SDL_Rect prev_clip;
 			SDL_GetClipRect(screen, &prev_clip);
@@ -2923,7 +2948,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 			int available_width =
 				MAX(0, (had_thumb ? ox + SCALE1(BUTTON_MARGIN)
 								  : screen->w - SCALE1(BUTTON_MARGIN)) -
-						   SCALE1(PADDING) - row_pill_x);
+						   SCALE1(PADDING) - UI_listEdgeInset() - row_pill_x);
 
 			// Prepare display text: prefer unique name, fall back to entry name
 			trimSortingMeta(&entry_name);
@@ -3033,6 +3058,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				}
 			}
 		}
+		ScrollFade_end(screen, list->start > 0, list->end < total);
 		if (marquee.on) {
 			UI_renderListItemText(screen, &list_scroll, marquee.text, list_font, marquee.x, marquee.y, marquee.w,
 								  marquee.over);

@@ -161,13 +161,10 @@ enum {
 #define NX_DPF(x) ((int)((x) * FIXED_SCALE * 30.0f / 42.0f + 0.5f))
 // mobile sp -> text pixels (14 sp body text is the 12-unit text size)
 #define NX_SP(x) ((int)((x) * FIXED_SCALE * 12.0f / 14.0f + 0.5f))
-// List row text starts NX_LIST_INSET_DP in (game lists, Settings, Tools, every shared list), on the main menu's 24 dp
-// gutter; its selection pill keeps 14 dp (== SCALE1(BUTTON_PADDING)) round the text, so the pill's edge is 10 dp from
-// the screen's (LIST-LAYOUT §10.1 had 14, which put the pill's rounded end off-screen). Page titles start there too.
-#define NX_LIST_INSET_DP 24
 #define NX_RICH_LIST_GAP_DP 14 // a rich list's thumbnail to its text (LIST-LAYOUT §10.2)
 // The main menu's side margin (nx_edge.h NX_EDGE_DP, 16 dp): the tab row, Home, the Grid, the Carousel and Backdrop
-// captions, the Minimal's names, the List's pill edge, the game lists' page titles
+// captions, the Minimal's names, the game lists' page titles (a List's rows, title, hints and tab labels start at
+// UI_listTextX instead)
 #define NX_MENU_GUTTER_DP NX_EDGE_DP
 
 ///////////////////////////////

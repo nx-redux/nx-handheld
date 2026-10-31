@@ -48,6 +48,7 @@
 #include "infoband.h"
 #include "launcher.h"
 #include "list_window.h"
+#include "scroll_fade.h"
 #include "menuart.h"
 #include "menutabs.h"
 #include "ui_menubar.h" // UI_statusWidth
@@ -1335,7 +1336,7 @@ static void drawStripLine(SDL_Surface* s, TTF_Font* f, StripLine* l, int x, int 
 
 // The strip under the tab row (not selectable), rendered whole into its own surface when its text changes. The
 // Carousel's: its own baselines (lower), each line centred. The List's: its own baselines, left-aligned at the rows'
-// text start (the tab row's gutter).
+// text start (GameList_textX, as the tab row's labels); Minimal's at the names' gutter.
 static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 	int mode = listMode() || minimalMode() ? 2 : carousel() ? 1
 															: 0;
@@ -1345,7 +1346,7 @@ static void drawStrip(SDL_Surface* dst, const HomeStats* st, int scroll_px) {
 		lines = hl_geom.strip_lines;
 		base[0] = hl_geom.strip_base[0];
 		base[1] = hl_geom.strip_base[1];
-		x = NX_DP(NX_MENU_GUTTER_DP);
+		x = listMode() ? GameList_textX() : NX_DP(NX_MENU_GUTTER_DP); // the List's rows' text, Minimal's names
 		right = dst->w - x;
 	} else {
 		bool car_strip = mode == 1; // the Carousel's own geometry (centred under the bar, left-aligned in it)
@@ -2193,6 +2194,12 @@ static void minDraw(SDL_Surface* dst) {
 	// to its bottom
 	int top = CFG_getPageTitle() ? min_area_top : 0, bottom = MenuTabs_bottomBar() ? dst->h - barPx() : dst->h;
 	SDL_Rect clip = {0, top, dst->w, bottom - top};
+	// the names fade out at the strip's bottom and the hint bar's top while more lie past them (scroll_fade.h; where a
+	// bar is hidden, its edge fade does: minDrawFades)
+	int fade_h = NX_DP(MIN_EDGE_FADE_DP);
+	ScrollFade fade = {top, CFG_getPageTitle() ? fade_h : 0, bottom, MenuTabs_bottomBar() ? fade_h : 0, false,
+					   min_sprites};
+	ScrollFade_begin(dst, &fade);
 	for (int i = 0; i < min_n; i++) {
 		MinRow* r = &min_rows[i];
 		int y = minRowY(i, p);
@@ -2210,6 +2217,10 @@ static void minDraw(SDL_Surface* dst) {
 		if (ts && fill > 0)
 			minBlit(ts, gutter + r->tag_x, y + r->tag_line * min_m.pitch + (min_m.font_h - ts->h) / 2, a * fill, &clip, dst);
 	}
+	// a name above the first one shown (the selection sits a pitch under the top), or the last one running past the
+	// bottom
+	int last = min_n - 1;
+	ScrollFade_end(dst, p > 0.0f, minRowY(last, p) + min_rows[last].h - min_m.gap > bottom);
 }
 
 // Fade i (0 top, 1 bottom) h tall: black at the screen's edge, clear at its inner end.

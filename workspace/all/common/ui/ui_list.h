@@ -86,9 +86,11 @@ ListLayout UI_calcListLayoutEx(SDL_Surface* screen, int avail_top, int avail_bot
 // Re-block an existing layout's band for another row height (rich rows: SCALE1(PILL_SIZE) * 3 / 2).
 void UI_listLayoutSetRowHeight(ListLayout* layout, int row_h, int rows_wanted);
 
-// LIST-LAYOUT §1/§10.1: a list row's text starts at UI_listTextX() (the 14 dp inset); its selection pill's edge is
-// at UI_listPillX(), 14 dp (SCALE1(BUTTON_PADDING)) left of the text. Every shared renderer below uses them, and
+// LIST-LAYOUT §1/§10.1: a list row's text starts at UI_listTextX(); its selection pill's edge is at UI_listPillX(),
+// 14 dp (SCALE1(BUTTON_PADDING)) left of the text: on the screen's left edge, or UI_listEdgeInset in. Every shared renderer below uses them, and
 // the default page title x (UI_pageTitleX) is the same text start.
+// The pill's end off the screen's sides (px): 0 on the Bricks, 6 dp on the Smart Pros.
+int UI_listEdgeInset(void);
 int UI_listTextX(void);
 int UI_listPillX(void);
 // The pill edge for a row whose text starts at text_x (14 dp left of it, never off screen): the main menu's 24 dp
