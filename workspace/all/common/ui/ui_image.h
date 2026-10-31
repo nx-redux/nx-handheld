@@ -40,9 +40,6 @@ SDL_Surface* UI_circleFromSurface(SDL_Surface* raw, int size);
 // circular mask on that final surface. ARGB8888; caller frees.
 SDL_Surface* UI_circleThumbFromSurface(SDL_Surface* raw, int size, SDL_Color backdrop);
 
-// UI_circleThumbFromSurface on an image file (NULL if it is missing or unreadable).
-SDL_Surface* UI_loadCircleThumb(const char* path, int size, SDL_Color backdrop);
-
 // Load an image, scale it to a size x size square, and round its corners
 // (radius px, clamped to size/2; 0 = square). ARGB8888; caller frees.
 // Returns NULL if the file is missing or unreadable.

@@ -11,6 +11,7 @@
 
 #include "api.h"
 #include "defines.h"
+#include "image_load.h"
 #include "ra_offline.h" // RA_Offline_getGameRomPath
 #include "ra_badge_path.h"
 #include "ra_paths.h"
@@ -41,7 +42,7 @@ static void rat_badge_path(const char* badge_dir, const char* badge_name, bool l
 }
 
 // Resolve a game's box art from its recorded rom path, mirroring nxredux's
-// thumbnail conventions (ROM_findArt, common/utils.c):
+// thumbnail conventions (ROM_findArt, common/utils.c; a .jpg/.jpeg/.webp of the same name too):
 //   single-file rom:  <dir>/.media/<rom-name>.png
 //   multi-file rom (cue/bin/m3u in its own folder): nxredux shows the FOLDER
 //   as the game entry, so the art is keyed off the folder name one level up:
@@ -288,9 +289,15 @@ static void rat_render_rich_row(SDL_Surface* screen, const ListLayout* layout, S
 }
 
 // Load a rich row's round thumbnail (NULL when missing): centre-cropped, over a neutral dark disc so art with
-// transparent areas (mix images) still fills the circle, with an anti-aliased mask on the final surface.
+// transparent areas (mix images) still fills the circle, with an anti-aliased mask on the final surface. Image_load:
+// a game's art may be a WebP (ROM_findArt); the badges are PNGs.
 static SDL_Surface* rat_load_thumb(const char* path, int size) {
-	return UI_loadCircleThumb(path, size, (SDL_Color){0x26, 0x26, 0x26, 255});
+	SDL_Surface* raw = Image_load(path);
+	if (!raw)
+		return NULL;
+	SDL_Surface* thumb = UI_circleThumbFromSurface(raw, size, (SDL_Color){0x26, 0x26, 0x26, 255});
+	SDL_FreeSurface(raw);
+	return thumb;
 }
 
 static void rat_show_achievements(SDL_Surface* screen, const RAT_Game* game) {

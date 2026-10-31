@@ -196,15 +196,6 @@ SDL_Surface* UI_circleThumbFromSurface(SDL_Surface* raw, int size, SDL_Color bac
 	return out;
 }
 
-SDL_Surface* UI_loadCircleThumb(const char* path, int size, SDL_Color backdrop) {
-	SDL_Surface* raw = IMG_Load(path);
-	if (!raw)
-		return NULL;
-	SDL_Surface* result = UI_circleThumbFromSurface(raw, size, backdrop);
-	SDL_FreeSurface(raw);
-	return result;
-}
-
 SDL_Surface* UI_loadRoundedImage(const char* path, int size, int radius) {
 	SDL_Surface* raw = IMG_Load(path);
 	if (!raw)
