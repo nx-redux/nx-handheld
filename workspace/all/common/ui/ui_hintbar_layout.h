@@ -15,11 +15,11 @@ static inline int UI_hintBarIconOffset(int bar_h, int icon_h) {
 #define UI_HINTBAR_MAX 4
 
 // A hint's place in the drop order when the bar is over UI_HINTBAR_MAX or wider than the screen: the lowest goes
-// first. Shortcuts (START, SELECT), then the menu, then the face actions; A and B never (-1): the screen's own
-// action and the way back.
+// first. B and A first (back and confirm, known without a label), then the shortcuts (START, SELECT), the menu and
+// the other face actions; -1 for none.
 static inline int UI_hintDropRank(const char* button) {
-	static const char* order[] = {"START", "SELECT", "MENU", "Y", "X"};
-	if (!button || strcmp(button, "A") == 0 || strcmp(button, "B") == 0)
+	static const char* order[] = {"B", "A", "START", "SELECT", "MENU", "Y", "X"};
+	if (!button)
 		return -1;
 	for (int i = 0; i < (int)(sizeof(order) / sizeof(order[0])); i++)
 		if (strcmp(button, order[i]) == 0)
@@ -27,8 +27,8 @@ static inline int UI_hintDropRank(const char* button) {
 	return (int)(sizeof(order) / sizeof(order[0])); // anything else (L1, LEFT/RIGHT, SELECT+START...) last
 }
 
-// Which of the n hints to drop next: the lowest rank, the rightmost of a tie; -1 when every one is kept (A, B, or a
-// hardware hint: keep[i] true).
+// Which of the n hints to drop next: the lowest rank, the rightmost of a tie; -1 when every one is kept (a hardware
+// hint: keep[i] true).
 static inline int UI_hintDropPick(const char* const* buttons, const int* keep, int n) {
 	int pick = -1, best = 0;
 	for (int i = 0; i < n; i++) {

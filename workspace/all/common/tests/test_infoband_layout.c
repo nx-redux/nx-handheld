@@ -232,25 +232,26 @@ static void fit_count_line_is_cut(void) {
 
 // The hint bar's drop order: START, SELECT, MENU, Y, X, the rest; A, B and hardware hints never.
 static void hint_drop_order(void) {
-	assert(UI_hintDropRank("START") == 0 && UI_hintDropRank("SELECT") == 1 && UI_hintDropRank("MENU") == 2);
-	assert(UI_hintDropRank("Y") == 3 && UI_hintDropRank("X") == 4 && UI_hintDropRank("L1") == 5);
-	assert(UI_hintDropRank("A") == -1 && UI_hintDropRank("B") == -1 && UI_hintDropRank(NULL) == -1);
-	// the game list's full set: START SEARCH goes first, then SELECT RECENT, then MENU OPTIONS
+	assert(UI_hintDropRank("B") == 0 && UI_hintDropRank("A") == 1);
+	assert(UI_hintDropRank("START") == 2 && UI_hintDropRank("SELECT") == 3 && UI_hintDropRank("MENU") == 4);
+	assert(UI_hintDropRank("Y") == 5 && UI_hintDropRank("X") == 6 && UI_hintDropRank("L1") == 7);
+	assert(UI_hintDropRank(NULL) == -1);
+	// the game list's full set: B BACK goes first, then A OPEN, then START SEARCH
 	const char* list[] = {"SELECT", "START", "B", "Y", "X", "MENU", "A"};
-	assert(UI_hintDropPick(list, NULL, 7) == 1);
-	const char* no_start[] = {"SELECT", "B", "Y", "X", "MENU", "A"};
-	assert(UI_hintDropPick(no_start, NULL, 6) == 0);
-	const char* faces[] = {"B", "Y", "X", "A"};
-	assert(UI_hintDropPick(faces, NULL, 4) == 1); // Y (NETPLAY) before X (RESUME)
+	assert(UI_hintDropPick(list, NULL, 7) == 2);
+	const char* no_b[] = {"SELECT", "START", "Y", "X", "MENU", "A"};
+	assert(UI_hintDropPick(no_b, NULL, 6) == 5);
+	const char* no_ab[] = {"SELECT", "START", "Y", "X", "MENU"};
+	assert(UI_hintDropPick(no_ab, NULL, 5) == 1);
+	const char* faces[] = {"Y", "X"};
+	assert(UI_hintDropPick(faces, NULL, 2) == 0); // Y (NETPLAY) before X (RESUME)
 	// a tie: the rightmost
-	const char* ties[] = {"L1", "B", "R1", "A"};
-	assert(UI_hintDropPick(ties, NULL, 4) == 2);
-	// only A and B, or a kept hardware hint: nothing to drop
-	const char* ab[] = {"B", "A"};
-	assert(UI_hintDropPick(ab, NULL, 2) == -1);
-	const char* hw[] = {"SELECT", "B", "A"};
-	int keep[] = {1, 0, 0};
-	assert(UI_hintDropPick(hw, keep, 3) == -1);
+	const char* ties[] = {"L1", "R1"};
+	assert(UI_hintDropPick(ties, NULL, 2) == 1);
+	// only kept hardware hints: nothing to drop
+	const char* hw[] = {"SELECT", "MENU"};
+	int keep[] = {1, 1};
+	assert(UI_hintDropPick(hw, keep, 2) == -1);
 }
 
 int main(void) {
