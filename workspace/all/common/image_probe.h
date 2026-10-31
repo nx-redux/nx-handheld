@@ -8,7 +8,7 @@
 
 // PNG, JPEG (SOF0-SOF15 minus C4/C8/CC, found by walking the markers with
 // fseek, so any amount of EXIF/ICC/XMP in front of the frame header is fine),
-// GIF and BMP. Returns false (and leaves *w/*h untouched) for other formats
+// GIF, BMP and WebP (VP8, VP8L and VP8X). Returns false (and leaves *w/*h untouched) for other formats
 // and for corrupt headers.
 bool ImageProbe_dimensions(const char* path, int* w, int* h);
 bool ImageProbe_dimensionsFile(FILE* f, int* w, int* h);

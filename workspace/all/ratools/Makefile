@@ -22,6 +22,8 @@ SDL?=SDL
 
 TARGET = ratools
 INCDIR = -I. -I../common/ -I../settings/ -I../minarch/ -I../../$(PLATFORM)/platform/
+# image_load.c: libretro-common's WebP decoder (the minarch checkout)
+INCDIR += -I../minarch/libretro-common/include
 
 COMMON_PATH = ../common
 
@@ -35,6 +37,7 @@ SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefe
          $(COMMON_PATH)/ra_hash_cache.c $(COMMON_PATH)/cjson/cJSON.c \
          $(COMMON_PATH)/ra_hash_cdreader.c ../minarch/chd_reader.c ../minarch/chd_tracks.c \
          $(COMMON_PATH)/display_helper.c \
+         $(COMMON_PATH)/image_load.c ../minarch/libretro-common/formats/webp/rwebp.c ../minarch/libretro-common/formats/vp8/rvp8.c \
          $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) \
          $(UI_DIR)/ui_keyboard.c \
          ../../$(PLATFORM)/platform/platform.c
@@ -47,7 +50,7 @@ LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lrcheevos -lchdr -lzip 
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
-all: $(PREFIX_LOCAL)/include/msettings.h $(PREFIX_LOCAL)/lib/librcheevos.a $(PREFIX_LOCAL)/lib/libchdr.so
+all: $(PREFIX_LOCAL)/include/msettings.h $(PREFIX_LOCAL)/lib/librcheevos.a $(PREFIX_LOCAL)/lib/libchdr.so ../minarch/libretro-common
 	mkdir -p build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
@@ -61,3 +64,6 @@ $(PREFIX_LOCAL)/lib/librcheevos.a:
 
 $(PREFIX_LOCAL)/lib/libchdr.so:
 	cd ../minarch && make libchdr
+
+../minarch/libretro-common:
+	cd ../minarch && make libretro-common

@@ -94,6 +94,25 @@ int main(void) {
 	assert(ImageProbe_dimensions(p, &w, &h) && w == 5000 && h == 100);
 	assert(ImageProbe_isOversized(p, IMAGE_PROBE_MAX_SIDE));
 
+	// WebP: lossy (VP8) 640x480, lossless (VP8L) 300x200, extended (VP8X) 5000x10
+	const unsigned char vp8[30] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ', 0, 0, 0, 0,
+								   0x10, 0x02, 0x00, 0x9D, 0x01, 0x2A, 0x80, 0x02, 0xE0, 0x01};
+	unsigned int bits = 299 | 199u << 14;
+	const unsigned char vp8l[30] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'L', 0, 0, 0, 0,
+									0x2F, bits & 0xFF, (bits >> 8) & 0xFF, (bits >> 16) & 0xFF, bits >> 24};
+	const unsigned char vp8x[30] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'X', 10, 0, 0, 0,
+									0, 0, 0, 0, 0x87, 0x13, 0x00, 0x09, 0x00, 0x00};
+	const unsigned char* webps[] = {vp8, vp8l, vp8x};
+	const int webp_w[] = {640, 300, 5000}, webp_h[] = {480, 200, 10};
+	for (int i = 0; i < 3; i++) {
+		path_for(p, sizeof(p), "probe.webp");
+		f = fopen(p, "wb");
+		fwrite(webps[i], 1, 30, f);
+		fclose(f);
+		assert(ImageProbe_dimensions(p, &w, &h) && w == webp_w[i] && h == webp_h[i]);
+	}
+	assert(ImageProbe_isOversized(p, IMAGE_PROBE_MAX_SIDE));
+
 	// unknown format / missing file
 	path_for(p, sizeof(p), "x.webp");
 	f = fopen(p, "wb");
@@ -102,7 +121,7 @@ int main(void) {
 	assert(!ImageProbe_dimensions(p, &w, &h));
 	assert(!ImageProbe_dimensions("/nonexistent/x.png", &w, &h));
 
-	const char* names[] = {"small.jpg", "exif.jpg", "icc.jpg", "trunc.jpg", "bad.jpg", "wide.png", "x.webp"};
+	const char* names[] = {"small.jpg", "exif.jpg", "icc.jpg", "trunc.jpg", "bad.jpg", "wide.png", "probe.webp", "x.webp"};
 	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
 		path_for(p, sizeof(p), names[i]);
 		unlink(p);

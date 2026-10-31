@@ -71,8 +71,24 @@ static bool probe_jpeg(FILE* f, int* w, int* h) {
 	return false;
 }
 
+// WebP: the first chunk after RIFF....WEBP. VP8 (lossy): the key frame's start code, then 14-bit width and height;
+// VP8L (lossless): the 0x2F signature, then 14-bit width-1 and height-1; VP8X (extended): 24-bit canvas width-1 and
+// height-1.
+static bool probe_webp(const unsigned char* buf, int* w, int* h) {
+	if (memcmp(buf + 12, "VP8 ", 4) == 0 && buf[23] == 0x9D && buf[24] == 0x01 && buf[25] == 0x2A)
+		return set_dims((int)(read_le16(buf + 26) & 0x3FFF), (int)(read_le16(buf + 28) & 0x3FFF), w, h);
+	if (memcmp(buf + 12, "VP8L", 4) == 0 && buf[20] == 0x2F) {
+		unsigned int bits = buf[21] | buf[22] << 8 | buf[23] << 16 | (unsigned int)buf[24] << 24;
+		return set_dims((int)(bits & 0x3FFF) + 1, (int)((bits >> 14) & 0x3FFF) + 1, w, h);
+	}
+	if (memcmp(buf + 12, "VP8X", 4) == 0)
+		return set_dims((int)(buf[24] | buf[25] << 8 | buf[26] << 16) + 1, (int)(buf[27] | buf[28] << 8 | buf[29] << 16) + 1,
+						w, h);
+	return false;
+}
+
 bool ImageProbe_dimensionsFile(FILE* f, int* w, int* h) {
-	unsigned char buf[26];
+	unsigned char buf[30];
 	if (fseek(f, 0, SEEK_SET) != 0)
 		return false;
 	size_t n = fread(buf, 1, sizeof(buf), f);
@@ -89,6 +105,8 @@ bool ImageProbe_dimensionsFile(FILE* f, int* w, int* h) {
 	}
 	if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xD8)
 		return probe_jpeg(f, w, h);
+	if (n >= 30 && memcmp(buf, "RIFF", 4) == 0 && memcmp(buf + 8, "WEBP", 4) == 0)
+		return probe_webp(buf, w, h);
 
 	return false;
 }

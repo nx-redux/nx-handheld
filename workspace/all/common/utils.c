@@ -846,9 +846,10 @@ void ROM_mediaArtVariantPath(const char* rom_path, const char* variant,
 		out[0] = '\0'; // too long: no path rather than a cut one that names another file
 }
 
-// Game art the companion app (NX Redux Mobile) fetched may be stored as a JPEG under the same name:
-// .media/screenshot/Game.jpg where the path builders name Game.png. The extensions tried, after .png.
-static const char* art_alt_exts[] = {".jpg", ".jpeg"};
+// Game art the companion app (NX Redux Mobile) fetched may be stored as a JPEG under the same name, and a user's own
+// as WebP to save space: .media/screenshot/Game.jpg or Game.webp where the path builders name Game.png. The extensions
+// tried, after .png (Image_load decodes the WebP).
+static const char* art_alt_exts[] = {".jpg", ".jpeg", ".webp"};
 
 bool ROM_artExists(char* path, size_t size) {
 	if (exists(path))

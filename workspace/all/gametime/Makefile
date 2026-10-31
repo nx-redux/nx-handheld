@@ -22,11 +22,13 @@ SDL?=SDL
 
 TARGET = gametime
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
+# image_load.c: libretro-common's WebP decoder (the minarch checkout)
+INCDIR += -I../minarch/libretro-common/include
 include ../common/ui/ui.mk
 # ui_fonts.c's Fonts_drawListItemBg/Fonts_getListTextColor now delegate to
 # ui_list.c (UI_drawListItemBg/UI_getListTextColor) -- not in UI_COMPONENT_SRCS,
 # so any app compiling ui_fonts.c must also compile ui_list.c (mirrors ratools).
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../../$(PLATFORM)/platform/platform.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c ../common/image_load.c ../minarch/libretro-common/formats/webp/rwebp.c ../minarch/libretro-common/formats/vp8/rvp8.c ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(OPT)
@@ -35,9 +37,13 @@ LDFLAGS	 += -L../../$(PLATFORM)/libmsettings -lmsettings -lgametimedb -lsqlite3
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
-all: $(PREFIX_LOCAL)/include/gametimedb.h
+all: $(PREFIX_LOCAL)/include/gametimedb.h ../minarch/libretro-common
 	mkdir -p build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
+
+../minarch/libretro-common:
+	cd ../minarch && make libretro-common
+
 clean:
 	rm -f $(PRODUCT)
 

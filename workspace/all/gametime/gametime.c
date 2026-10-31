@@ -7,6 +7,7 @@
 #include "defines.h"
 #include "config.h"
 #include "api.h"
+#include "image_load.h"
 #include "ui_buttonhintbar.h"
 #include "ui_confirmdialog.h"
 #include "ui_emptystate.h"
@@ -187,11 +188,11 @@ SDL_Surface* loadRomImage(char* image_path) {
 	if (!exists(image_path))
 		return NULL;
 
-	SDL_Surface* img = IMG_Load(image_path);
+	SDL_Surface* img = Image_load(image_path);
 	if (!img)
 		return NULL;
 
-	// ARGB8888 whatever the file holds (24-bit PNG, JPEG, paletted): the circle mask needs an alpha channel
+	// ARGB8888 whatever the file holds (24-bit PNG, JPEG, WebP, paletted): the circle mask needs an alpha channel
 	if (img->format->format != SDL_PIXELFORMAT_ARGB8888) {
 		SDL_Surface* argb = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_ARGB8888, 0);
 		SDL_FreeSurface(img);

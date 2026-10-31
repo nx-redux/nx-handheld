@@ -19,6 +19,7 @@
 #include "ui_emptystate.h"
 #include "ui_image.h"
 #include "ui_menubar.h"
+#include "image_load.h"
 #include "image_probe.h"
 #include "ui_message.h"
 #include "ui_draw.h"
@@ -200,7 +201,7 @@ static SDL_Surface* gs_get_cached_image(const char* path) {
 		gs_img_surf = NULL;
 	}
 	// a huge picture is not decoded (cached as a miss like a missing file)
-	SDL_Surface* raw = ImageProbe_isOversized(path, IMAGE_PROBE_MAX_SIDE) ? NULL : IMG_Load(path);
+	SDL_Surface* raw = ImageProbe_isOversized(path, IMAGE_PROBE_MAX_SIDE) ? NULL : Image_load(path);
 	if (raw)
 		raw = UI_convertSurface(raw, screen);
 	gs_img_surf = raw;

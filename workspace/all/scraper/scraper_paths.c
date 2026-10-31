@@ -29,20 +29,29 @@ void Scraper_variantPath(const char* out_png, const char* variant,
 	snprintf(out, out_size, "%s/%s/%s", dir, variant, slash + 1);
 }
 
-// Delete every PNG directly inside one variant folder. Returns the count deleted.
-static int deletePngsIn(const char* dir_path) {
+// Whether a file name is a picture the art lookups read (ROM_artExists): .png, or a .jpg/.jpeg/.webp of the same name.
+static bool isArtFile(const char* name) {
+	static const char* exts[] = {".png", ".jpg", ".jpeg", ".webp"};
+	const char* dot = strrchr(name, '.');
+	for (size_t i = 0; dot && dot != name && i < sizeof(exts) / sizeof(exts[0]); i++)
+		if (strcasecmp(dot, exts[i]) == 0)
+			return true;
+	return false;
+}
+
+// Delete every picture directly inside one variant folder. Returns the count deleted.
+static int deleteArtIn(const char* dir_path) {
 	int deleted = 0;
 	DIR* dir = opendir(dir_path);
 	if (!dir)
 		return 0;
 	struct dirent* entry;
 	while ((entry = readdir(dir)) != NULL) {
-		size_t n = strlen(entry->d_name);
-		if (entry->d_name[0] == '.' || n <= 4 || strcasecmp(entry->d_name + n - 4, ".png") != 0)
+		if (entry->d_name[0] == '.' || !isArtFile(entry->d_name))
 			continue;
-		char png_path[MAX_PATH + 256];
-		snprintf(png_path, sizeof(png_path), "%s/%s", dir_path, entry->d_name);
-		if (remove(png_path) == 0)
+		char art_path[MAX_PATH + 256];
+		snprintf(art_path, sizeof(art_path), "%s/%s", dir_path, entry->d_name);
+		if (remove(art_path) == 0)
 			deleted++;
 	}
 	closedir(dir);
@@ -55,7 +64,7 @@ int Scraper_deleteMediaArtwork(const char* media_path) {
 	for (size_t v = 0; v < sizeof(variants) / sizeof(variants[0]); v++) {
 		char variant_path[MAX_PATH];
 		snprintf(variant_path, sizeof(variant_path), "%s/%s", media_path, variants[v]);
-		deleted += deletePngsIn(variant_path);
+		deleted += deleteArtIn(variant_path);
 		rmdir(variant_path); // no-op unless it is now empty
 	}
 	return deleted;
