@@ -41,8 +41,8 @@ float Row_top(float body_top, float body_h, float row_h, float room, float capti
 float Row_shade(float y_frac); // the monotone cubic through the six keys
 // The Backdrop picture (§8b.4, Horizontal and Vertical): a uniform black layer at ROW_BACKDROP_DIM over the
 // screenshot, inside the crossfade (each layer carries it), then the shade on top. Row_backdropGain is what's left of
-// the screenshot's brightness at y_frac: (1 − dim) · (1 − shade), so at least 72% dark everywhere (0.35 × 0.8).
-#define ROW_BACKDROP_DIM 0.65f // was 0.5 until 2026-10-02
+// the screenshot's brightness at y_frac: (1 − dim) · (1 − shade), so at least 80% dark everywhere (0.25 × 0.8).
+#define ROW_BACKDROP_DIM 0.75f // the picture at 25% (nx-mobile); 0.65 until 2026-10-31, 0.5 until 2026-10-02
 float Row_backdropGain(float y_frac);
 
 // The main-menu Carousel's "N games" line (sub-project 8). It has no caption block: each row is centred alone between

@@ -366,12 +366,12 @@ static void collections_fit_slot(void) {
 	assert(near(Row_collFitSlotSp(30, 10, BRICK_PX_SP, 60, 13, 50, two_lines, NULL), 10, 1e-4f));
 }
 
-// The Backdrop picture's dim is 65% (2026-10-02, was 50%), under the shade: at least 72% dark everywhere.
+// The Backdrop picture's dim is 75% (2026-10-31; 65% from 2026-10-02, 50% before), under the shade: at least 80% dark everywhere.
 static void backdrop_dim(void) {
-	assert(near(ROW_BACKDROP_DIM, 0.65f, 1e-6f));
-	assert(near(Row_backdropGain(0.32f), 0.35f * 0.8f, 1e-4f)); // the shade's lightest key (0.20)
-	assert(near(Row_backdropGain(0.0f), 0.35f * 0.15f, 1e-4f));
-	assert(near(Row_backdropGain(1.0f), 0.35f * 0.2f, 1e-4f));
+	assert(near(ROW_BACKDROP_DIM, 0.75f, 1e-6f));
+	assert(near(Row_backdropGain(0.32f), 0.25f * 0.8f, 1e-4f)); // the shade's lightest key (0.20)
+	assert(near(Row_backdropGain(0.0f), 0.25f * 0.15f, 1e-4f));
+	assert(near(Row_backdropGain(1.0f), 0.25f * 0.2f, 1e-4f));
 	for (int i = 0; i <= 100; i++)
 		assert(Row_backdropGain(i / 100.0f) <= 0.28f + 1e-4f);
 }

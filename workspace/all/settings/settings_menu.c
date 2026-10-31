@@ -208,6 +208,34 @@ static void cycle_item_prev(SettingItem* item, int step) {
 // Input Handling
 // ============================================
 
+// The screen the menu last drew on: the full description opens on it (settings_menu_render keeps it).
+static SDL_Surface* menu_screen = NULL;
+
+// A row's description in full, on its own page (the description area cuts it at two lines): B or Y closes.
+static void show_full_desc(const char* title, const char* desc) {
+	SDL_Surface* screen = menu_screen;
+	if (!screen || !desc)
+		return;
+	char text[1024];
+	snprintf(text, sizeof(text), "%s", desc);
+	int w = screen->w - SCALE1(PADDING * 2);
+	GFX_wrapText(font.small, text, w, 0);
+	PAD_reset();
+	while (1) {
+		GFX_startFrame();
+		PAD_poll();
+		if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_Y))
+			break;
+		GFX_clear(screen);
+		UI_renderMenuBar(screen, (char*)title);
+		GFX_blitMessage(font.small, text, screen, &(SDL_Rect){SCALE1(PADDING), 0, w, screen->h});
+		UI_renderButtonHintBar(screen, (char*[]){"B", "CLOSE", NULL});
+		GFX_flip(screen);
+	}
+	PAD_poll();
+	PAD_reset(); // the close press stays here
+}
+
 void settings_menu_handle_input(bool* quit, bool* dirty) {
 	SettingsPage* page = settings_menu_current();
 	if (!page) {
@@ -352,6 +380,12 @@ void settings_menu_handle_input(bool* quit, bool* dirty) {
 		default:
 			break;
 		}
+	}
+
+	// Y: the description in full, when the area cuts it
+	if (sel && PAD_justPressed(BTN_Y) && UI_settingsDescCut(menu_screen, sel_snap.desc)) {
+		show_full_desc(sel_snap.name, sel_snap.desc);
+		changed = 1;
 	}
 
 	// Back (B button)
@@ -543,6 +577,18 @@ static void render_hints_for_page(SDL_Surface* screen, SettingsPage* page) {
 		}
 	}
 
+	// a description the area cuts: Y opens it in full, before A (the bar keeps A rightmost)
+	if (sel && !page->is_list && UI_settingsDescCut(screen, sel->desc)) {
+		int n = 0;
+		while (hints[n])
+			n += 2;
+		if (n + 2 < (int)(sizeof(hints) / sizeof(hints[0]))) {
+			int at = n >= 2 && strcmp(hints[n - 2], "A") == 0 ? n - 2 : n;
+			for (int k = n + 1; k >= at; k--)
+				hints[k + 2] = hints[k];
+			hints[at] = "Y", hints[at + 1] = "MORE";
+		}
+	}
 	UI_renderButtonHintBar(screen, hints);
 }
 
@@ -554,6 +600,7 @@ void settings_menu_render(SDL_Surface* screen, IndicatorType show_setting) {
 	SettingsPage* page = settings_menu_current();
 	if (!page)
 		return;
+	menu_screen = screen;
 
 	GFX_clear(screen);
 

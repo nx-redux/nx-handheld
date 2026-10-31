@@ -1651,9 +1651,10 @@ static int captionLines(const CapStyle* cs, int name_h, const SegRow* rows, int 
 static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const char* name, const SegRow* rows,
 								   int nrows) {
 	char key[CAPTION_KEY];
-	int n = snprintf(key, sizeof(key), "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%08x|%s|", (int)FIXED_SCALE, cs->w, cs->max_h,
-					 cs->reserve_h, cs->name_lines, cs->gap, cs->left, cs->shadow, cs->right, cs->game,
-					 (unsigned)View_fnvStr(2166136261u, path), name ? name : "");
+	SDL_Color main = UI_accent(); // the name's colour (the Main color, as the selection elsewhere)
+	int n = snprintf(key, sizeof(key), "%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%02x%02x%02x|%08x|%s|", (int)FIXED_SCALE, cs->w,
+					 cs->max_h, cs->reserve_h, cs->name_lines, cs->gap, cs->left, cs->shadow, cs->right, cs->game,
+					 main.r, main.g, main.b, (unsigned)View_fnvStr(2166136261u, path), name ? name : "");
 	int look_n = n; // the key up to the name: the same game in the same look, whatever its info rows
 	for (int r = 0; r < nrows && n > 0 && (size_t)n < sizeof(key); r++) {
 		for (int i = 0; i < rows[r].n && n > 0 && (size_t)n < sizeof(key); i++)
@@ -1735,6 +1736,18 @@ static SDL_Surface* captionSurface(const CapStyle* cs, const char* path, const c
 			 : cs->left			   ? Tiles_textBlockLeft(caption.s, fn, name, 0, 0, w, cs->name_lines, 255, cs->shadow)
 								   : Tiles_textBlock(caption.s, fn, name, w / 2, 0, w, cs->name_lines, false, 255, 255,
 													 cs->shadow);
+		// the white name in the Main color: its rows multiplied by it (the dark shadow stays dark)
+		for (int yy = 0; yy < y && yy < h; yy++) {
+			Uint32* row = (Uint32*)((Uint8*)caption.s->pixels + yy * caption.s->pitch);
+			for (int xx = 0; xx < w; xx++) {
+				Uint32 p = row[xx];
+				if (!(p >> 24))
+					continue;
+				Uint32 r = ((p >> 16) & 0xFF) * main.r / 255, g = ((p >> 8) & 0xFF) * main.g / 255,
+					   b = (p & 0xFF) * main.b / 255;
+				row[xx] = (p & 0xFF000000u) | (r << 16) | (g << 8) | b;
+			}
+		}
 	}
 	TTF_Font* fi = UIFont_get(capInfoSp(cs), false);
 	for (int l = 0; fi && l < nlines; l++) {

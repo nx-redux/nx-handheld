@@ -2552,20 +2552,7 @@ static void renderHints(SDL_Surface* screen, IndicatorType show_setting) {
 		right_pairs[p++] = "OPEN";
 	}
 
-	// The hint bar holds four: with SELECT added, START SEARCH goes first.
-	if (p / 2 > 4) {
-		for (int i = 0; i < p; i += 2) {
-			if (strcmp(right_pairs[i], "START") == 0) {
-				for (int k = i; k + 2 < p; k++)
-					right_pairs[k] = right_pairs[k + 2];
-				p -= 2;
-				right_pairs[p] = NULL;
-				right_pairs[p + 1] = NULL;
-				break;
-			}
-		}
-	}
-
+	// past four (or the screen's width) the bar drops the least needed itself, START SEARCH first (UI_hintDropRank)
 	if (right_pairs[0])
 		UI_renderButtonHintBar(screen, right_pairs);
 }
@@ -2820,7 +2807,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 		Home_renderListStrip(screen);
 		list_body_clear = false;
 	}
-	// Home's List: Continue's row (always the first) wears its tag before the name, the name moved after it
+	// Home's List: Continue's row (always the first) wears its tag after the name, the name's room short of it
 	int tag_w = home_list ? Home_listTagWidth() : 0;
 
 	// The info band (a GPU layer), drawn even for an empty list. Drawn before the rows: the marquee below
@@ -2954,7 +2941,7 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				};
 				// selected=false: the selection background is the moving pill drawn
 				// above, not a per-row static pill.
-				int row_tag_w = i == 0 ? tag_w : 0; // Home's Continue tag, before the name
+				int row_tag_w = i == 0 ? tag_w : 0; // Home's Continue tag, after the name
 				ListItemPos pos = UI_renderListItemPill(
 					screen, &item_layout, list_font,
 					display_text, truncated, y, false, row_tag_w);
@@ -2962,9 +2949,13 @@ void GameList_render(SDL_Surface* screen, int lastScreen,
 				int text_width = pos.pill_width - SCALE1(BUTTON_PADDING * 2) - row_tag_w;
 				// the tag tints with the row (pill_over, below): drawn with it, a sprite when the rows are
 				bool tag_over = row_tag_w > 0 && pill_y >= 0 && abs(pill_y - y) * 2 < row_h;
-				if (row_tag_w > 0) {
-					Home_listDrawTag(screen, pos.text_x, pos.text_y, TTF_FontHeight(list_font), tag_over, row_sprites);
-					pos.text_x += row_tag_w;
+				if (row_tag_w > 0) { // after the name as drawn: its width, or its room's end when it is cut or scrolls
+					int name_w = 0;
+					TTF_SizeUTF8(list_font, display_text, &name_w, NULL);
+					if (name_w > text_width)
+						name_w = text_width;
+					Home_listDrawTag(screen, pos.text_x + name_w, pos.text_y, TTF_FontHeight(list_font), tag_over,
+									 row_sprites);
 				}
 				// This call site is the only place list_scroll resyncs (via
 				// ScrollText_update's strcmp), so while it's gated off below a

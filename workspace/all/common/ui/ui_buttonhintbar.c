@@ -18,21 +18,26 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 		int ow;
 	};
 
-	struct Hint hints[4];
+#define HINT_CANDIDATES 8
+	struct Hint hints[HINT_CANDIDATES];
+	const char* buttons[HINT_CANDIDATES];
+	int keep[HINT_CANDIDATES];
 	int count = 0;
 	int total_w = 0;
 
-	// Parse hardware hints first (priority), then caller pairs
+	// Parse hardware hints first (always kept), then caller pairs
 	char** groups[] = {hw_pairs, pairs};
 	for (int g = 0; g < 2; g++) {
 		if (!groups[g])
 			continue;
-		for (int i = 0; groups[g][i * 2] && count < 4; i++) {
+		for (int i = 0; groups[g][i * 2] && count < HINT_CANDIDATES; i++) {
 			char* button = groups[g][i * 2];
 			char* hint = groups[g][i * 2 + 1];
 			if (!hint)
 				break;
 			int w = GFX_getButtonWidth(hint, button);
+			buttons[count] = button;
+			keep[count] = g == 0;
 			hints[count++] = (struct Hint){hint, button, w};
 			total_w += SCALE1(BUTTON_MARGIN) + w;
 		}
@@ -41,6 +46,19 @@ int UI_renderButtonHintBarEx(SDL_Surface* dst, char** pairs, Uint8 scrim_alpha) 
 	if (count == 0)
 		return 0;
 	total_w += SCALE1(BUTTON_MARGIN);
+
+	// Over UI_HINTBAR_MAX, or wider than the screen: the least needed go first (UI_hintDropRank: START, SELECT,
+	// MENU, Y, X, ...), never A, B or a hardware hint
+	int room = dst->w - 2 * SCALE1(PADDING);
+	while (count > UI_HINTBAR_MAX || total_w > room) {
+		int d = UI_hintDropPick(buttons, keep, count);
+		if (d < 0)
+			break;
+		total_w -= SCALE1(BUTTON_MARGIN) + hints[d].ow;
+		for (int k = d; k + 1 < count; k++)
+			hints[k] = hints[k + 1], buttons[k] = buttons[k + 1], keep[k] = keep[k + 1];
+		count--;
+	}
 
 	// Full-width semi-transparent black bar (keep in step with UI_buttonHintIconTop): BAR_HEIGHT (the space every screen
 	// reserves), the hints in it centred

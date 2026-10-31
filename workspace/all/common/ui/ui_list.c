@@ -743,6 +743,30 @@ void UI_renderSettingsPageEx(SDL_Surface* screen, ListLayout* layout,
 	}
 }
 
+bool UI_settingsDescCut(SDL_Surface* screen, const char* desc) {
+	if (!screen || !desc || !desc[0])
+		return false;
+	int max_w = screen->w - SCALE1(PADDING * 2); // as the area draws it
+	char wrapped[256];
+	snprintf(wrapped, sizeof(wrapped), "%s", desc);
+	if (strlen(desc) >= sizeof(wrapped))
+		return true; // the area's own copy is cut there too
+	if (!strchr(wrapped, '\n'))
+		GFX_wrapText(font.tiny, wrapped, max_w, 0); // unlimited: every line it would take
+	int lines = 0;
+	for (char* line = wrapped; line; lines++) {
+		char* nl = strchr(line, '\n');
+		if (nl)
+			*nl = '\0';
+		int w = 0;
+		GFX_measureText(font.tiny, line, &w, NULL);
+		if (w > max_w || lines >= 2)
+			return true; // a line the area truncates, or one past its two
+		line = nl ? nl + 1 : NULL;
+	}
+	return false;
+}
+
 // Default: reserve two rows for the (up to two-line) description area.
 void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 						   UISettingsItem* items, int count,

@@ -5,7 +5,9 @@
 
 // Render the bottom button hint bar: full-width semi-transparent background,
 // hardware hints first (priority), then the caller's NULL-terminated
-// {button, hint} pairs, up to 4 hints total. Returns the total hint width.
+// {button, hint} pairs, up to 4 hints total; over that, or wider than the
+// screen, the least needed are dropped (UI_hintDropRank: START, SELECT, MENU,
+// Y, X, the rest; never A, B or a hardware hint). Returns the total hint width.
 // The scrim is black at 80% (alpha 204).
 int UI_renderButtonHintBar(SDL_Surface* dst, char** pairs);
 // The same with a chosen scrim alpha (the Game Switcher uses 230).

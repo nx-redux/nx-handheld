@@ -178,7 +178,7 @@ static MinRow min_rows[MIN_ROWS];
 static int min_tops[MIN_ROWS]; // each row's top in the stacked names (px from the first's)
 static MinMetrics min_m;
 static int min_area_top = 0;
-static SDL_Surface* min_tags[3] = {NULL, NULL, NULL}; // the tag pills by kind (minTag)
+static SDL_Surface* min_tags[2] = {NULL, NULL}; // the tag pills by kind (minTag: Continue's, 1)
 static MinOpen min_open;
 static bool min_sprites = false; // this frame draws the names as GPU sprites (not under a context menu: as the Carousel)
 // With Page title or Button hints hidden the names run on to the screen's top or bottom edge under a fade to black
@@ -814,7 +814,7 @@ void Home_reset(void) {
 
 void Home_quit(void) {
 	minFree();
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 2; i++) {
 		GFX_freeSurfaceAndTexture(min_tags[i]);
 		min_tags[i] = NULL;
 	}
@@ -2036,9 +2036,9 @@ static void renderHints(SDL_Surface* dst) {
 ///////////////////////////////////////
 // The Minimal
 
-// A tag's pill (as the List's Continue tag, unlit: the list text at 14% behind its word), made once per kind.
+// The Continue tag's pill (as the List's Continue tag), made once (kind 1; 0 is no tag).
 static SDL_Surface* minTag(int kind) {
-	if (kind < 1 || kind > 2)
+	if (kind != 1)
 		return NULL;
 	if (min_tags[kind])
 		return min_tags[kind];
@@ -2047,7 +2047,7 @@ static SDL_Surface* minTag(int kind) {
 	TTF_Font* f = tag_px > 0 ? UIFont_getPx(tag_px, false) : NULL;
 	if (!f)
 		return NULL;
-	const char* word = kind == 1 ? "Continue" : "Tool";
+	const char* word = "Continue";
 	// solid in the accent with its ink, as a lit card (cardBg / cardInk)
 	SDL_Color fill = cardBg(true), ink = cardInk(true);
 	HomeListTag t = HomeList_tag(TTF_FontHeight(f), textW(f, word));
@@ -2081,7 +2081,8 @@ static void minFree(void) {
 	min_n = 0;
 }
 
-// Row i's name and tag kind: Continue's game (Pick a game with none), a pinned game, a pinned tool.
+// Row i's name and tag kind (1: Continue's game, else 0): Continue's game (Pick a game with none), a pinned game, a
+// pinned tool.
 static const char* minLabel(int i, int* tag) {
 	HomeListItem it = HomeList_item(i, ngames, ntools);
 	*tag = 0;
@@ -2093,8 +2094,7 @@ static const char* minLabel(int i, int* tag) {
 	}
 	if (it.kind == HOMELIST_GAME)
 		return games[it.ref] ? View_displayName(games[it.ref]) : "";
-	*tag = 2;
-	return tools[it.ref] ? View_displayName(tools[it.ref]) : "";
+	return tools[it.ref] ? View_displayName(tools[it.ref]) : ""; // no tag: the tool's own name says what it is
 }
 
 // Every row's surfaces and place: wrapped at the gutters onto up to MIN_MAX_LINES lines, the tag after the last word
@@ -2498,18 +2498,23 @@ static SDL_Surface* listTag(bool lit) {
 	return s;
 }
 
+// The gap between the name and the tag (px), 0 with no tag font.
+static int listTagGap(void) {
+	int tag_px = (int)TextPx_for(TEXT_HOME_CONT_BADGE, UIScale_deviceIndex(UI_DEVICE_NAME));
+	TTF_Font* f = tag_px > 0 ? UIFont_getPx(tag_px, false) : NULL;
+	return f ? HomeList_tag(TTF_FontHeight(f), 0).gap : 0;
+}
+
 int Home_listTagWidth(void) {
 	SDL_Surface* s = listTag(false);
-	int tag_px = (int)TextPx_for(TEXT_HOME_CONT_BADGE, UIScale_deviceIndex(UI_DEVICE_NAME));
-	TTF_Font* f = s ? UIFont_getPx(tag_px, false) : NULL;
-	return f ? s->w + HomeList_tag(TTF_FontHeight(f), 0).gap : 0;
+	return s ? listTagGap() + s->w : 0;
 }
 
 void Home_listDrawTag(SDL_Surface* dst, int x, int text_y, int text_h, bool lit, bool sprite) {
 	SDL_Surface* s = listTag(lit);
 	if (!s)
 		return;
-	SDL_Rect r = {x, text_y + (text_h - s->h) / 2, s->w, s->h};
+	SDL_Rect r = {x + listTagGap(), text_y + (text_h - s->h) / 2, s->w, s->h};
 	SDL_Texture* tex = sprite ? PLAT_textureForSurface(s) : NULL;
 	if (tex)
 		PLAT_spriteAdd(tex, NULL, &r, 255, NULL);

@@ -202,6 +202,10 @@ void UI_renderSettingsPage(SDL_Surface* screen, ListLayout* layout,
 						   int selected, int* scroll,
 						   const char* status_msg);
 
+// Whether the settings page's description area cuts desc (more than its two lines on this screen): the page then
+// offers the full text (Y MORE).
+bool UI_settingsDescCut(SDL_Surface* screen, const char* desc);
+
 // As above, but `desc_rows` sets how many rows are reserved for the
 // description area (clamped to at least 1). A page with no per-item
 // descriptions passes 1 to fit one more item.

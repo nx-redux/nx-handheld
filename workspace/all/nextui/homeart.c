@@ -365,7 +365,7 @@ static SDL_Surface* buildBoxart(int kind, const char* rom, int w, int h, int* ox
 	return out;
 }
 
-// The Backdrop picture: the screenshot cropped to fill w×h (centred), dimmed 65% (ROW_BACKDROP_DIM), then each row
+// The Backdrop picture: the screenshot cropped to fill w×h (centred), dimmed 75% (ROW_BACKDROP_DIM), then each row
 // darkened by the shade curve (Row_backdropGain). Opaque.
 static SDL_Surface* buildBackdrop(const char* rom, int w, int h) {
 	HomeArtRect keep = {0};
