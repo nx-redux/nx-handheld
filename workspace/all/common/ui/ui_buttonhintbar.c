@@ -1,6 +1,7 @@
 #include "ui_buttonhintbar.h"
 #include "ui_hintbar_layout.h"
 #include "ui_draw.h"
+#include "ui_list.h"
 #include "api.h"
 #include "defines.h"
 

@@ -70,6 +70,12 @@ ModuleExitReason SettingsModule_run(SDL_Surface* screen) {
 			continue;
 		}
 
+		// SELECT: screen off while audio plays (redraw once woken)
+		if (ModuleCommon_screenOffOnSelect(screen)) {
+			dirty = 1;
+			continue;
+		}
+
 		// State-specific handling
 		switch (state) {
 		case SETTINGS_STATE_MENU:

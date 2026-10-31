@@ -721,6 +721,13 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 			}
 		}
 
+		// SELECT on the browser: screen off while audio plays (Now Playing
+		// handles its own SELECT in handle_playing_input)
+		if (state == PLAYER_INTERNAL_BROWSER && ModuleCommon_screenOffOnSelect(screen)) {
+			dirty = 1;
+			continue;
+		}
+
 		if (state == PLAYER_INTERNAL_BROWSER) {
 			if (handle_browser_input(&state, &dirty)) {
 				return MODULE_EXIT_TO_MENU;
