@@ -83,10 +83,17 @@ static bool rotate_ffmpeg(const char* path, const char* tmp, int turns, bool is_
 	return spawn_quiet_wait(is_jpg ? jpg_argv : other_argv, false) && access(tmp, F_OK) == 0;
 }
 
+bool IvRotate_canSave(const char* path) {
+	const char* dot = strrchr(path, '.');
+	return !dot || strcasecmp(dot + 1, "webp") != 0;
+}
+
 bool IvRotate_file(const char* path, int turns) {
 	turns = ((turns % 4) + 4) % 4;
 	if (turns == 0)
 		return true;
+	if (!IvRotate_canSave(path))
+		return false;
 
 	const char* slash = strrchr(path, '/');
 	const char* dot = strrchr(path, '.');

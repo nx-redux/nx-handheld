@@ -13,6 +13,7 @@ static const char* img_exts[] = {
 	"jpeg",
 	"bmp",
 	"gif",
+	"webp",
 	NULL};
 
 // Check if file is a supported image format

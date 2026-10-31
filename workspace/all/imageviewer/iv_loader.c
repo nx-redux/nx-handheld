@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "image_load.h"
 #include "iv_defines.h"
 #include "iv_loader.h"
 #include "iv_probe.h"
@@ -70,7 +71,7 @@ static IvLoadResult decodeRequest(const char* path, IvLoadPurpose purpose) {
 		return r;
 	}
 
-	SDL_Surface* raw = IMG_Load(path);
+	SDL_Surface* raw = Image_load(path);
 	if (!raw) {
 		r.status = IV_LOAD_ERR_DECODE;
 		return r;

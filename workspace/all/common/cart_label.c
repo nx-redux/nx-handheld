@@ -16,13 +16,14 @@ bool CartLabel_cut(const uint32_t* src, int w, int h, int pitch, uint32_t* dst, 
 
 #ifndef CART_LABEL_NO_SDL
 #include "defines.h"
+#include "image_load.h"
 #include "utils.h"
 
 SDL_Surface* CartLabel_load(const char* path) {
 	char cart[MAX_PATH];
 	if (!ROM_cartLabelCart(path, cart, sizeof(cart)))
-		return IMG_Load(path);
-	SDL_Surface* img = IMG_Load(cart);
+		return Image_load(path);
+	SDL_Surface* img = Image_load(cart);
 	if (!img)
 		return NULL;
 	SDL_Surface* argb = SDL_ConvertSurfaceFormat(img, SDL_PIXELFORMAT_ARGB8888, 0);

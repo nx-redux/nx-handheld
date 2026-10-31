@@ -394,8 +394,13 @@ IvViewerStatus IvViewer_update(SDL_Surface* screen, bool* dirty) {
 	}
 
 	if (PAD_justPressed(BTN_Y) && vw_image) {
-		vw_rotate();
-		vw_hint_until = SDL_GetTicks() + 3000;
+		if (IvRotate_canSave(vw_browser->entries[vw_index].path)) {
+			vw_rotate();
+			vw_hint_until = SDL_GetTicks() + 3000;
+		} else {
+			snprintf(vw_toast, sizeof(vw_toast), "WebP images can't be rotated");
+			vw_toast_time = SDL_GetTicks();
+		}
 		*dirty = true;
 	}
 

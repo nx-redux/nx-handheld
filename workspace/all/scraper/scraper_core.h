@@ -40,9 +40,10 @@ typedef void (*ScrapeProgressCb)(const char* stage, void* userdata);
 void Scraper_variantPath(const char* out_png, const char* variant,
 						 char* out, size_t out_size);
 
-// Reset artwork for one .media directory: delete the PNGs in each scraper variant folder (screenshot/, boxart/,
-// boxart2d/, wheel/, mix/) and remove each folder once it is empty. The root .media/*.png pictures are the user's own
-// art (Ports, hand-made pictures) and the folder backgrounds: never touched. Returns the number of files deleted.
+// Reset artwork for one .media directory: delete the pictures (.png, .jpg, .jpeg, .webp) in each scraper variant
+// folder (screenshot/, boxart/, boxart2d/, wheel/, mix/) and remove each folder once it is empty. The root .media
+// pictures are the user's own art (Ports, hand-made pictures) and the folder backgrounds: never touched. Returns the
+// number of files deleted.
 int Scraper_deleteMediaArtwork(const char* media_path);
 
 // Reset artwork across `roms_root`: Scraper_deleteMediaArtwork for every folder's .media, nested game folders too

@@ -15,4 +15,7 @@ SDL_Surface* IvRotate_surface(SDL_Surface* src, int turns);
 // beside the original and renamed over it, so a failure leaves the file as
 // it was. Returns false on any failure.
 bool IvRotate_file(const char* path, int turns);
+
+// Whether IvRotate_file can rewrite this file: not a WebP (the device ffmpeg decodes it but has no WebP encoder).
+bool IvRotate_canSave(const char* path);
 #endif
