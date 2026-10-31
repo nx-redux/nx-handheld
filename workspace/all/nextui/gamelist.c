@@ -2255,7 +2255,14 @@ static TTF_Font* listFont(bool root) {
 	return root ? UI_mainListFont() : font.large; // font.large where the sizes match
 }
 
-static InfoBandLayout listLayoutFrom(int list_top, bool root) {
+// The Bricks' Home List (under its stats strip): its rows also take the band's top padding (down to the band's text)
+// and sit 1.5 dp lower, the Brick's slot otherwise missing a sixth row at the main menu's pitch by a few px. The
+// Smart Pro's keeps the main menu's.
+static bool brickHomeList(void) {
+	return Home_isList() && UIScale_deviceIndex(UI_DEVICE_NAME) != UI_DEVICE_SMARTPRO;
+}
+
+static InfoBandLayout listLayoutFrom(int list_top, bool root, bool home) {
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
 	// the hint bar (UI_buttonHintBarTop). Layouts > Bottom bar and Extra info both hidden: nothing ever sits in its
 	// row, so the List runs to the bottom edge. With Extra info shown the row stays, a game's info line moving into it,
@@ -2266,6 +2273,10 @@ static InfoBandLayout listLayoutFrom(int list_top, bool root) {
 	int overlap = no_bar ? 0 : InfoBand_overlap(NX_DP(12), InfoBand_hintInkTop(bar_h, SCALE1(BUTTON_SIZE)));
 	InfoBandLayout l =
 		InfoBand_fixedLayout(screen_h, bar_h, list_top, listPitch(root), NX_DP(18), NX_DP(4), overlap);
+	if (home) {
+		l.band_top = l.text_top;
+		l.rows = InfoBand_listFit(l.band_top - list_top, listPitch(root), &l.row_h);
+	}
 	// The band paints no fade of its own, only its text: with the hints shown the bar's scrim is under it
 	// and a game's info is off; hidden (Layouts > Bottom bar), the same rows and band, a game list keeping the bar's
 	// scrim alone (renderHintScrim) with the info line moved into its row
@@ -2274,7 +2285,7 @@ static InfoBandLayout listLayoutFrom(int list_top, bool root) {
 }
 
 static InfoBandLayout listLayoutAt(bool root) {
-	return listLayoutFrom(listTopAt(root), root);
+	return listLayoutFrom(listTopAt(root), root, false);
 }
 
 // The List shown: the Game Switcher's (Layouts > Game Switcher layout: List, as a game list's), Home's (Layouts > Home
@@ -2297,7 +2308,7 @@ static int listShift(int list_top, bool root) {
 	// the tabs' rows never carry one
 	if ((!root || Home_isList()) && !CFG_getButtonHints() && CFG_getExtraInfo())
 		return 0;
-	InfoBandLayout l = listLayoutFrom(list_top, root);
+	InfoBandLayout l = listLayoutFrom(list_top, root, brickHomeList());
 	int screen_h = screen ? screen->h : FIXED_HEIGHT;
 	bool no_bar = !MenuTabs_bottomBar() && !CFG_getExtraInfo(); // as listLayoutFrom: the rows run to the bottom edge
 	int bar_ink = root ? MenuTabs_rowInkTop(screen_h) : -1;
@@ -2314,17 +2325,17 @@ static int shownListTop(void) {
 		return listTopAt(false);
 	bool root = Home_isList() || atRoot();
 	int list_top = Home_isList() ? Home_listTop() : listTop();
-	return list_top + listShift(list_top, root);
+	return list_top + listShift(list_top, root) + (brickHomeList() ? NX_DP(1.5) : 0);
 }
 
 static InfoBandLayout listLayout(void) {
 	if (GameSwitcher_isList())
 		return listLayoutAt(false);
-	return Home_isList() ? listLayoutFrom(Home_listTop(), true) : listLayoutAt(atRoot());
+	return Home_isList() ? listLayoutFrom(Home_listTop(), true, brickHomeList()) : listLayoutAt(atRoot());
 }
 
 int GameList_rowCountFrom(int list_top) {
-	return listLayoutFrom(list_top, true).rows;
+	return listLayoutFrom(list_top, true, UIScale_deviceIndex(UI_DEVICE_NAME) != UI_DEVICE_SMARTPRO).rows;
 }
 
 // The launcher's List rows (the main menu's, the game lists' and the Game Switcher's): the shared list's text start
