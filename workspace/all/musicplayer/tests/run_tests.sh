@@ -45,6 +45,10 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -o /tmp/nx_test_radio_hls
 /tmp/nx_test_radio_hls_ts
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I.. -I../../common -I../../../tg5040/platform -DPLATFORM=\"tg5040\" -o /tmp/nx_test_playlist_m3u ../playlist_m3u.c ../music_format.c test_playlist_m3u.c
 /tmp/nx_test_playlist_m3u
+# music_service_client.c sends with MSG_NOSIGNAL, which macOS lacks
+NOSIGNAL_FLAG=$([ "$(uname)" = Darwin ] && echo -DMSG_NOSIGNAL=0 || true)
+cc -std=gnu99 -Wall -Werror -D_GNU_SOURCE $NOSIGNAL_FLAG -I.. -o /tmp/nx_test_music_service_query ../music_service_client.c test_music_service_query.c
+/tmp/nx_test_music_service_query
 if command -v sdl2-config >/dev/null 2>&1; then
 	SDL_HEADERS="-DUSE_SDL2 $(sdl2-config --cflags) -I$(sdl2-config --prefix)/include"
 	# -Wno-typedef-redefinition: player.h forward-declares SDL_Surface (C11 allows the repeat, gnu99 warns)

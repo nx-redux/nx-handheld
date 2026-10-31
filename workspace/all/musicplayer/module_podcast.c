@@ -381,6 +381,14 @@ ModuleExitReason PodcastModule_run(SDL_Surface* screen) {
 			}
 		}
 
+		// SELECT on the list pages: screen off while audio plays (the playing
+		// page has its own screen-off handling)
+		if (state != PODCAST_INTERNAL_PLAYING && state != PODCAST_INTERNAL_SEEKING &&
+			ModuleCommon_screenOffOnSelect(screen)) {
+			dirty = 1;
+			continue;
+		}
+
 		// =========================================
 		// PODCAST MENU STATE (unified: continue listening + subscriptions)
 		// =========================================

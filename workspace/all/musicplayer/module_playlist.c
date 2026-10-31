@@ -257,6 +257,12 @@ ModuleExitReason PlaylistModule_run(SDL_Surface* screen) {
 			continue;
 		}
 
+		// SELECT: screen off while audio plays (redraw once woken)
+		if (ModuleCommon_screenOffOnSelect(screen)) {
+			dirty = 1;
+			continue;
+		}
+
 		if (state == PLAYLIST_INTERNAL_LIST) {
 			ListView* v = PlaylistList_view();
 

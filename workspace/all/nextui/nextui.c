@@ -41,6 +41,7 @@
 #include "artloader.h"
 #include "types.h"
 #include "cpu_policy.h"
+#include "../musicplayer/music_service_client.h"
 
 // Boot-phase stamps into the same file the launch scripts write, so a slow
 // boot can be attributed (script phase vs GFX init vs content scan vs first
@@ -251,6 +252,9 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 	if (!HAS_POWER_BUTTON && !simple_mode)
 		PWR_disableSleep();
+	// Music left playing in the background (START in the Music Player): a power
+	// tap only turns the screen off, since a real sleep would pause it
+	PWR_setScreenOffCheck(MusicService_isPlaying);
 
 	initImageLoaderPool();
 	GameInfo_init();

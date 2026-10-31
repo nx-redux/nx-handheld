@@ -70,6 +70,12 @@ ModuleExitReason LibraryModule_run(SDL_Surface* screen) {
 			continue;
 		}
 
+		// SELECT: screen off while audio plays (redraw once woken)
+		if (ModuleCommon_screenOffOnSelect(screen)) {
+			dirty = 1;
+			continue;
+		}
+
 		// Menu input: the ListView owns navigation, the module switches on
 		// the returned action. MENU is handled globally above - ignored here.
 		ListViewAction act = UI_listViewHandleInput(v);

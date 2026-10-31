@@ -144,3 +144,13 @@ int MusicService_request(int fd, uint16_t command, const void* payload,
 	terminate_response_strings(response);
 	return response->status;
 }
+
+int MusicService_isPlaying(void) {
+	int fd = MusicService_connect(NULL, 20);
+	if (fd < 0)
+		return 0;
+	MusicResponseWire response;
+	int status = MusicService_request(fd, MUSIC_CMD_SNAPSHOT, NULL, 0, &response, 100);
+	MusicService_disconnect(fd);
+	return status == MUSIC_STATUS_OK && response.snapshot.state == MUSIC_STATE_PLAYING;
+}
