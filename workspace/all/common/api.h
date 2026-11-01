@@ -929,6 +929,7 @@ void PWR_pinBackgroundThread(void);
 void PLAT_setRumble(int strength);
 void PLAT_captureRecStop(void);
 void PLAT_pokeCapture(void); // republish a frame for the OSD capture daemons when the app is idle
+bool PLAT_isOSDShown(void);	 // the OSD panel is up (it owns the pad until it closes)
 
 char* PLAT_getModel(void);
 void PLAT_getOsVersionInfo(char* output_str, size_t max_len);

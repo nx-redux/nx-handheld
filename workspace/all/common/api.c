@@ -3409,6 +3409,10 @@ void PAD_reset(void) {
 // flag keymon toggles). See the gate in PLAT_pollInput below.
 #define OSD_SHOW_FLAG "/tmp/trimui_osd/osdd_show_up"
 
+bool PLAT_isOSDShown(void) {
+	return access(OSD_SHOW_FLAG, F_OK) == 0;
+}
+
 FALLBACK_IMPLEMENTATION void PLAT_pokeCapture(void) {}
 FALLBACK_IMPLEMENTATION void PLAT_setBigCoreOnline(bool online) {
 	(void)online; // single cluster (tg5040): nothing to hotplug
@@ -3532,7 +3536,7 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 	// foreground app. Gate every redux UI here so nothing navigates behind the OSD:
 	// neutralize the pad, drain queued SDL events, and skip repeat generation. Harmless
 	// on devices whose grab already works (SDL simply sees no events there anyway).
-	if (access(OSD_SHOW_FLAG, F_OK) == 0) {
+	if (PLAT_isOSDShown()) {
 		pad.is_pressed = BTN_NONE;
 		SDL_Event drain;
 		while (SDL_PollEvent(&drain))
