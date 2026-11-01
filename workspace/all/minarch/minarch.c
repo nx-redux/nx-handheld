@@ -357,6 +357,22 @@ int main(int argc, char* argv[]) {
 			CpuProfile_lateSweep();
 		}
 
+		// The OSD panel is up: hold the game on its frame, silent, until it closes.
+		// Compositing the panel over a running game costs enough kernel time to
+		// drop frames and stutter the audio on heavy cores (PPSSPP). Never with a
+		// link or netplay peer, which would stall or desync waiting for us.
+		static bool osd_paused = false;
+		if (!Multiplayer_isActive() && PLAT_isOSDShown()) {
+			osd_paused = true;
+			input_poll_callback(); // drains SDL events: the OSD's power widget quits us
+			SDL_Delay(10);
+			continue;
+		}
+		if (osd_paused) {
+			osd_paused = false;
+			EmuTime_reset(); // emulated-time pacing restarts after the pause, as after the menu
+		}
+
 		// Netplay: synchronize inputs BEFORE running the core. If we're still waiting
 		// on the peer this frame, poll input (so menu/quit stay responsive) and skip it.
 		int16_t sticks[4];
