@@ -28,5 +28,11 @@ pcm.!default { type asym; playback.pcm "nx_mina_game"; capture.pcm "Capture"; }
 EOF
     } > "$NX_ASOUND.mina" || { rm -f "$NX_ASOUND.mina"; return 0; }
     umount "$NX_ASOUND_DEST" 2>/dev/null
-    mv -f "$NX_ASOUND.mina" "$NX_ASOUND" && mount --bind "$NX_ASOUND" "$NX_ASOUND_DEST"
+    mv -f "$NX_ASOUND.mina" "$NX_ASOUND" && mount --bind "$NX_ASOUND" "$NX_ASOUND_DEST" || return 0
+    # ALSA reads ~/.asoundrc after /etc/asound.conf. Mina moves HOME into its
+    # folder, so the launcher's session copy (which sets pcm.!default back to
+    # the shared dmix) isn't read today; repeat the default there in case a
+    # port update stops moving HOME.
+    [ -f "$HOME/.asoundrc" ] &&
+        echo 'pcm.!default { type asym; playback.pcm "nx_mina_game"; capture.pcm "Capture"; }' >> "$HOME/.asoundrc"
 }

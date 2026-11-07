@@ -595,8 +595,11 @@ static void run_list(void) {
 		if (latest_check_done) {
 			latest_check_done = 0;
 			int sel_entry = extras_widget_to_entry(&rows, extras_view.selected);
+			// Internal entries keep their catalog version: a .latest cache
+			// left from when one was repo-tracked (PortMaster) is stale.
 			for (int i = 0; i < entry_count; i++)
-				read_latest(&entries[i]);
+				if (!entries[i].version_internal)
+					read_latest(&entries[i]);
 			build_tab_rows(active_tab, &rows);
 			if (sel_entry < 0)
 				sel_entry = 0;
