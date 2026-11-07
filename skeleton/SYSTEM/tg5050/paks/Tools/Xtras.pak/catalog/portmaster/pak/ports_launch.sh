@@ -15,7 +15,13 @@ mkdir -p "$SHARED_USERDATA_PATH/PORTS-portmaster"
 
 EMU_DIR="$SDCARD_PATH/Emus/shared/PortMaster"
 export PATH="$EMU_DIR/bin:$EMU_DIR:$SHARED_SYSTEM_PATH/bin:$PATH"
-[ ! -f /bin/bash ] && ln -sf "$EMU_DIR/bin/bash" /bin/bash
+# Many port scripts use #!/bin/bash. The firmware has none, and another
+# CFW (e.g. NextUI) can leave one behind that isn't bash (busybox ash),
+# which breaks bash-only scripts. Point it at PortMaster's GNU bash.
+if [ -x "$EMU_DIR/bin/bash" ] &&
+    ! /bin/bash --version </dev/null 2>/dev/null | grep -q "GNU bash"; then
+    ln -sf "$EMU_DIR/bin/bash" /bin/bash
+fi
 
 # tg5050 ships newer lib versions than what some bundled binaries expect
 # (can't symlink on exFAT, so copy the actual files)

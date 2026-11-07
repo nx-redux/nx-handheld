@@ -94,8 +94,13 @@ if [ "$PATCH_ONLY" = 0 ]; then
     esac
 fi
 
-# Many port scripts use #!/bin/bash; the firmware has no /bin/bash.
-[ -e /bin/bash ] || ln -sf "$PM_DIR/bin/bash" /bin/bash
+# Many port scripts use #!/bin/bash. The firmware has none, and another
+# CFW (e.g. NextUI) can leave one behind that isn't bash (busybox ash),
+# which breaks bash-only scripts. Point it at PortMaster's GNU bash.
+if [ -x "$PM_DIR/bin/bash" ] &&
+    ! /bin/bash --version </dev/null 2>/dev/null | grep -q "GNU bash"; then
+    ln -sf "$PM_DIR/bin/bash" /bin/bash
+fi
 
 # tg5050 ships newer lib versions than some bundled binaries expect
 # (no symlinks on FAT, so copy)
