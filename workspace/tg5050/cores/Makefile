@@ -222,12 +222,12 @@ flycast_SUBMODULES = core/deps/libchdr core/deps/tinygettext core/deps/asio
 flycast_MAKE = sh $(CURDIR)/../../all/cores/flycast/build-libretro.sh $(PLATFORM)
 flycast_DEPS = ../../all/cores/flycast/build-libretro.sh ../../all/cores/flycast/toolchain-aarch64.cmake
 
-# PPSSPP (PSP) libretro core, pinned to the build tested on Brick + Smart Pro S
-# (2026-09-30). CMake via a build script like flycast; shared patches in
+# PPSSPP (PSP) libretro core, on nx-mobile's pin (netplay and Device Sync states
+# need the same core on both). CMake via a build script like flycast; shared patches in
 # all/cores/patches/ppsspp/. All bundled submodules (ffmpeg, glslang, ...) are
 # needed, so the template's default recursive init is used.
 ppsspp_REPO = https://github.com/hrydgard/ppsspp
-ppsspp_HASH = 2a1700a7ee495310c52c85f9436652cc8f26e45e
+ppsspp_HASH = d4e3c7eb2bf0ec9241621b3752cd3e5406178c78
 ppsspp_MAKE = NX_CORES_OUTPUT=$(CURDIR)/$(OUTPUT_ROOT) sh $(CURDIR)/../../all/cores/ppsspp/build-libretro.sh $(PLATFORM)
 ppsspp_DEPS = ../../all/cores/ppsspp/build-libretro.sh ../../all/cores/ppsspp/outline_atomics.c ../../all/cores/flycast/toolchain-aarch64.cmake
 

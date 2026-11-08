@@ -2,10 +2,12 @@
 # retro_cheat_set/retro_cheat_reset ran the cheats right away. minarch applies a .cht's
 # enabled cheats straight after retro_load_game, while PPSSPP is still booting the game
 # and PSP memory isn't mapped, so Run() segfaulted the launch. Run only once booted
-# (CwCheat reloads the file on its own tick anyway), and free the engine each call made.
+# (CwCheat reloads the file on its own tick anyway).
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index ae69ea8..e5acdd0 100644
 --- a/libretro/libretro.cpp
 +++ b/libretro/libretro.cpp
-@@ -1868,12 +1868,14 @@
+@@ -1994,12 +1994,13 @@ void retro_cheat_reset(void) {
  
     g_Config.bReloadCheats = true;
  
@@ -19,11 +21,10 @@
        cheatEngine->Run();
     }
 -
-+   delete cheatEngine;
  }
  
  void retro_cheat_set(unsigned index, bool enabled, const char *code) {
-@@ -1950,11 +1952,12 @@
+@@ -2077,9 +2078,9 @@ void retro_cheat_set(unsigned index, bool enabled, const char *code) {
  
     g_Config.bReloadCheats = true;
  
@@ -34,7 +35,4 @@
 +   if (PSP_IsInited() && cheatEngine->HasCheats()) {
        cheatEngine->Run();
     }
-+   delete cheatEngine;
  }
- 
- int64_t System_GetPropertyInt(SystemProperty prop) {
