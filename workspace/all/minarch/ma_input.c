@@ -342,7 +342,7 @@ void input_poll_callback(void) {
 			btn = Input_positionalBtn(btn);
 		if (dpad_joystick && (btn & BTN_DPAD_ANY))
 			continue; // the D-pad is the left stick now (Input_updateDpadStick), and the stick stays a stick
-		if (gamepad_type == 0 && input_stick_dpad) {
+		if ((gamepad_type == 0 || gamepad_digital) && input_stick_dpad) {
 			switch (btn) {
 			case BTN_DPAD_UP:
 				btn = BTN_UP;

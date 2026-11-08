@@ -90,7 +90,9 @@ int rewind_cfg_lz4_acceleration = MINARCH_DEFAULT_REWIND_LZ4_ACCELERATION;
 int rewind_init_ready = 0;
 int overclock = 3; // auto
 int has_custom_controllers = 0;
-int gamepad_type = 0; // index in gamepad_labels/gamepad_values
+int gamepad_type = 0;		 // index in gamepad_labels/gamepad_values
+int gamepad_digital = 0;	 // every type is a digital pad (picodrive's 3/6-button): the stick stays the D-pad on each
+int gamepad_type_locked = 0; // the pak locks minarch_gamepad_type (-minarch_gamepad_type): no Controller row
 
 // When set, video_refresh_callback drops the frame. minarch_forceCoreOptionUpdate()
 // uses this to run one core frame purely to trigger check_variables() without flashing.

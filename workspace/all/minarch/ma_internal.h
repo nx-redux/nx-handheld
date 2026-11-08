@@ -127,6 +127,10 @@ extern int shader_reset_suppressed;
 
 extern int has_custom_controllers;
 extern int gamepad_type;
+extern int gamepad_digital;
+extern int gamepad_type_locked;
+void Config_useMegaDrivePads(unsigned six_button_id);
+int Config_gamepadRowShown(void);
 
 extern int rewind_cfg_enable;
 extern int rewind_cfg_buffer_mb;

@@ -226,7 +226,13 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			const struct retro_controller_info* info = &infos[0];
 			for (int i = 0; i < info->num_types; i++) {
 				const struct retro_controller_description* type = &info->types[i];
-				// currently only enabled for PlayStation: pcsx_rearmed names it
+				// picodrive: its "6 Button Pad" (genesis_plus_gx names its own differently and
+				// keeps detecting the pad from the cart header)
+				if (type->desc && exactMatch((char*)type->desc, "6 Button Pad")) {
+					Config_useMegaDrivePads(type->id);
+					break;
+				}
+				// PlayStation: pcsx_rearmed names it
 				// "dualshock" (517), SwanStation "Analog Controller (DualShock)" (261)
 				if (type->desc && containsString((char*)type->desc, "dualshock")) {
 					static char dualshock_id[12];

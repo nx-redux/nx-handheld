@@ -133,7 +133,7 @@ picodrive_REPO = https://github.com/irixxxx/picodrive
 picodrive_MAKEFILE = Makefile.libretro
 # No background Audio on Sega CD
 # https://github.com/LoveRetro/NextUI/issues/68
-picodrive_HASH = b0be121b7d58d6ee1ee2809974e62893c80a8264
+picodrive_HASH = 9c298c1fe7347a50b07a494cdb8c91d2f9b40c6a
 
 # Alternative Mega Drive/Genesis (+ SegaCD/SMS/GG/SG-1000) core. Its
 # Makefile.libretro doesn't recognise our platform= value and would fall through
