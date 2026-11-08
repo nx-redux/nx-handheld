@@ -250,7 +250,7 @@ flycast_legacy_MAKE = CPATH=$(CURDIR)/../../all/cores/flycast_legacy/include mak
 # netplay (patch 0002, our m64p-server) and the Rice video plugin built in
 # (patch 0003 + build-rice.sh) for the PowerVR devices.
 mupen64plus_next_REPO = https://github.com/libretro/mupen64plus-libretro-nx
-mupen64plus_next_HASH = 12edd2c74a517ff86dfa8cfc71ad75e4c10486d5
+mupen64plus_next_HASH = 15bada85906593376e8fd697f1b0b3af3a20f512
 # No real submodules, but a stray gitlink (paraLLEl RSP's lightning/gnulib, no
 # .gitmodules) breaks the template's default recursive init; a plain-file
 # pathspec makes init/update a no-op.
