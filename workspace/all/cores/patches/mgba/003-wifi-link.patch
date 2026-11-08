@@ -1,9 +1,9 @@
 # license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); the changes to mGBA's files are distributed under the same license. The new nx_wifi_link.h/.c port gpSP's serial.c and, like the NXRedux gba_wifi_link code they compile in (gpSP's rfu.c and serial_proto.c), are GPL-2.0-or-later, so the built core is distributed under GPL-2.0-or-later (MPL-2.0 section 3.3).
 diff --git forkSrcPrefix/CMakeLists.txt forkDstPrefix/CMakeLists.txt
-index b2020098..cd845c02 100644
+index b2020098..c84b6c0c 100644
 --- forkSrcPrefix/CMakeLists.txt
 +++ forkDstPrefix/CMakeLists.txt
-@@ -1039,6 +1039,21 @@ if(BUILD_LIBRETRO)
+@@ -1039,6 +1039,23 @@ if(BUILD_LIBRETRO)
  	list(APPEND LIBRETRO_CORE_SRC ${NX_SIO_SRC})
  	set_source_files_properties(${NX_SIO_SRC} PROPERTIES COMPILE_OPTIONS -Wall INCLUDE_DIRECTORIES ${NX_SIOLS_DIR}
  		OBJECT_DEPENDS "${NX_SIOLS_DIR}/sio_lockstep.c;${NX_SIOLS_DIR}/sio_lockstep.h")
@@ -18,8 +18,10 @@ index b2020098..cd845c02 100644
 +	list(APPEND LIBRETRO_CORE_SRC ${NX_GWL_SRC} ${NX_GWL_GPSP_SRC})
 +	set_source_files_properties(${NX_GWL_SRC} PROPERTIES COMPILE_OPTIONS -Wall INCLUDE_DIRECTORIES ${NX_GWL_DIR}
 +		OBJECT_DEPENDS "${NX_GWL_DEPS}")
-+	# gpSP's files, unchanged: gcc warns on them, so no -Werror there.
-+	set_source_files_properties(${NX_GWL_GPSP_SRC} PROPERTIES COMPILE_OPTIONS -Wno-missing-field-initializers
++	# gpSP's files, unchanged: the warnings gcc gives on them are muted, and
++	# no -Werror there.
++	set_source_files_properties(${NX_GWL_GPSP_SRC} PROPERTIES
++		COMPILE_OPTIONS "-Wno-missing-field-initializers;-Wno-implicit-fallthrough;-Wno-sign-compare;-Wno-empty-body"
 +		INCLUDE_DIRECTORIES ${NX_GWL_DIR} OBJECT_DEPENDS "${NX_GWL_DEPS}")
 +	set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/libretro/libretro.c APPEND PROPERTY INCLUDE_DIRECTORIES ${NX_GWL_DIR})
  	if(CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND NOT APPLE)
@@ -114,10 +116,10 @@ index 00000000..e8c5ba1a
 +#include "serial_proto.c"
 diff --git forkSrcPrefix/src/gba/sio/nx_wifi_link.c forkDstPrefix/src/gba/sio/nx_wifi_link.c
 new file mode 100644
-index 00000000..e797d022
+index 00000000..e676430b
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_wifi_link.c
-@@ -0,0 +1,457 @@
+@@ -0,0 +1,467 @@
 +/* nx_wifi_link.c - gpSP's serial.c (write_siocnt, write_rcnt, update_serial)
 + * ported onto mGBA's GBASIODriver, driving gba_wifi_link: the GBA Wireless
 + * Adapter in Normal-32 mode, the Pokemon and Advance Wars cable protocols in
@@ -290,9 +292,12 @@ index 00000000..e797d022
 +	return true;
 +}
 +
++/* Also when another driver replaces ours (a savestate of a GB Player game):
++ * from then on the serial port is not ours to touch. */
 +static void _driverDeinit(struct GBASIODriver* driver) {
 +	UNUSED(driver);
 +	mTimingDeschedule(&wl.gba->timing, &wl.tick);
++	wl.attached = false;
 +}
 +
 +/* GBAReset: it cleared the timing list (and global time) before calling us. */
@@ -552,25 +557,32 @@ index 00000000..e797d022
 +
 +/* A savestate restores mGBA's timing (global time, event list) but neither
 + * our tick nor the link, and the peers did not load it: the adapter or
-+ * protocol starts over, as on a replug. mGBA does not save
-+ * sio.completeEvent, so a transfer the state caught in flight is finished
-+ * here rather than leaving the game's Busy/Start bit stuck. */
++ * protocol starts over, as on a replug. mGBA restores sio.completeEvent when
++ * the state had Start/Busy set, so a transfer caught in flight still ends,
++ * but the adapter's reply to it was not saved: it ends with nothing on the
++ * line. A completion restored for a transfer we don't time (the adapter's
++ * push to a child GBA, a cable child) is dropped, as those end from the
++ * tick. States without the event get one for a parent's transfer, rather
++ * than leaving the game's Busy/Start bit stuck. */
 +void nx_wifi_link_state_loaded(void) {
 +	if (!wl.attached) {
 +		return;
 +	}
 +	struct GBASIO* sio = &wl.gba->sio;
++	struct mTiming* timing = &wl.gba->timing;
 +	_resetLink();
 +	wl.sioMode = sio->mode;
-+	if (!mTimingIsScheduled(&wl.gba->timing, &sio->completeEvent)) {
-+		if (_isCable() && sio->mode == GBA_SIO_MULTI && !wl.client_id && GBASIOMultiplayerIsBusy(sio->siocnt)) {
-+			_schedule(&sio->completeEvent, _multiCycles(sio->siocnt));
-+		} else if (wl.mode == GWL_RFU && sio->mode == GBA_SIO_NORMAL_32 && GBASIONormalIsStart(sio->siocnt) &&
-+		           GBASIONormalIsSc(sio->siocnt)) {
-+			/* Nothing on the line: the reset adapter answers nothing. */
-+			wl.rfuReply = 0xFFFFFFFFu;
-+			_schedule(&sio->completeEvent, GBASIONormalIsInternalSc(sio->siocnt) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ);
-+		}
++	if (wl.mode == GWL_RFU) {
++		wl.rfuReply = 0xFFFFFFFFu;
++	}
++	bool rfuParent = wl.mode == GWL_RFU && sio->mode == GBA_SIO_NORMAL_32 && GBASIONormalIsStart(sio->siocnt) &&
++	                 GBASIONormalIsSc(sio->siocnt);
++	bool multiParent = _isCable() && sio->mode == GBA_SIO_MULTI && !wl.client_id && GBASIOMultiplayerIsBusy(sio->siocnt);
++	if (!rfuParent && !multiParent) {
++		mTimingDeschedule(timing, &sio->completeEvent);
++	} else if (!mTimingIsScheduled(timing, &sio->completeEvent)) {
++		_schedule(&sio->completeEvent, rfuParent ? (GBASIONormalIsInternalSc(sio->siocnt) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ)
++		                                         : _multiCycles(sio->siocnt));
 +	}
 +	_refreshMultiBits();
 +	_rearmTick();
