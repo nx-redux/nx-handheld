@@ -15,23 +15,32 @@ FLAG="$TMP/netplay_launch"
 SESSION="$TMP/netplay_session"
 ARGS="$TMP/wizard_args"
 CLEANUP="$TMP/wizard_cleanup"
+PROBE="$TMP/wizard_probe"
 OUT="$TMP/out"
 
 # Stub wizard: records argv; parses --fetch-to; optionally writes a session file
 # (role = $NPELF_ROLE, peer caps = $NPELF_PEER_CAPS) and, for a client fetch,
 # drops the host's save into --fetch-to under the fixed staged name. Exits
 # NPELF_RC. --cleanup is logged to $NPELF_CLEANUP_OUT and removes the session.
+# --gba-link-mode prints $NPELF_WL (logged to $NPELF_PROBE_OUT) and writes no
+# session. Like the real wizard, the session carries our --caps as NETPLAY_CAPS.
 cat > "$TMP/bin/netplay.elf" <<'EOF'
 #!/bin/sh
+if [ "$1" = "--gba-link-mode" ]; then
+	printf '%s\n' "$2" >> "$NPELF_PROBE_OUT"
+	printf '%s\n' "${NPELF_WL:-}"
+	exit 0
+fi
 if [ "$1" = "--cleanup" ]; then
 	printf '%s\n' "$*" >> "$NPELF_CLEANUP_OUT"
 	rm -f "$NPELF_SESSION_OUT"
 	exit 0
 fi
 printf '%s\n' "$*" > "$NPELF_ARGS_OUT"
-fetchto=""; prev=""
+fetchto=""; caps=""; prev=""
 for a in "$@"; do
 	[ "$prev" = "--fetch-to" ] && fetchto="$a"
+	[ "$prev" = "--caps" ] && caps="$a"
 	prev="$a"
 done
 if [ -n "$NPELF_WRITE_SESSION" ]; then
@@ -42,6 +51,7 @@ NETPLAY_MODE=hotspot
 NETPLAY_GAME='stub'
 NETPLAY_PREV_SSID=''
 NETPLAY_PEER_CAPS='${NPELF_PEER_CAPS:-}'
+NETPLAY_CAPS='$caps'
 SESH
 fi
 if [ -n "${NPELF_FETCH:-}" ] && [ -n "$fetchto" ]; then
@@ -58,26 +68,26 @@ cat > "$TMP/launch.sh" <<EOF
 #!/bin/sh
 ROM="\$1"
 . "$HELPER"
-sh -c 'echo "MINARCH role=\${NETPLAY_ROLE:-} peer=\${NETPLAY_PEER_IP:-} mode=\${NETPLAY_MODE:-} saves=\${NETPLAY_SAVES_DIR:-}"'
+sh -c 'echo "MINARCH role=\${NETPLAY_ROLE:-} peer=\${NETPLAY_PEER_IP:-} mode=\${NETPLAY_MODE:-} saves=\${NETPLAY_SAVES_DIR:-}"; echo "CAPS ours=\${NETPLAY_CAPS:-} peer=\${NETPLAY_PEER_CAPS:-}"'
 EOF
 chmod +x "$TMP/launch.sh"
 
-run() { # $1 = rom path; env: NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS EMU_EXE EMU_TAG
-	rm -f "$ARGS" "$OUT" "$CLEANUP"
+run() { # $1 = rom path; env: NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS NPELF_WL EMU_EXE EMU_TAG
+	rm -f "$ARGS" "$OUT" "$CLEANUP" "$PROBE"
 	rm -rf "$TMP/stage" "$TMP/data"
 	PATH="$TMP/bin:$PATH" LOGS_PATH="$TMP/logs" \
 	NETPLAY_LAUNCH_FLAG="$FLAG" NETPLAY_SESSION_FILE="$SESSION" \
 	NETPLAY_SAVE_STAGE_DIR="$TMP/stage" NETPLAY_SAVE_DATA_DIR="$TMP/data" \
 	SAVES_PATH="$TMP/Saves" EMU_TAG="${EMU_TAG:-SFC}" EMU_EXE="${EMU_EXE:-snes9x}" \
 	NPELF_ARGS_OUT="$ARGS" NPELF_SESSION_OUT="$SESSION" NPELF_CLEANUP_OUT="$CLEANUP" \
-	NPELF_PEER_CAPS="${NPELF_PEER_CAPS:-}" \
+	NPELF_PEER_CAPS="${NPELF_PEER_CAPS:-}" NPELF_WL="${NPELF_WL-none}" NPELF_PROBE_OUT="$PROBE" \
 	NPELF_RC="${NPELF_RC:-0}" NPELF_WRITE_SESSION="${NPELF_WRITE_SESSION:-}" \
 	NPELF_ROLE="${NPELF_ROLE:-host}" NPELF_FETCH="${NPELF_FETCH:-}" \
 	sh "$TMP/launch.sh" "$1" > "$OUT"
 	# `VAR=x run …` prefixes outlive the call when this runs as `sh` (POSIX
 	# mode keeps assignments made before a function call), so case 3's
 	# NPELF_RC=1 would fail every later wizard. Clear them; no-op under bash.
-	unset NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS EMU_EXE EMU_TAG
+	unset NPELF_RC NPELF_WRITE_SESSION NPELF_ROLE NPELF_FETCH NPELF_PEER_CAPS NPELF_WL EMU_EXE EMU_TAG
 }
 
 # 1. Plain launch: no flag -> wizard never invoked, minarch reached, no env.
@@ -142,15 +152,54 @@ touch "$FLAG"; rm -f "$SESSION"
 EMU_EXE=mgba EMU_TAG=MGBA NPELF_WRITE_SESSION=1 NPELF_ROLE=host run "/Roms/GBA/Pokemon Ruby.gba"
 grep -q -- '--modes usb' "$ARGS" || fail "mgba: wizard not limited to USB: $(cat "$ARGS")"
 grep -q -- '--serve-dir' "$ARGS" && fail "mgba: link core should not sync saves: $(cat "$ARGS")" || true
-grep -q -- '--caps core=mgba,tag=MGBA' "$ARGS" || fail "mgba: core caps missing: $(cat "$ARGS")"
+grep -q -- '--caps core=mgba,tag=MGBA,wl=none$' "$ARGS" || fail "mgba: core caps missing: $(cat "$ARGS")"
+grep -qx '/Roms/GBA/Pokemon Ruby.gba' "$PROBE" || fail "mgba: ROM not probed: $(cat "$PROBE" 2>/dev/null)"
 grep -q '^MINARCH role=host .* saves=$' "$OUT" || fail "mgba: emulator not reached: $(cat "$OUT")"
 
 # 10. gpSP passes its core too, with every mode on offer.
 touch "$FLAG"; rm -f "$SESSION"
 EMU_EXE=gpsp EMU_TAG=GBA NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
-grep -q -- '--caps core=gpsp,tag=GBA' "$ARGS" || fail "gpsp: core caps missing: $(cat "$ARGS")"
+grep -q -- '--caps core=gpsp,tag=GBA,wl=none$' "$ARGS" || fail "gpsp: core caps missing: $(cat "$ARGS")"
 grep -q -- '--modes' "$ARGS" && fail "gpsp: modes should not be limited: $(cat "$ARGS")" || true
 grep -q 'MINARCH' "$OUT" || fail "gpsp: emulator not reached: $(cat "$OUT")"
+
+# 10b. mGBA on a game with a Wi-Fi link mode: every mode on offer, and the
+#      mode goes into the caps.
+touch "$FLAG"; rm -f "$SESSION"
+EMU_EXE=mgba EMU_TAG=MGBA NPELF_WL=poke NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
+grep -q -- '--modes' "$ARGS" && fail "mgba wl=poke: modes should not be limited: $(cat "$ARGS")" || true
+grep -q -- '--caps core=mgba,tag=MGBA,wl=poke$' "$ARGS" || fail "mgba wl=poke: caps wrong: $(cat "$ARGS")"
+
+# 10c. gpSP's caps end with the game's mode too.
+touch "$FLAG"; rm -f "$SESSION"
+EMU_EXE=gpsp EMU_TAG=GBA NPELF_WL=rfu NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Emerald.gba"
+grep -q -- '--caps core=gpsp,tag=GBA,wl=rfu$' "$ARGS" || fail "gpsp wl=rfu: caps wrong: $(cat "$ARGS")"
+grep -qx '/Roms/GBA/Pokemon Emerald.gba' "$PROBE" || fail "gpsp: ROM not probed: $(cat "$PROBE" 2>/dev/null)"
+
+# 10d. Both caps reach the emulator: ours from the session file, the peer's too.
+touch "$FLAG"; rm -f "$SESSION"
+EMU_EXE=gpsp EMU_TAG=GBA NPELF_WL=rfu NPELF_WRITE_SESSION=1 NPELF_PEER_CAPS=core=mgba,tag=MGBA,wl=rfu run "/Roms/GBA/Pokemon Emerald.gba"
+grep -q '^NETPLAY_CAPS=' "$SESSION" || fail "session file has no NETPLAY_CAPS: $(cat "$SESSION")"
+grep -q '^CAPS ours=core=gpsp,tag=GBA,wl=rfu peer=core=mgba,tag=MGBA,wl=rfu$' "$OUT" || fail "caps not exported: $(cat "$OUT")"
+
+# 10e. A probe that prints nothing (an older netplay.elf) counts as no Wi-Fi
+#      mode: mGBA stays on the USB Cable.
+touch "$FLAG"; rm -f "$SESSION"
+EMU_EXE=mgba EMU_TAG=MGBA NPELF_WL= NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
+grep -q -- '--modes usb' "$ARGS" || fail "mgba empty probe: not limited to USB: $(cat "$ARGS")"
+grep -q -- '--caps core=mgba,tag=MGBA,wl=none$' "$ARGS" || fail "mgba empty probe: caps wrong: $(cat "$ARGS")"
+
+# 10f. Caps too long to send: the peer can't hear about the Wi-Fi mode, so
+#      mGBA stays on the USB Cable.
+touch "$FLAG"; rm -f "$SESSION"
+EMU_EXE=mgba EMU_TAG=MGBA_with_a_folder_name_far_too_long_for_caps NPELF_WL=poke NPELF_WRITE_SESSION=1 run "/Roms/GBA/Pokemon Ruby.gba"
+grep -q -- '--caps' "$ARGS" && fail "mgba long tag: caps should be skipped: $(cat "$ARGS")" || true
+grep -q -- '--modes usb' "$ARGS" || fail "mgba long tag: not limited to USB: $(cat "$ARGS")"
+
+# 10g. Lockstep cores never probe the ROM.
+touch "$FLAG"; rm -f "$SESSION"
+NPELF_WRITE_SESSION=1 run "/Roms/SFC/Mario Kart.sfc"
+[ ! -f "$PROBE" ] || fail "snes9x: ROM probed: $(cat "$PROBE")"
 
 # 11. Every lockstep core says which core and folder it runs, too.
 touch "$FLAG"; rm -f "$SESSION"

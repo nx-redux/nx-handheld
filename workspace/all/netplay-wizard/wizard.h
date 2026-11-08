@@ -49,7 +49,9 @@ typedef struct {
 // Owned by wizard.c's main(); the ported wifi/net/sync code draws on it.
 extern SDL_Surface* wiz_screen;
 
-int wizard_write_session(const char* path, const WizSession* s, const char* game);
+// caps: our --caps token (NULL = none), written as NETPLAY_CAPS beside the
+// peer's NETPLAY_PEER_CAPS so minarch sees both.
+int wizard_write_session(const char* path, const WizSession* s, const char* game, const char* caps);
 int wizard_read_session(const char* path, WizSession* s);
 
 // wizard_wifi.c

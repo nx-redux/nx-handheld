@@ -48,6 +48,15 @@ const char* gbalink_serial_option(const char* key, const char* value, const char
 	return value;
 }
 
+bool gbalink_adopt_host_mode(const char* core_name, const char* host_mode, const char* our_mode,
+							 const char* our_caps, const char* peer_caps) {
+	if (!gbalink_link_mode_key(core_name) || !host_mode || !host_mode[0])
+		return false;
+	if (gbalink_mixed(our_caps, peer_caps))
+		return false;
+	return !our_mode || strcmp(our_mode, host_mode) != 0;
+}
+
 const char* gbalink_link_mode_key(const char* core_name) {
 	if (!core_name)
 		return NULL;

@@ -618,13 +618,15 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		return 1;
 	}
 	// A different emulator core never syncs (MD's PicoDrive vs GPGX, gpSP vs
-	// mGBA), so refuse here and say so on both screens. The host keeps waiting
-	// on every mode: on WiFi and the hotspot for the players who did pick the
-	// same folder, over the cable for the same peer, since a phone whose
-	// Emulator is Auto reconnects once with the core this REJECT names.
+	// mGBA on the real cable), so refuse here and say so on both screens; only
+	// gpSP and mGBA in the same Wi-Fi link mode, on a transport that keeps it,
+	// get through. The host keeps waiting on every mode: on WiFi and the
+	// hotspot for the players who did pick the same folder, over the cable for
+	// the same peer, since a phone whose Emulator is Auto reconnects once with
+	// the core this REJECT names.
 	char joiner_caps[WIZ_CAPS_MAX];
 	WizCaps_find(line, joiner_caps, sizeof(joiner_caps));
-	if (WizCaps_coreMismatch(a->caps, joiner_caps)) {
+	if (WizCaps_linkMismatch(a->caps, joiner_caps, strcmp(s->mode, "usb") == 0)) {
 		char reject[32]; // the joiner parses it with %31s
 		char core[WIZ_CAPS_MAX];
 		char tag[WIZ_CAPS_MAX];
@@ -1159,7 +1161,7 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	// it here rather than in a "State size mismatch" after both games boot.
 	char host_caps[WIZ_CAPS_MAX];
 	WizCaps_find(line, host_caps, sizeof(host_caps));
-	if (WizCaps_coreMismatch(a->caps, host_caps)) {
+	if (WizCaps_linkMismatch(a->caps, host_caps, strcmp(s->mode, "usb") == 0)) {
 		char reject[32];
 		WizCaps_coreReason(host_caps, reject, sizeof(reject));
 		fprintf(stderr, "netplay: host %s runs '%s', we run '%s'; not joining\n", host_ip, host_caps, a->caps);

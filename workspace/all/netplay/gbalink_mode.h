@@ -31,4 +31,11 @@ bool gbalink_transport_ok(const char* core_name, const char* netplay_mode, const
 // True when both caps name a core and the two differ.
 bool gbalink_mixed(const char* our_caps, const char* peer_caps);
 
+// Whether a joiner whose link mode is our_mode switches to the host_mode the
+// host's READY carried (for this session, reloading the core). Only for the
+// same core: in a mixed session the host's value belongs to the other core's
+// option, and both sides already run auto (gbalink_serial_option).
+bool gbalink_adopt_host_mode(const char* core_name, const char* host_mode, const char* our_mode,
+							 const char* our_caps, const char* peer_caps);
+
 #endif

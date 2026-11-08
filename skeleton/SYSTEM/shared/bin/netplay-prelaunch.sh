@@ -11,9 +11,10 @@
 #
 # Plain launches (no /tmp/netplay_launch flag): no-op.
 # Netplay launches: consume the flag, run the wizard, and on success export
-# NETPLAY_ROLE / NETPLAY_PEER_IP / NETPLAY_MODE for minarch's boot-time engine
-# start. Env vars on purpose: /tmp/netplay_session can survive an OSD/power-quit,
-# env cannot, so a stale session file never starts netplay.
+# NETPLAY_ROLE / NETPLAY_PEER_IP / NETPLAY_MODE / NETPLAY_CAPS /
+# NETPLAY_PEER_CAPS for minarch's boot-time engine start. Env vars on purpose:
+# /tmp/netplay_session can survive an OSD/power-quit, env cannot, so a stale
+# session file never starts netplay.
 # On wizard cancel/error, exit the SOURCING launch.sh with status 0 - MinUI
 # restarts nextui and the user is back at the game list; the emulator never
 # starts (and never falls through to a peerless single-player launch).
@@ -55,9 +56,6 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 		gambatte|gpsp|mgba) NETPLAY_SYNC_SAVES=0 ;;
 		*)                  NETPLAY_SYNC_SAVES=1 ;;
 	esac
-	# mGBA's link is the real cable, which runs only over the USB Cable.
-	NP_WIZ_MODE_ARGS=""
-	[ "${EMU_EXE:-}" = "mgba" ] && NP_WIZ_MODE_ARGS="--modes usb"
 	# Tell the peer which emulator core (and pak folder) we run. Two different
 	# cores never sync (MD's PicoDrive vs GPGX's Genesis Plus GX: "State size
 	# mismatch"; gpSP's link vs mGBA's real cable: different protocols), so the
@@ -66,6 +64,20 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 	# (a custom pak named with spaces, say) or too long for it skip the check.
 	NP_WIZ_CAPS_ARGS=""
 	NP_CAPS="core=${EMU_EXE:-},tag=${EMU_TAG:-}"
+	# The GBA link cores add the game's Wi-Fi link mode (wl=), which lets gpSP
+	# and mGBA link with each other and mGBA leave the USB Cable. The probe
+	# reads the whole ROM, so it runs here, once per session, not per boot.
+	# Anything but a known mode (an older netplay.elf prints nothing) is none.
+	NP_WL=""
+	case "${EMU_EXE:-}" in
+		gpsp|mgba)
+			NP_WL=$(netplay.elf --gba-link-mode "$ROM" 2>/dev/null)
+			case "$NP_WL" in
+				rfu|poke|aw1|aw2) ;;
+				*) NP_WL=none ;;
+			esac
+			NP_CAPS="$NP_CAPS,wl=$NP_WL" ;;
+	esac
 	case "${EMU_EXE:-}" in
 		"" | *[!A-Za-z0-9._-]*) ;;
 		*) case "${EMU_TAG:-}" in
@@ -73,6 +85,14 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 			*) if [ ${#NP_CAPS} -lt 64 ]; then NP_WIZ_CAPS_ARGS="--caps $NP_CAPS"; fi ;;
 		esac ;;
 	esac
+	# mGBA's real cable runs only over the USB Cable; off it mGBA needs a Wi-Fi
+	# mode, and the peer has to hear about it in the caps.
+	NP_WIZ_MODE_ARGS=""
+	if [ "${EMU_EXE:-}" = "mgba" ]; then
+		if [ "$NP_WL" = "none" ] || [ -z "$NP_WIZ_CAPS_ARGS" ]; then
+			NP_WIZ_MODE_ARGS="--modes usb"
+		fi
+	fi
 
 	# Stage the local save under a safe name so it can be served if we host, and
 	# give the client a clean dir to fetch into. Both dirs live in /tmp (thrown
@@ -101,7 +121,7 @@ if [ -f "$NETPLAY_LAUNCH_FLAG" ]; then
 	fi
 	[ -f "$NETPLAY_SESSION_FILE" ] || exit 0
 	. "$NETPLAY_SESSION_FILE"
-	export NETPLAY_ROLE NETPLAY_PEER_IP NETPLAY_MODE
+	export NETPLAY_ROLE NETPLAY_PEER_IP NETPLAY_MODE NETPLAY_CAPS NETPLAY_PEER_CAPS
 
 	# Client: the wizard fetched the host's save under the fixed staged name.
 	# Rename it to what minarch derives (<rom>.<ext>) and point minarch's save

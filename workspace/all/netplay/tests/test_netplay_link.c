@@ -192,6 +192,25 @@ static void test_mixed(void) {
 	assert(!gbalink_mixed("core=gpsp", NULL));
 }
 
+static void test_adopt_host_mode(void) {
+	const char* gpsp = "core=gpsp,tag=GBA,wl=rfu";
+	const char* mgba = "core=mgba,tag=MGBA,wl=rfu";
+	// same core, different pick: the joiner takes the host's for the session
+	assert(gbalink_adopt_host_mode("gpsp", "rfu", "auto", gpsp, gpsp));
+	assert(gbalink_adopt_host_mode("mgba", "auto", "cable", mgba, mgba));
+	assert(gbalink_adopt_host_mode("mgba", "auto", NULL, mgba, mgba));
+	// no caps at all (an in-game join): as before
+	assert(gbalink_adopt_host_mode("gpsp", "rfu", "auto", NULL, NULL));
+	// same pick, no host mode, or a core without a link-mode option
+	assert(!gbalink_adopt_host_mode("gpsp", "auto", "auto", gpsp, gpsp));
+	assert(!gbalink_adopt_host_mode("gpsp", "", "auto", gpsp, gpsp));
+	assert(!gbalink_adopt_host_mode("gpsp", NULL, "auto", gpsp, gpsp));
+	assert(!gbalink_adopt_host_mode("fceumm", "rfu", "auto", NULL, NULL));
+	// mixed: the host's value is another core's option, never adopted
+	assert(!gbalink_adopt_host_mode("mgba", "auto_cable", "cable", mgba, gpsp));
+	assert(!gbalink_adopt_host_mode("gpsp", "cable", "auto", gpsp, mgba));
+}
+
 static void test_mgba_option(void) {
 	const char* ours = "core=mgba,tag=MGBA,wl=rfu";
 	const char* same = "core=mgba,tag=MGBA,wl=rfu";
@@ -233,6 +252,7 @@ int main(void) {
 	test_transport_ok();
 	test_transport_ok_wifi_modes();
 	test_mixed();
+	test_adopt_host_mode();
 	test_mgba_option();
 	printf("netplay link tests: OK\n");
 	return 0;
