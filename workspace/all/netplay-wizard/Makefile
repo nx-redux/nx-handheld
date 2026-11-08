@@ -21,9 +21,9 @@ SDL?=SDL
 ###########################################################
 
 TARGET = netplay
-INCDIR = -I. -I../common/ -I../netplay/ -I../usblink/ -I../sync/ -I../../$(PLATFORM)/platform/
+INCDIR = -I. -I../common/ -I../netplay/ -I../usblink/ -I../cores/gba_wifi_link/ -I../sync/ -I../../$(PLATFORM)/platform/
 include ../common/ui/ui.mk
-SOURCE = wizard.c wizard_wifi.c wizard_net.c wizard_sync.c wizard_usb.c wiz_caps.c wiz_modes.c wiz_proto.c wiz_sync_util.c \
+SOURCE = wizard.c wizard_wifi.c wizard_net.c wizard_sync.c wizard_usb.c wiz_caps.c ../cores/gba_wifi_link/gwl_mode.c wiz_modes.c wiz_proto.c wiz_sync_util.c \
          ../netplay/network_common.c ../usblink/usblink_state.c ../sync/sync_rsyncd.c $(UI_DIR)/ui_keyboard.c \
          ../common/utils.c ../common/api.c ../common/text_shape.c ../common/audio_manager.c ../common/config.c ../common/scaler.c \
          $(UI_COMPONENT_SRCS) $(UI_DIR)/ui_list.c $(UI_LISTVIEW_SRCS) \

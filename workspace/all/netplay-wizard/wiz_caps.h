@@ -36,6 +36,10 @@ void WizCaps_value(const char* caps, const char* key, char* out, size_t out_size
 // True only when both tokens name a core and the two differ. A side with none
 // (Dreamcast's dcbios=, or an older build) is let through; tags never refuse.
 bool WizCaps_coreMismatch(const char* ours, const char* theirs);
+// True when the two sides can't link: different cores, unless both run the same
+// Wi-Fi link mode ("wl=", gwl_mixed_ok; over USB only the Wireless Adapter
+// mode). A side without "wl=" (an older build) keeps the plain core rule.
+bool WizCaps_linkMismatch(const char* ours, const char* theirs, bool usb);
 // The name a player knows a core by ("Genesis Plus GX"); unknown = as-is.
 const char* WizCaps_coreName(const char* core);
 // "<name> (<tag> folder)", or just the name when there is no tag.

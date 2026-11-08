@@ -16,6 +16,23 @@ static void expect_value(const char* caps, const char* key, const char* want) {
 	}
 }
 
+static void test_link_mismatch(void) {
+	const char* gpsp_rfu = "core=gpsp,tag=GBA,wl=rfu";
+	const char* mgba_rfu = "core=mgba,tag=MGBA,wl=rfu";
+	assert(!WizCaps_linkMismatch(gpsp_rfu, mgba_rfu, false));
+	assert(!WizCaps_linkMismatch(gpsp_rfu, mgba_rfu, true));
+	assert(WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=poke", mgba_rfu, false));
+	assert(WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=poke", "core=mgba,tag=MGBA,wl=poke", true)); // USB: Adapter only
+	assert(!WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=poke", "core=mgba,tag=MGBA,wl=poke", false));
+	assert(WizCaps_linkMismatch(gpsp_rfu, "core=mgba,tag=MGBA", false)); // older peer
+	assert(WizCaps_linkMismatch(gpsp_rfu, "core=mgba,tag=MGBA,wl=none", false));
+	assert(!WizCaps_linkMismatch(gpsp_rfu, gpsp_rfu, true));
+	assert(!WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=none", "core=gpsp,tag=GBA", false)); // same core
+	assert(WizCaps_linkMismatch("core=picodrive,tag=MD", "core=genesis_plus_gx,tag=GPGX", false));
+	assert(!WizCaps_linkMismatch("", mgba_rfu, false));
+	assert(!WizCaps_linkMismatch(NULL, NULL, false));
+}
+
 static void expect_label(const char* core, const char* tag, const char* want) {
 	char got[64];
 	WizCaps_coreLabel(core, tag, got, sizeof(got));
@@ -54,6 +71,7 @@ static void expect_find(const char* line, const char* want) {
 }
 
 int main(void) {
+	test_link_mismatch();
 	// tokens: short, wire-safe, no spaces
 	assert(WizCaps_isValid("dcbios=0123456789ab"));
 	assert(WizCaps_isValid("dcbios=none"));

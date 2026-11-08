@@ -4,9 +4,9 @@
 set -eu
 D=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${TMPDIR:-/tmp}
-CF="-std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I$D -I$D/../netplay"
+CF="-std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I$D -I$D/../netplay -I$D/../cores/gba_wifi_link"
 # Compile and run on separate lines: set -e ignores a failure on the left of &&.
-cc $CF "$D/wiz_proto.c" "$D/wiz_caps.c" "$D/tests/test_wiz_proto.c" -o "$OUT/test_wiz_proto"
+cc $CF "$D/wiz_proto.c" "$D/wiz_caps.c" "$D/../cores/gba_wifi_link/gwl_mode.c" "$D/tests/test_wiz_proto.c" -o "$OUT/test_wiz_proto"
 "$OUT/test_wiz_proto"
 cc $CF "$D/wiz_sync_util.c" "$D/tests/test_wiz_sync_util.c" -o "$OUT/test_wiz_sync_util"
 "$OUT/test_wiz_sync_util"

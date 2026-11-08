@@ -123,16 +123,16 @@ static void test_side_from_state(void) {
 }
 
 static void test_serial_option(void) {
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "auto", "usb"), "auto_cable"));
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", "usb"), "lockstep"));
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "rfu", "usb"), "rfu"));
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "auto", "wifi"), "auto"));
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", "hotspot"), "auto"));
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", NULL), "auto")); // single player
-	assert(!strcmp(gbalink_serial_option("gpsp_serial", "mul_poke", NULL), "mul_poke"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "auto", "usb", NULL, NULL), "auto_cable"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", "usb", NULL, NULL), "lockstep"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "rfu", "usb", NULL, NULL), "rfu"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "auto", "wifi", NULL, NULL), "auto"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", "hotspot", NULL, NULL), "auto"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", NULL, NULL, NULL), "auto")); // single player
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "mul_poke", NULL, NULL, NULL), "mul_poke"));
 	const char* v = "auto";
-	assert(gbalink_serial_option("gpsp_rtc", v, "usb") == v);
-	assert(gbalink_serial_option("gpsp_serial", NULL, "usb") == NULL);
+	assert(gbalink_serial_option("gpsp_rtc", v, "usb", NULL, NULL) == v);
+	assert(gbalink_serial_option("gpsp_serial", NULL, "usb", NULL, NULL) == NULL);
 }
 
 // Two players per session: ports past 1 (multitap, 4-player games) have
@@ -161,17 +161,59 @@ static void test_port_analog(void) {
 static void test_link_mode_key(void) {
 	assert(!strcmp(gbalink_link_mode_key("gpsp"), "gpsp_serial"));
 	assert(!strcmp(gbalink_link_mode_key("GPSP"), "gpsp_serial"));
-	assert(gbalink_link_mode_key("mgba") == NULL);
+	assert(!strcmp(gbalink_link_mode_key("mgba"), "mgba_link_mode"));
+	assert(gbalink_link_mode_key("fceumm") == NULL);
 	assert(gbalink_link_mode_key(NULL) == NULL);
 }
 
 static void test_transport_ok(void) {
-	assert(gbalink_transport_ok("mgba", "usb"));
-	assert(!gbalink_transport_ok("mgba", "wifi"));
-	assert(!gbalink_transport_ok("mgba", "hotspot"));
-	assert(!gbalink_transport_ok("mgba", NULL));
-	assert(gbalink_transport_ok("gpsp", "wifi"));
-	assert(gbalink_transport_ok("gpsp", NULL));
+	assert(gbalink_transport_ok("mgba", "usb", NULL));
+	assert(!gbalink_transport_ok("mgba", "wifi", NULL));
+	assert(!gbalink_transport_ok("mgba", "hotspot", NULL));
+	assert(!gbalink_transport_ok("mgba", NULL, NULL));
+	assert(gbalink_transport_ok("gpsp", "wifi", NULL));
+	assert(gbalink_transport_ok("gpsp", NULL, NULL));
+}
+
+static void test_transport_ok_wifi_modes(void) {
+	assert(gbalink_transport_ok("mgba", "wifi", "core=mgba,tag=MGBA,wl=poke"));
+	assert(gbalink_transport_ok("mgba", "hotspot", "core=mgba,tag=MGBA,wl=aw2"));
+	assert(!gbalink_transport_ok("mgba", "wifi", "core=mgba,tag=MGBA,wl=none"));
+	assert(!gbalink_transport_ok("mgba", "wifi", "core=mgba,tag=MGBA"));
+	assert(gbalink_transport_ok("mgba", "usb", "core=mgba,tag=MGBA,wl=none"));
+	assert(gbalink_transport_ok("gpsp", "wifi", "core=gpsp,tag=GBA,wl=none"));
+}
+
+static void test_mixed(void) {
+	assert(gbalink_mixed("core=gpsp,tag=GBA,wl=rfu", "core=mgba,tag=MGBA,wl=rfu"));
+	assert(!gbalink_mixed("core=gpsp,tag=GBA,wl=rfu", "core=gpsp,tag=GBA,wl=rfu"));
+	assert(!gbalink_mixed("core=gpsp,tag=GBA", "dcbios=abc")); // a side with no core
+	assert(!gbalink_mixed(NULL, "core=mgba,tag=MGBA"));
+	assert(!gbalink_mixed("core=gpsp", NULL));
+}
+
+static void test_mgba_option(void) {
+	const char* ours = "core=mgba,tag=MGBA,wl=rfu";
+	const char* same = "core=mgba,tag=MGBA,wl=rfu";
+	// an older peer sends no wl=: the real cable, whatever was picked
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "auto", "usb", ours, "core=mgba,tag=MGBA"), "cable"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "rfu", "wifi", ours, NULL), "cable"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "auto", "usb", ours, same), "auto_cable"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "cable", "wifi", ours, same), "auto"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "cable", "usb", ours, same), "cable"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "mul_poke", "wifi", ours, same), "mul_poke"));
+	// single player: the user's pick is untouched
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "cable", NULL, NULL, NULL), "cable"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "auto", NULL, NULL, NULL), "auto"));
+	// mixed with gpSP
+	const char* gpsp = "core=gpsp,tag=GBA,wl=rfu";
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "cable", "wifi", ours, gpsp), "auto"));
+	assert(!strcmp(gbalink_serial_option("mgba_link_mode", "rfu", "usb", ours, gpsp), "auto_cable"));
+	// gpSP: mixed overrides, same-core is as before
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "disabled", "wifi", gpsp, ours), "auto"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "disabled", "usb", gpsp, ours), "auto_cable"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "auto", "usb", gpsp, gpsp), "auto_cable"));
+	assert(!strcmp(gbalink_serial_option("gpsp_serial", "lockstep", "wifi", gpsp, gpsp), "auto"));
 }
 
 int main(void) {
@@ -189,6 +231,9 @@ int main(void) {
 	test_serial_option();
 	test_link_mode_key();
 	test_transport_ok();
+	test_transport_ok_wifi_modes();
+	test_mixed();
+	test_mgba_option();
 	printf("netplay link tests: OK\n");
 	return 0;
 }

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "gwl_mode.h"
+
 bool WizCaps_isValid(const char* token) {
 	if (!token || !token[0])
 		return false;
@@ -95,6 +97,16 @@ bool WizCaps_coreMismatch(const char* ours, const char* theirs) {
 	WizCaps_value(ours, "core", a, sizeof(a));
 	WizCaps_value(theirs, "core", b, sizeof(b));
 	return a[0] && b[0] && strcmp(a, b) != 0;
+}
+
+bool WizCaps_linkMismatch(const char* ours, const char* theirs, bool usb) {
+	if (!WizCaps_coreMismatch(ours, theirs))
+		return false;
+	char a[WIZ_CAPS_MAX];
+	char b[WIZ_CAPS_MAX];
+	WizCaps_value(ours, "wl", a, sizeof(a));
+	WizCaps_value(theirs, "wl", b, sizeof(b));
+	return !gwl_mixed_ok(a, b, usb);
 }
 
 const char* WizCaps_coreName(const char* core) {
