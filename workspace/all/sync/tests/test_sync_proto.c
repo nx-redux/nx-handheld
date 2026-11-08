@@ -54,6 +54,30 @@ static void test_format_roundtrip(void) {
 	assert(sync_format_payload(buf, 12, "", "192.168.1.7", false) == -1);
 }
 
+static void test_msg_kind(void) {
+	assert(sync_msg_kind("HELLO_TRIMUI_SYNC:192.168.1.5:R") == SYNC_MSG_HELLO);
+	assert(sync_msg_kind("TRIMUI_SYNC_ACK:192.168.1.5:0") == SYNC_MSG_ACK);
+	assert(sync_msg_kind("TRIMUI_SYNC_READY") == SYNC_MSG_READY);
+	assert(sync_msg_kind("TRIMUI_SYNC_DONE") == SYNC_MSG_DONE);
+	assert(sync_msg_kind("TRIMUI_SYNC_FAIL") == SYNC_MSG_FAIL);
+	assert(sync_msg_kind("TRIMUI_SYNC_FAILX") == SYNC_MSG_OTHER);
+	assert(sync_msg_kind("TRIMUI_SYNC_READ") == SYNC_MSG_OTHER);
+	assert(sync_msg_kind("") == SYNC_MSG_OTHER);
+}
+
+static void test_confirm_text(void) {
+	char buf[128];
+	int n = sync_confirm_text(buf, sizeof(buf), "192.168.1.20", "192.168.1.7");
+	assert(n == (int)strlen(buf));
+	assert(!strcmp(buf, "Sync with the device at\n192.168.1.20?\n\nThis device: 192.168.1.7"));
+	n = sync_confirm_text(buf, sizeof(buf), "10.99.0.1", "10.99.0.2");
+	assert(!strcmp(buf, "Sync with the device at\n10.99.0.1?\n\nThis device: 10.99.0.2"));
+	// Fits with the longest addresses; the caller's buffer is 160 bytes.
+	assert(sync_confirm_text(buf, sizeof(buf), "255.255.255.255", "255.255.255.255") > 0);
+	assert(sync_confirm_text(buf, 20, "192.168.1.20", "192.168.1.7") == -1);
+	assert(!strcmp(SYNC_PEER_CANCELLED_TEXT, "The other device\ncancelled the sync."));
+}
+
 static void test_roles(void) {
 	const char* lo = "10.99.0.1";
 	const char* hi = "10.99.0.2";
@@ -504,6 +528,8 @@ int main(void) {
 	test_parse_flags();
 	test_parse_rejects();
 	test_format_roundtrip();
+	test_msg_kind();
+	test_confirm_text();
 	test_roles();
 	test_cable_net();
 	test_filter_strings();

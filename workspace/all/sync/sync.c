@@ -33,13 +33,10 @@
 // Sync configuration
 #define SYNC_UDP_PORT 19999
 #define SYNC_RSYNC_PORT 18730
-#define HELLO_MSG "HELLO_TRIMUI_SYNC:"
-#define ACK_MSG "TRIMUI_SYNC_ACK:"
-#define READY_MSG "TRIMUI_SYNC_READY"
-#define DONE_MSG "TRIMUI_SYNC_DONE"
-// The client's run failed or was cancelled: the server stops waiting for DONE.
-#define FAIL_MSG "TRIMUI_SYNC_FAIL"
 #define BROADCAST_INTERVAL_MS 1000
+// The client's wait for READY ends after this long without a word from the
+// peer.
+#define READY_QUIET_SEC 30
 #define RSYNC_CONF_PATH "/tmp/rsyncd.conf"
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
 #define ROMS_EXCLUDES_PATH "/tmp/sync-roms-excludes.txt"
@@ -78,6 +75,8 @@ enum SyncState {
 	STATE_NO_WIFI,
 	STATE_READY,
 	STATE_WAITING,
+	STATE_CONFIRM,
+	STATE_PEER_CANCELLED,
 	STATE_SYNCING,
 	STATE_ERROR,
 	STATE_DONE,
@@ -104,6 +103,13 @@ static volatile int sync_phase = 0;	 // 1-9 for progress display (sync_proto.h)
 static pthread_t sync_thread;
 static bool sync_thread_active = false;
 static bool is_server = false;
+// The peer sent FAIL before any transfer: its user said no.
+static volatile bool peer_cancelled = false;
+
+// The confirm screen's listener.
+static volatile bool confirm_running = false;
+static pthread_t confirm_thread;
+static bool confirm_thread_active = false;
 
 // Sync options
 static volatile bool sync_roms = false;
@@ -224,7 +230,7 @@ static void notify_peer(const char* msg) {
 // lost the peer keeps searching, sending HELLO and ignoring READY, so a HELLO
 // from the paired peer after discovery gets the ACK again.
 static void reack_lost_hello(int sock, const char* msg, const struct sockaddr_in* from) {
-	if (sock < 0 || !peer_ip[0] || strncmp(msg, HELLO_MSG, strlen(HELLO_MSG)) != 0)
+	if (sock < 0 || !peer_ip[0] || sync_msg_kind(msg) != SYNC_MSG_HELLO)
 		return;
 	char src_ip[INET_ADDRSTRLEN];
 	inet_ntop(AF_INET, &from->sin_addr, src_ip, sizeof(src_ip));
@@ -382,6 +388,7 @@ static void start_discovery(void) {
 	peer_sync_roms = false;
 	peer_client_only = false;
 	peer_filters = false;
+	peer_cancelled = false;
 	peer_ip[0] = '\0';
 	discovery_running = true;
 
@@ -422,47 +429,118 @@ static void stop_discovery(void) {
 	// or immediately if discovery is stopped without syncing (B to exit).
 }
 
-static int wait_for_udp_message(const char* expected, int timeout_sec) {
+static bool from_peer(const struct sockaddr_in* from) {
+	char src_ip[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &from->sin_addr, src_ip, sizeof(src_ip));
+	return peer_ip[0] && strcmp(src_ip, peer_ip) == 0;
+}
+
+// One datagram from the paired peer into buf within timeout_ms: its kind, or
+// -1 when none came. Only the paired peer counts: another device on the LAN
+// syncing at the same time must not steer this session.
+static int recv_peer_msg(int sock, char* buf, size_t size, int timeout_ms, struct sockaddr_in* from) {
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	FD_SET(sock, &readfds);
+	struct timeval tv = {timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+	if (select(sock + 1, &readfds, NULL, NULL, &tv) <= 0)
+		return -1;
+	socklen_t fromlen = sizeof(*from);
+	ssize_t n = recvfrom(sock, buf, size - 1, 0, (struct sockaddr*)from, &fromlen);
+	if (n <= 0)
+		return -1;
+	buf[n] = '\0';
+	if (!from_peer(from))
+		return -1;
+	return sync_msg_kind(buf);
+}
+
+// The client's wait for READY. The peer's user may still be on the confirm
+// screen: a new peer resends its ACK meanwhile and one still searching resends
+// HELLO, so the wait only gives up after READY_QUIET_SEC without a word from
+// the peer. 0 = READY, 1 = the peer cancelled, -1 = timeout or cancelled here.
+static int wait_for_ready(void) {
 	int sock = create_recv_socket();
 	if (sock < 0)
 		return -1;
 
 	char buf[256];
-	time_t start = time(NULL);
-
-	while (!sync_cancel && !app_quit) {
-		if (time(NULL) - start > timeout_sec) {
-			close(sock);
-			return -1;
+	time_t heard = time(NULL);
+	int ret = -1;
+	while (!sync_cancel && !app_quit && time(NULL) - heard <= READY_QUIET_SEC) {
+		struct sockaddr_in from;
+		int kind = recv_peer_msg(sock, buf, sizeof(buf), 1000, &from);
+		if (kind < 0)
+			continue;
+		heard = time(NULL);
+		if (kind == SYNC_MSG_READY) {
+			ret = 0;
+			break;
 		}
-
-		fd_set readfds;
-		FD_ZERO(&readfds);
-		FD_SET(sock, &readfds);
-		struct timeval tv = {1, 0};
-
-		int ret = select(sock + 1, &readfds, NULL, NULL, &tv);
-		if (ret > 0) {
-			struct sockaddr_in from;
-			socklen_t fromlen = sizeof(from);
-			ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
-			if (n > 0) {
-				buf[n] = '\0';
-				char src_ip[INET_ADDRSTRLEN];
-				inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
-				// only from the paired peer: another device on the LAN
-				// syncing at the same time must not start this session
-				if (strcmp(buf, expected) == 0 && (!peer_ip[0] || strcmp(src_ip, peer_ip) == 0)) {
-					close(sock);
-					return 0;
-				}
-				reack_lost_hello(sock, buf, &from);
-			}
+		if (kind == SYNC_MSG_FAIL) {
+			ret = 1;
+			break;
 		}
+		reack_lost_hello(sock, buf, &from);
 	}
 
 	close(sock);
-	return -1;
+	return ret;
+}
+
+static void send_ack(int sock) {
+	char ack_buf[128];
+	int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms);
+	if (len > 0)
+		send_udp_bytes(sock, ack_buf, len, peer_ip);
+}
+
+// While the confirm screen shows: the ACK every second keeps a waiting peer
+// client from timing out and pairs a peer whose first ACK was lost (old
+// firmware ignores an ACK outside discovery). A FAIL from the peer means its
+// user said no.
+static void* confirm_thread_func(void* arg) {
+	(void)arg;
+	int sock = create_recv_socket();
+	uint32_t last_ack = SDL_GetTicks() - BROADCAST_INTERVAL_MS;
+	char buf[256];
+	while (confirm_running && !app_quit) {
+		if (sock < 0) {
+			usleep(200000);
+			continue;
+		}
+		uint32_t now = SDL_GetTicks();
+		if (now - last_ack >= BROADCAST_INTERVAL_MS) {
+			send_ack(sock);
+			last_ack = now;
+		}
+		struct sockaddr_in from;
+		int kind = recv_peer_msg(sock, buf, sizeof(buf), 200, &from);
+		if (kind == SYNC_MSG_FAIL)
+			peer_cancelled = true;
+		else if (kind == SYNC_MSG_HELLO)
+			send_ack(sock);
+	}
+	if (sock >= 0)
+		close(sock);
+	return NULL;
+}
+
+static void start_confirm(void) {
+	peer_cancelled = false;
+	confirm_running = true;
+	confirm_thread_active = pthread_create(&confirm_thread, NULL, confirm_thread_func, NULL) == 0;
+	state = STATE_CONFIRM;
+}
+
+// Joined before the sync thread binds the port: two sockets sharing it with
+// SO_REUSEPORT would split the peer's messages between them.
+static void stop_confirm(void) {
+	confirm_running = false;
+	if (confirm_thread_active) {
+		pthread_join(confirm_thread, NULL);
+		confirm_thread_active = false;
+	}
 }
 
 static void write_rsync_config(void) {
@@ -1194,6 +1272,7 @@ static void* sync_thread_func(void* arg) {
 		time_t start = time(NULL);
 		int ret = -1;
 		uint32_t last_ready = 0;
+		bool client_connected = false;
 
 		FILE* daemon_log = fopen("/tmp/rsyncd.log", "r");
 
@@ -1234,39 +1313,36 @@ static void* sync_thread_func(void* arg) {
 					else if (strncmp(msg, "recv ", 5) == 0)
 						msg += 5;
 
+					if (strstr(msg, "connect from "))
+						client_connected = true;
 					if (msg[0])
 						log_add(msg);
 				}
 				// fgets returns NULL at EOF; file handle stays valid for subsequent reads
 			}
 
-			fd_set readfds;
-			FD_ZERO(&readfds);
-			FD_SET(done_sock, &readfds);
-			struct timeval tv = {0, 200000};
-
-			int sel = select(done_sock + 1, &readfds, NULL, NULL, &tv);
-			if (sel > 0) {
-				struct sockaddr_in from;
-				socklen_t fromlen = sizeof(from);
-				ssize_t n = recvfrom(done_sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
-				if (n > 0) {
-					buf[n] = '\0';
-					char src_ip[INET_ADDRSTRLEN];
-					inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
-					// only the paired peer can end (or fail) the session
-					if (strcmp(buf, DONE_MSG) == 0 && strcmp(src_ip, peer_ip) == 0) {
-						log_add("Client finished sync");
-						ret = 0;
-						break;
-					}
-					if (strcmp(buf, FAIL_MSG) == 0 && strcmp(src_ip, peer_ip) == 0) {
-						log_add("ERROR: The other device's sync failed");
-						break;
-					}
-					reack_lost_hello(notify_sock, buf, &from);
-				}
+			struct sockaddr_in from;
+			int kind = recv_peer_msg(done_sock, buf, sizeof(buf), 200, &from);
+			if (kind < 0)
+				continue;
+			// The client's user may still be on the confirm screen; its ACKs
+			// keep this wait going.
+			start = time(NULL);
+			if (kind == SYNC_MSG_DONE) {
+				log_add("Client finished sync");
+				ret = 0;
+				break;
 			}
+			if (kind == SYNC_MSG_FAIL) {
+				if (client_connected) {
+					log_add("ERROR: The other device's sync failed");
+				} else {
+					log_add("The other device cancelled the sync.");
+					peer_cancelled = true;
+				}
+				break;
+			}
+			reack_lost_hello(notify_sock, buf, &from);
 		}
 
 		if (daemon_log)
@@ -1283,9 +1359,14 @@ static void* sync_thread_func(void* arg) {
 		log_add("Waiting for server...");
 		sync_phase = 0;
 
-		int ret = wait_for_udp_message(READY_MSG, 30);
+		int ret = wait_for_ready();
+		if (ret == 1) {
+			log_add("The other device cancelled the sync.");
+			peer_cancelled = true;
+		}
 		if (ret != 0) {
-			log_add("ERROR: Server not ready (timeout)");
+			if (ret < 0 && !sync_cancel)
+				log_add("ERROR: Server not ready (timeout)");
 			sync_result = -1;
 			sync_done = true;
 			return NULL;
@@ -1577,6 +1658,23 @@ static void render_screen(void) {
 		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		break;
 
+	case STATE_CONFIRM: {
+		int large_leading = TTF_FontLineSkip(font.large);
+		char msg[160];
+		if (sync_confirm_text(msg, sizeof(msg), peer_ip, own_ip) < 0)
+			msg[0] = '\0';
+		int y = screen->h / 2 - large_leading * 2;
+		GFX_blitText(font.large, msg, large_leading, COLOR_WHITE, screen,
+					 &(SDL_Rect){SCALE1(PADDING), y, screen->w - SCALE1(PADDING * 2), screen->h});
+	}
+		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", "A", "SYNC", NULL});
+		break;
+
+	case STATE_PEER_CANCELLED:
+		UI_renderCenteredMessage(screen, SYNC_PEER_CANCELLED_TEXT);
+		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
+		break;
+
 	case STATE_SYNCING: {
 		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
 
@@ -1726,7 +1824,38 @@ int main(int argc, char* argv[]) {
 			} else if (peer_found) {
 				__sync_synchronize();
 				stop_discovery();
+				start_confirm();
+				dirty = true;
+			}
+			break;
+
+		// No time limit: the peer's waits restart on the ACKs the confirm
+		// thread sends.
+		case STATE_CONFIRM:
+			if (peer_cancelled) {
+				stop_confirm();
+				cable_link_stop();
+				allow_power();
+				state = STATE_PEER_CANCELLED;
+				dirty = true;
+			} else if (PAD_justPressed(BTN_A)) {
+				stop_confirm();
 				start_sync();
+				dirty = true;
+			} else if (PAD_justPressed(BTN_B)) {
+				stop_confirm();
+				// Before the cable goes down: FAIL travels over it.
+				notify_peer(FAIL_MSG);
+				cable_link_stop();
+				allow_power();
+				state = STATE_READY;
+				dirty = true;
+			}
+			break;
+
+		case STATE_PEER_CANCELLED:
+			if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_A)) {
+				state = STATE_READY;
 				dirty = true;
 			}
 			break;
@@ -1755,6 +1884,8 @@ int main(int argc, char* argv[]) {
 
 				if (sync_result == 0) {
 					state = STATE_DONE;
+				} else if (peer_cancelled) {
+					state = STATE_PEER_CANCELLED;
 				} else {
 					state = STATE_ERROR;
 				}
@@ -1794,6 +1925,10 @@ int main(int argc, char* argv[]) {
 	if (discovery_thread_active) {
 		discovery_running = false;
 		pthread_join(discovery_thread, NULL);
+	}
+	if (state == STATE_CONFIRM) {
+		stop_confirm();
+		notify_peer(FAIL_MSG);
 	}
 	if (sync_thread_active) {
 		sync_cancel = true;

@@ -11,6 +11,20 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Device Sync: confirm the other device by its IP (built 2026-11-08)
+
+After discovery pairs, both screens ask "Sync with the device at <peer IP>?" above "This device: <own IP>"; nothing
+transfers (no daemon, no rsync) until this side's A. B sends FAIL and goes back to Ready; a FAIL while the screen shows
+reads "The other device cancelled the sync." No protocol change: the confirm screen resends ACK every second, which
+keeps a new client's READY wait (30 s without a word from the peer) and the server's wait going. Host tests pass, no
+hardware run yet.
+
+- [ ] Brick ↔ phone (Wi-Fi and cable): each screen shows the other's IP matching the one that device shows as its own
+- [ ] Brick ↔ Brick: same check; A on both in either order syncs
+- [ ] B on either side cancels both, before or after the other side's A
+- [ ] An old build on the other side still syncs, both roles (an old client gives up 30 s after pairing if the new
+  server's A doesn't come)
+
 ## minarch thread affinity (built + measured 2026-09-20; Smart Pro S re-swept with the Task 4.5 fix 2026-09-21)
 
 The `minarch_cpu_affinity = none|big|little` key is built and measured (spec
