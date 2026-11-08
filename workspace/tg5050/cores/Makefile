@@ -49,7 +49,7 @@ CORES+= mupen64plus_next
 
 a2600_REPO = https://github.com/libretro/stella2014-libretro
 a2600_CORE = stella2014_libretro.so
-a2600_HASH = 3cc89f0d316d6c924a5e3f4011d17421df58e615
+a2600_HASH = 7d1361e407e63f29e52892655069e5fb4096e691
 a2600_LICENSE = stella/license.txt
 
 a5200_CORE = a5200_libretro.so
