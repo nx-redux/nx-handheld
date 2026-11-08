@@ -154,7 +154,7 @@ pokemini_HASH = 78656d4615691c393e65e48672ce5fff5b1f97d3
 prboom_REPO = https://github.com/libretro/libretro-prboom
 prboom_HASH = 93c8e7a2074e4fd8410398e3d571c6d9afec1d84
 
-race_HASH = 171950ea64c96ead503340ed60fa7ba18f56325c
+race_HASH = c7810dd7f172827bfa2004813bc000b13786636b
 
 snes9x2005_plus_REPO = https://github.com/libretro/snes9x2005
 snes9x2005_plus_FLAGS = USE_BLARGG_APU=1

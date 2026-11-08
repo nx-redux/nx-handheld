@@ -1,0 +1,83 @@
+# license: modifies RACE (https://github.com/libretro/race), GPL-2.0 (its license.txt); this patch is distributed under the same license.
+# States from before the real-time clock fields (appended at c7810dd7's state version 0x12) load again: retro_unserialize
+# rejected anything shorter than the new layout. Such a state is restored with the clock started afresh, as a game load does.
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index b24fdf3..acc295f 100755
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -541,11 +541,7 @@ bool retro_serialize(void *data, size_t size)
+ 
+ bool retro_unserialize(const void *data, size_t size)
+ {
+-   int ret;
+-   if (size < state_get_size())
+-      return false;
+-   ret = state_restore_mem((void*)data);
+-   return (ret == 1);
++   return state_restore_mem_compat(data, size) == 1;
+ }
+ 
+ bool retro_load_game(const struct retro_game_info *info)
+diff --git a/state.c b/state.c
+index 441cbbf..586d5a5 100644
+--- a/state.c
++++ b/state.c
+@@ -20,7 +20,9 @@
+ #include "neopopsound.h"
+ #include "neopop_blip.h"
+ 
++#include <stdlib.h>
+ #include <string.h>
++#include <time.h>
+ #include "state.h"
+ #include "tlcs900h.h"
+ #include "race-memory.h"
+@@ -338,3 +340,27 @@ int state_get_size(void)
+ {
+   return sizeof(race_state_t);
+ }
++
++/* nx-mobile: a state from before the real-time clock fields were appended
++ * ends at ldcRegs (plus padding) and fails the size check; restore it with the
++ * clock started afresh, as a game load does. */
++int state_restore_mem_compat(const void *data, size_t size)
++{
++  const size_t old_end = offsetof(race_state_t, ldcRegs) + sizeof(((race_state_t*)0)->ldcRegs);
++  race_state_t *rs;
++  int ret;
++
++  if (size >= sizeof(race_state_t))
++    return state_restore((race_state_t*)data);
++  if (size < old_end)
++    return 0;
++  rs = (race_state_t*)calloc(1, sizeof(race_state_t));
++  if (!rs)
++    return 0;
++  memcpy(rs, data, old_end);
++  rs->rtc_base_time     = (int64_t)time(NULL);
++  rs->rtc_frame_counter = 0;
++  ret = state_restore(rs);
++  free(rs);
++  return ret;
++}
+diff --git a/state.h b/state.h
+index 5e51d8e..e73c622 100644
+--- a/state.h
++++ b/state.h
+@@ -16,6 +16,8 @@
+ #ifndef _STATE_H
+ #define _STATE_H
+ 
++#include <stddef.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -23,6 +25,7 @@ extern "C" {
+ int state_get_size(void);
+ int state_store_mem(void *state);
+ int state_restore_mem(void *state);
++int state_restore_mem_compat(const void *data, size_t size);
+ 
+ #ifdef __cplusplus
+ }
