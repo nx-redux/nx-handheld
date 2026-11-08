@@ -1,3 +1,4 @@
+# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); the changes to mGBA's files are distributed under the same license. The new nx_wifi_link.h/.c port gpSP's serial.c and, like the NXRedux gba_wifi_link code they compile in (gpSP's rfu.c and serial_proto.c), are GPL-2.0-or-later, so the built core is distributed under GPL-2.0-or-later (MPL-2.0 section 3.3).
 diff --git forkSrcPrefix/CMakeLists.txt forkDstPrefix/CMakeLists.txt
 index b2020098..c84b6c0c 100644
 --- forkSrcPrefix/CMakeLists.txt
@@ -130,10 +131,10 @@ index 00000000..e8c5ba1a
 +#include "serial_proto.c"
 diff --git forkSrcPrefix/src/gba/sio/nx_wifi_link.c forkDstPrefix/src/gba/sio/nx_wifi_link.c
 new file mode 100644
-index 00000000..bf66eaf9
+index 00000000..421b5786
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_wifi_link.c
-@@ -0,0 +1,505 @@
+@@ -0,0 +1,506 @@
 +/* nx_wifi_link.c - gpSP's serial.c (write_siocnt, write_rcnt, update_serial)
 + * ported onto mGBA's GBASIODriver, driving gba_wifi_link: the GBA Wireless
 + * Adapter in Normal mode (8 and 32 bit), the Pokemon and Advance Wars cable
@@ -451,8 +452,8 @@ index 00000000..bf66eaf9
 +		gwl_multi_master_send();
 +		return true;
 +	}
-+	/* Normal-32: the clock source is in the value being written, so
-+	 * _driverWriteSIOCNT starts the transfer. */
++	/* Normal mode (8 or 32 bit): the clock source is in the value being
++	 * written, so _driverWriteSIOCNT starts the transfer. */
 +	return false;
 +}
 +
@@ -609,10 +610,11 @@ index 00000000..bf66eaf9
 + * protocol starts over, as on a replug. mGBA restores sio.completeEvent when
 + * the state had Start/Busy set, so a transfer caught in flight still ends,
 + * but the adapter's reply to a Normal-32 word was not saved: it ends with
-+ * nothing on the line (a Normal-8 reply is already in SIODATA32). A completion restored for a transfer we don't time (the adapter's
-+ * push to a child GBA, a cable child) is dropped, as those end from the
-+ * tick. States without the event get one for a parent's transfer, rather
-+ * than leaving the game's Busy/Start bit stuck. */
++ * nothing on the line (a Normal-8 reply is already in SIODATA32). A
++ * completion restored for a transfer we don't time (the adapter's push to
++ * a child GBA, a cable child) is dropped, as those end from the tick.
++ * States without the event get one for a parent's transfer, rather than
++ * leaving the game's Busy/Start bit stuck. */
 +void nx_wifi_link_state_loaded(void) {
 +	if (!wl.attached) {
 +		return;
