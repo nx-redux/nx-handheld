@@ -39,6 +39,8 @@ trap 'rm -f "$OUT"' EXIT
 		want = 1
 		next
 	}
+	# gba_over.h puts a note between some codes and their flags.
+	want && /^[ \t]*\/\*.*\*\/[ \t]*$/ { next }
 	want {
 		line = $0
 		sub(/\/\*.*/, "", line)

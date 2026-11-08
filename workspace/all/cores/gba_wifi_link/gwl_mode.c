@@ -199,7 +199,32 @@ enum GwlMode gwl_mode_from_token(const char* t) {
 }
 
 bool gwl_mixed_ok(const char* our_wl, const char* peer_wl, bool usb) {
-	if (!our_wl || !peer_wl || strcmp(our_wl, peer_wl) != 0 || strcmp(our_wl, "none") == 0)
+	if (!our_wl || !peer_wl || strcmp(our_wl, peer_wl) != 0 || gwl_mode_from_token(our_wl) == GWL_NONE)
 		return false;
 	return !usb || strcmp(our_wl, "rfu") == 0;
+}
+
+enum GwlMode gwl_mgba_wifi_mode(const char* option, enum GwlMode auto_mode) {
+	static const struct {
+		const char* option;
+		enum GwlMode mode;
+	} pinned[] = {{"rfu", GWL_RFU}, {"mul_poke", GWL_POKE}, {"mul_aw1", GWL_AW1}, {"mul_aw2", GWL_AW2}};
+	if (!option)
+		return GWL_NONE;
+	if (strcmp(option, "auto") == 0)
+		return auto_mode;
+	if (strcmp(option, "auto_cable") == 0)
+		return auto_mode == GWL_RFU ? GWL_RFU : GWL_NONE;
+	for (size_t i = 0; i < sizeof pinned / sizeof pinned[0]; i++)
+		if (strcmp(option, pinned[i].option) == 0)
+			return pinned[i].mode;
+	return GWL_NONE;
+}
+
+enum GwlLinkPick gwl_mgba_pick(const char* option, enum GwlMode auto_mode) {
+	if (gwl_mgba_wifi_mode(option, auto_mode) != GWL_NONE)
+		return GWL_PICK_WIFI;
+	if (option && (strcmp(option, "disabled") == 0 || strcmp(option, "auto") == 0))
+		return GWL_PICK_NONE;
+	return GWL_PICK_CABLE;
 }

@@ -26,4 +26,16 @@ enum GwlMode gwl_mode_from_token(const char* t); // unknown or NULL: GWL_NONE
 // the Wireless Adapter mode works.
 bool gwl_mixed_ok(const char* our_wl, const char* peer_wl, bool usb);
 
+// mGBA's mgba_link_mode, resolved at load: which link the core installs.
+// Values: cable (the default: the real link cable), auto, auto_cable (the
+// Wireless Adapter when that is the game's auto mode, else the real cable),
+// rfu, mul_poke, mul_aw1, mul_aw2, disabled. NULL and unknown values are
+// cable, so a frontend that never sets the option keeps the real cable.
+enum GwlLinkPick { GWL_PICK_NONE,
+				   GWL_PICK_CABLE,
+				   GWL_PICK_WIFI };
+enum GwlLinkPick gwl_mgba_pick(const char* option, enum GwlMode auto_mode);
+// The mode to run when gwl_mgba_pick says GWL_PICK_WIFI, else GWL_NONE.
+enum GwlMode gwl_mgba_wifi_mode(const char* option, enum GwlMode auto_mode);
+
 #endif

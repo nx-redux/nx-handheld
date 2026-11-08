@@ -4,7 +4,10 @@ NX-Redux additions in this build
 
 This mgba_libretro.so is mGBA (MPL-2.0, above) combined with NX-Redux's
 lockstep link-cable code: sio_lockstep.c/.h (workspace/all/cores/sio_lockstep)
-and the glue in workspace/all/cores/patches/mgba/001-sio-lockstep.patch, from
+and the glue in workspace/all/cores/patches/mgba/001-sio-lockstep.patch, and
+with gba_wifi_link (workspace/all/cores/gba_wifi_link, gpSP's Wireless Adapter
+and link-cable protocol code, notice below) and the glue in
+workspace/all/cores/patches/mgba/003-wifi-link.patch, from
 https://github.com/nx-redux/nx-handheld. That code is licensed
 GPL-2.0-or-later.
 

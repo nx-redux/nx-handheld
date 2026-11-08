@@ -123,6 +123,7 @@ int main(void) {
 	assert(gwl_mixed_ok("poke", "poke", false));
 	assert(!gwl_mixed_ok("rfu", "poke", false));
 	assert(!gwl_mixed_ok("none", "none", false));
+	assert(!gwl_mixed_ok("aw3", "aw3", false));
 	assert(!gwl_mixed_ok(NULL, "rfu", false));
 	assert(!gwl_mixed_ok("rfu", NULL, false));
 

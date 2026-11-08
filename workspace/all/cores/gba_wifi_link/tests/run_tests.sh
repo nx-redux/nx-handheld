@@ -5,6 +5,7 @@
 #   test_gwl_diff      the library against gpSP's own code, same sessions
 #   gen_games.sh       gwl_games.h still matches gpSP's gba_over.h
 #   test_gwl_mode      the per-game auto mode rule and ROM probe
+#   test_mgba_option   how mGBA's mgba_link_mode resolves at load
 set -e
 D=$(cd "$(dirname "$0")/.." && pwd)
 T=${TMPDIR:-/tmp}
@@ -47,3 +48,5 @@ $CC -I"$D" $LIB "$D/tests/test_gwl_diff.c" "$B/ref/rfu.o" "$B/ref/serial_proto.o
 sh "$D/tests/gen_games.sh" --check
 $CC -I"$D" "$D/gwl_mode.c" "$D/tests/test_gwl_mode.c" -o "$B/test_gwl_mode"
 "$B/test_gwl_mode"
+$CC -I"$D" "$D/gwl_mode.c" "$D/tests/test_mgba_option.c" -o "$B/test_mgba_option"
+"$B/test_mgba_option"

@@ -5,7 +5,8 @@
 # the old platform patch: the CPU flags it carried are passed here.
 # Leaves mgba_libretro.so in the checkout root (collected by the template).
 # NX_SIOLS_DIR (the shared lockstep state machine, compiled in by
-# all/cores/patches/mgba/001) comes from the cores Makefile's environment.
+# all/cores/patches/mgba/001) and NX_GWL_DIR (gba_wifi_link, compiled in by
+# 003) come from the cores Makefile's environment.
 set -e
 PLAT="$1"
 JOBS="${2:--j4}"
@@ -30,6 +31,7 @@ cmake -S . -B "$BUILD" \
 	-DCMAKE_TOOLCHAIN_FILE="$HERE/../flycast/toolchain-aarch64.cmake" \
 	-DCMAKE_C_FLAGS="$CFLAGS" \
 	-DLIBMGBA_ONLY=ON -DBUILD_LIBRETRO=ON \
-	-DNX_SIOLS_DIR="${NX_SIOLS_DIR:?NX_SIOLS_DIR (all/cores/sio_lockstep) is required}"
+	-DNX_SIOLS_DIR="${NX_SIOLS_DIR:?NX_SIOLS_DIR (all/cores/sio_lockstep) is required}" \
+	-DNX_GWL_DIR="${NX_GWL_DIR:?NX_GWL_DIR (all/cores/gba_wifi_link) is required}"
 cmake --build "$BUILD" --target mgba_libretro "$JOBS"
 $TC-strip -o mgba_libretro.so "$BUILD"/mgba_libretro.so
