@@ -3,9 +3,10 @@
 # bEnableCheats, which only the "Internal Cheats Support" option (off by default) set.
 # Cheats the frontend sends now turn it on; retro_cheat_reset hands it back to the option.
 diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index 58dd53b..ae69ea8 100644
 --- a/libretro/libretro.cpp
 +++ b/libretro/libretro.cpp
-@@ -99,6 +99,8 @@
+@@ -112,6 +112,8 @@ static bool libretro_supports_bitmasks = false;
  static bool show_ip_address_options = true;
  static bool show_upnp_port_option = true;
  static bool show_detect_frame_rate_option = true;
@@ -14,9 +15,9 @@ diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
  static std::string changeProAdhocServer;
  
  void* unserialize_data = NULL;
-@@ -496,6 +498,18 @@
-    }
- }
+@@ -523,6 +525,18 @@ static void check_dynamic_variables(CoreParameter &coreParam) {
+ 
+ extern int DefaultDepthRaster();
  
 +// The cheat engine only runs with bEnableCheats, which "Internal Cheats Support"
 +// (off by default) sets, so cheats the frontend sent never applied. Run them
@@ -33,7 +34,7 @@ diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
  static void check_variables(CoreParameter &coreParam)
  {
     check_dynamic_variables(coreParam);
-@@ -614,14 +628,7 @@
+@@ -652,14 +666,7 @@ static void check_variables(CoreParameter &coreParam)
           g_Config.bCacheFullIsoInRam = true;
     }
  
@@ -49,7 +50,7 @@ diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
  
     var.key = "ppsspp_psp_model";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-@@ -1845,6 +1852,9 @@
+@@ -1970,6 +1977,9 @@ size_t retro_get_memory_size(unsigned id)
  }
  
  void retro_cheat_reset(void) {
@@ -57,9 +58,9 @@ diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
 +   update_cheats_enabled();
 +
     // Init Cheat Engine
-    CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());
-    Path file=cheatEngine->CheatFilename();
-@@ -1867,6 +1877,11 @@
+    CWCheatEngine cheatEngineObj(g_paramSFO.GetDiscID());
+    CWCheatEngine *cheatEngine = &cheatEngineObj;
+@@ -1993,6 +2003,11 @@ void retro_cheat_reset(void) {
  }
  
  void retro_cheat_set(unsigned index, bool enabled, const char *code) {
@@ -69,5 +70,5 @@ diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
 +   }
 +
     // Initialize Cheat Engine
-    CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());
-    cheatEngine->CreateCheatFile();
+    CWCheatEngine cheatEngineObj(g_paramSFO.GetDiscID());
+    CWCheatEngine *cheatEngine = &cheatEngineObj;

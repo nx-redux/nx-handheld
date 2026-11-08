@@ -6,10 +6,10 @@
 # libEGL link and the EGL-extension query (only used by an Android EGL timer)
 # for the libretro GLES build (tg5050's sysroot has no libEGL.so).
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 65e2b49..0bf9975 100644
+index 49f8c05..a0f1641 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -312,7 +312,11 @@ include_directories(ext/glew)
+@@ -315,7 +315,11 @@ include_directories(ext/glew)
  if(OPENXR AND NOT ARMV7_DEVICE)
  	set(OPENGL_LIBRARIES GLESv3 EGL)
  elseif(NOT OPENGL_LIBRARIES AND USING_GLES2)
@@ -21,12 +21,12 @@ index 65e2b49..0bf9975 100644
 +	endif()
  endif()
  
- if(NOT OPENGL_LIBRARIES)
+ # The iOS app is Vulkan (MoltenVK) only. Must match PPSSPP_API_ANY_GL in ppsspp_config.h.
 diff --git a/Common/GPU/OpenGL/GLFeatures.cpp b/Common/GPU/OpenGL/GLFeatures.cpp
-index 6877dbd..03312b9 100644
+index b80d4ce..3f610b6 100644
 --- a/Common/GPU/OpenGL/GLFeatures.cpp
 +++ b/Common/GPU/OpenGL/GLFeatures.cpp
-@@ -482,7 +482,7 @@ bool CheckGLExtensions() {
+@@ -491,7 +491,7 @@ bool CheckGLExtensions() {
  		eglGetSystemTimeNV = (PFNEGLGETSYSTEMTIMENVPROC)eglGetProcAddress("eglGetSystemTimeNV");
  		eglGetSystemTimeFrequencyNV = (PFNEGLGETSYSTEMTIMEFREQUENCYNVPROC)eglGetProcAddress("eglGetSystemTimeFrequencyNV");
  	}
