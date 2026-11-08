@@ -53,14 +53,14 @@ a2600_HASH = 3cc89f0d316d6c924a5e3f4011d17421df58e615
 a2600_LICENSE = stella/license.txt
 
 a5200_CORE = a5200_libretro.so
-a5200_HASH = 526404072821bb2021fab16f8c5dbbca300512c8
+a5200_HASH = 40c6f2f1ad4a3145b328d5baaf010fae6c7e752b
 
 a7800_CORE = prosystem_libretro.so
 a7800_REPO = https://github.com/libretro/prosystem-libretro
-a7800_HASH = acae250da8d98b8b9707cd499e2a0bf6d8500652
+a7800_HASH = 8a88014287c7a01cd568067e5a557d0a2b2a051f
 
 handy_REPO = https://github.com/libretro/libretro-handy
-handy_HASH = fca239207e9c111da3e85d2faf0b1b9d7524e498
+handy_HASH = bc55d462f0b2d6b073ea93dc552ebd73cec60fd1
 handy_LICENSE = lynx/license.txt
 
 fbneo_REPO = https://github.com/libretro/FBNeo
@@ -85,13 +85,13 @@ mednafen_wswan_HASH = 4b01295838ea89e3f1355bbe4cb5cf98aa6108cd
 fake-08_REPO = https://github.com/jtothebell/fake-08
 fake-08_CORE = fake08_libretro.so
 fake-08_BUILD_PATH = fake-08/platform/libretro
-fake-08_HASH = f6bab5a7ba521ce440e45d1aeef6122674be6ee9
+fake-08_HASH = 814991a2571ad3970e386cef48f3b148aa1c27b9
 
 fceumm_REPO = https://github.com/libretro/libretro-fceumm
-fceumm_HASH = 236ccdfc911e84c60fea6b9d0699c2d440a8de14
+fceumm_HASH = e0f3086a8104f8fbbe49a2615b10401504a9533f
 
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
-gambatte_HASH = d9d6cd06382d1ced30de34d56d3609452323dab1
+gambatte_HASH = 77f2567d718b8973d02caa2daa8dce4953faf811
 
 # Pinned: upstream gpsp drifts under the all/cores/patches/gpsp/* patches
 # (rfu.c for 001/002, the JIT cache mapping for 003, load_gamepak for 004).
@@ -118,7 +118,7 @@ mgba_DEPS = ../../all/cores/mgba/build-libretro.sh ../../all/cores/flycast/toolc
 mgba_LICENSE_NOTICE = ../../all/cores/mgba/LICENSE-sio_lockstep.txt
 
 pcsx_rearmed_MAKEFILE = Makefile.libretro
-pcsx_rearmed_HASH = 6eb679d064a1efe92af79fe9970c0591c8da02d4
+pcsx_rearmed_HASH = 7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e
 # pcsx has a disabled submodule for gnulib, which takes forever to check out and is unused - skip checkout
 pcsx_rearmed_SUBMODULES = frontend/libpicofe
 
@@ -126,7 +126,7 @@ pcsx_rearmed_SUBMODULES = frontend/libpicofe
 # core than pcsx_rearmed with a GLES hardware renderer. Its Makefile.libretro only
 # knows host platforms, so build as unix and name the CPU (the docker host is
 # x86_64); the shared patch strips the .so.
-swanstation_HASH = dd4805619bbbfc6e0d1776372cb16377088b448e
+swanstation_HASH = 631f0fb31b809e0f889d7c551fe695788e39c1d3
 swanstation_MAKE = make -f Makefile.libretro platform=unix CPU_ARCH=aarch64
 
 picodrive_REPO = https://github.com/irixxxx/picodrive
@@ -144,7 +144,7 @@ picodrive_HASH = b0be121b7d58d6ee1ee2809974e62893c80a8264
 # cores' stripped size instead of shipping ~13 MB of debug_info.
 genesis_plus_gx_REPO = https://github.com/libretro/Genesis-Plus-GX
 genesis_plus_gx_MAKE = make -f Makefile.libretro platform=unix LDFLAGS=-s
-genesis_plus_gx_HASH = c2838c7dc4236fc2fe94e5dbd08b41486067918e
+genesis_plus_gx_HASH = f27655b592ef43f317272d79883bcaa10d3ac8ad
 
 pokemini_REPO = https://github.com/libretro/PokeMini
 pokemini_MAKEFILE = Makefile.libretro
@@ -152,7 +152,7 @@ pokemini_MAKEFILE = Makefile.libretro
 pokemini_HASH = 78656d4615691c393e65e48672ce5fff5b1f97d3
 
 prboom_REPO = https://github.com/libretro/libretro-prboom
-prboom_HASH = 93c8e7a2074e4fd8410398e3d571c6d9afec1d84
+prboom_HASH = 4849268e7342494193f2bbf2d0128a751cf58da7
 
 race_HASH = 171950ea64c96ead503340ed60fa7ba18f56325c
 
