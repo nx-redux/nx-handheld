@@ -72,7 +72,7 @@ fbneo_HASH = 6a5cc250c2db8d874a06ee86e302a2a78918b4c1
 fbneo_LICENSE = src/license.txt
 
 mednafen_pce_fast_REPO = https://github.com/libretro/beetle-pce-fast-libretro
-mednafen_pce_fast_HASH = 52675734da114a19b3705f03906b1455f3d76644
+mednafen_pce_fast_HASH = 2de1ce1c3f237b161c126c54ba407990bb86d1e9
 
 mednafen_vb_REPO = https://github.com/libretro/beetle-vb-libretro
 mednafen_vb_HASH = 65debc7c4c7b85e2fd988d2be53496c2cf0b5f44

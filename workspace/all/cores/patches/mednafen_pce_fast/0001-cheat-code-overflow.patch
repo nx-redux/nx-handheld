@@ -1,33 +1,40 @@
-# license: modifies beetle-pce-fast-libretro (https://github.com/libretro/beetle-pce-fast-libretro), GPL-2.0 (COPYING); this patch is distributed under the same license.
-# retro_cheat_set copied each code with strcpy into char temp[256]: a code of 256+
-# characters (about 26 parts) overflowed the stack. Copy it with strdup instead.
---- a/libretro.cpp
-+++ b/libretro.cpp
-@@ -2649,14 +2649,17 @@
+# license: modifies Beetle PCE Fast (https://github.com/libretro/beetle-pce-fast-libretro), GPL-2.0 (COPYING); this patch is distributed under the same license.
+# retro_cheat_set copies each code into a 256-byte stack buffer (strlcpy since the C89
+# rewrite), so a code of 256+ chars (about 26 parts) lost its later parts. Copy to the heap.
+diff --git a/libretro.c b/libretro.c
+index f1655bc..8550a94 100644
+--- a/libretro.c
++++ b/libretro.c
+@@ -2865,16 +2865,19 @@ void retro_cheat_reset(void)
  void retro_cheat_set(unsigned index, bool enabled, const char *code)
  {
     char name[256];
 -   char temp[256];
 +   char *temp;
     char *codepart;
++   size_t len;
  
     if (code == NULL)
        return;
  
     sprintf(name, "N/A");
--   strcpy(temp, code);
-+   /* database codes run past 256 characters: copy to the heap, not a fixed buffer */
-+   temp = strdup(code);
+-   /* code originates from the frontend and may be arbitrarily long; a plain
+-    * strcpy into a 256-byte stack buffer is a buffer overflow. */
+-   strlcpy(temp, code, sizeof(temp));
++   len = strlen(code) + 1;
++   temp = (char*)malloc(len);
 +   if (!temp)
 +      return;
++   memcpy(temp, code, len);
     codepart = strtok(temp, "+,;._ ");
  
     while (codepart)
-@@ -2716,6 +2719,7 @@
+@@ -2934,6 +2937,8 @@ void retro_cheat_set(unsigned index, bool enabled, const char *code)
           log_cb(RETRO_LOG_DEBUG, "Invalid or unknown code: '%s'\n", codepart);
        codepart = strtok(NULL,"+,;._ ");
     }
++
 +   free(temp);
  }
  
- extern "C" void MDFN_DispMessage(const char *format, ...)
+ void MDFN_DispMessage(const char *format, ...)
