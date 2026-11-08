@@ -358,7 +358,7 @@ static char* overclock_labels[] = {
 	NULL,
 };
 
-// TODO: this should be provided by the core
+// PlayStation's by default; Config_useMegaDrivePads swaps in picodrive's 3/6-button pads
 char* gamepad_labels[] = {
 	"Standard",
 	"DualShock",
@@ -1036,6 +1036,7 @@ void Config_quit(void) {
 		free(core_button_mapping[i].name);
 	}
 }
+static void Config_setGamepadType(int type);
 void Config_readOptionsString(char* cfg) {
 	if (!cfg)
 		return;
@@ -1049,14 +1050,14 @@ void Config_readOptionsString(char* cfg) {
 		Config_syncFrontend(option->key, option->value);
 	}
 
-	if (has_custom_controllers && Config_getValue(cfg, "minarch_gamepad_type", value, NULL)) {
+	int locked = 0;
+	if (has_custom_controllers && Config_getValue(cfg, "minarch_gamepad_type", value, &locked)) {
 		// An index into gamepad_values[] from a user-editable file: clamp it
 		int type = strtol(value, NULL, 0);
 		int type_count = (int)(sizeof(gamepad_labels) / sizeof(gamepad_labels[0])) - 1; // minus the NULL
-		gamepad_type = (type >= 0 && type < type_count) ? type : 0;
-		int device = strtol(gamepad_values[gamepad_type], NULL, 0);
-		core.set_controller_port_device(0, device);
-		core.set_controller_port_device(1, device); // player 2 (netplay) gets the same pad
+		Config_setGamepadType((type >= 0 && type < type_count) ? type : 0);
+		if (locked)
+			gamepad_type_locked = 1;
 	}
 
 	// Per-pak CPU range (ma_cpu_profile.h). Plain integers in MHz; a user's
@@ -1209,14 +1210,32 @@ void Config_free(void) {
 // Netplay pads: a lockstep session gives the game the same pad on every device,
 // so a game that probes the pad takes one path on both sides; a 6-button probe
 // against a 3-button pad desyncs (SF2' SCE, MK3, Comix Zone) and the state-size
-// check can't catch it. picodrive gets its default "3 button pad" on both inputs
-// whatever the user picked for the game (MD/SEGACD/32X don't lock it like SMS);
-// genesis_plus_gx always runs JOYPAD on both ports already (minarch offers a pad
-// type only to PlayStation cores). NX Redux Mobile forces the same
-// (NetplayPads.kt). Single player keeps the user's choice, and Config_write saves
-// that choice, not the forced one.
-static const char* np_pad_keys[] = {"picodrive_input1", "picodrive_input2"};
-static int np_pad_user_value[] = {-1, -1}; // the user's picodrive_input1/2 while forced
+// check can't catch it. picodrive gets its 3-button pad (Controller "3-Button",
+// the RETRO_DEVICE_JOYPAD it takes as its 3BTN) on both ports whatever the user
+// picked for the game; genesis_plus_gx always runs JOYPAD on both ports already.
+// NX Redux Mobile forces the same (NetplayPads.kt). Single player keeps the
+// user's choice, and Config_write saves that choice, not the forced one.
+static int np_gamepad_user = -1; // the user's Controller while a session forces 3-Button
+
+void Config_useMegaDrivePads(unsigned six_button_id) {
+	static char six_id[12];
+	snprintf(six_id, sizeof(six_id), "%u", six_button_id);
+	gamepad_labels[0] = "3-Button";
+	gamepad_labels[1] = "6-Button";
+	gamepad_values[0] = "1"; // RETRO_DEVICE_JOYPAD: picodrive's 3-button pad
+	gamepad_values[1] = six_id;
+	gamepad_digital = 1;
+	has_custom_controllers = 1;
+}
+int Config_gamepadRowShown(void) {
+	return has_custom_controllers && !gamepad_type_locked && np_gamepad_user < 0;
+}
+static void Config_setGamepadType(int type) {
+	gamepad_type = type;
+	int device = strtol(gamepad_values[type], NULL, 0);
+	core.set_controller_port_device(0, device);
+	core.set_controller_port_device(1, device); // player 2 (netplay) gets the same pad
+}
 
 // Session option: a netplay joiner runs the host's link mode (gpsp_serial) for
 // the session only, as NX Redux Mobile does (NetplayLinkOptions.forSession).
@@ -1227,9 +1246,6 @@ static int session_user_value = -1; // the user's value of session_key while for
 
 // The value Config_write saves for `option`: the user's own while a session forces it
 static int Config_netplayUserValue(Option* option) {
-	for (int i = 0; i < 2; i++)
-		if (np_pad_user_value[i] >= 0 && exactMatch(option->key, (char*)np_pad_keys[i]))
-			return np_pad_user_value[i];
 	if (session_user_value >= 0 && exactMatch(option->key, session_key))
 		return session_user_value;
 	return option->value;
@@ -1262,13 +1278,8 @@ static void Config_forceSessionOption(void) {
 // Restore Defaults during a session: the defaults become the user's choice that
 // Config_write saves, and the forced values stay on (the running core has them)
 static void Config_restoreNetplayValues(void) {
-	for (int i = 0; i < 2; i++) {
-		Option* option = np_pad_user_value[i] >= 0 ? OptionList_getOption(&config.core, np_pad_keys[i]) : NULL;
-		if (!option)
-			continue;
-		np_pad_user_value[i] = option->default_value;
-		OptionList_setOptionValue(&config.core, np_pad_keys[i], "3 button pad");
-	}
+	if (np_gamepad_user >= 0)
+		np_gamepad_user = 0;
 	Option* option = session_user_value >= 0 ? OptionList_getOption(&config.core, session_key) : NULL;
 	if (option) {
 		session_user_value = option->default_value;
@@ -1277,25 +1288,17 @@ static void Config_restoreNetplayValues(void) {
 }
 static void Config_forceNetplayPads(void) {
 	const char* role = getenv("NETPLAY_ROLE"); // a wizard-launched session (minarch's boot-time engine)
-	if (!role || !role[0] || !exactMatch((char*)core.name, "picodrive"))
+	if (!role || !role[0] || !exactMatch((char*)core.name, "picodrive") || !has_custom_controllers)
 		return;
-	for (int i = 0; i < 2; i++) {
-		Option* option = OptionList_getOption(&config.core, np_pad_keys[i]);
-		if (!option)
-			continue; // not reported yet: the next read forces it
-		// the user's choice is what this read just left, when it read the user's cfg (cores
-		// register options in Core_open, before Config_load: that first read has no cfg)
-		if (config.user_cfg || np_pad_user_value[i] < 0) {
-			if (config.user_cfg && np_pad_user_value[i] != option->value)
-				LOG_info("Netplay pads: %s = 3 button pad for the session (user: %s)\n", np_pad_keys[i],
-						 OptionList_getOptionValue(&config.core, np_pad_keys[i]));
-			np_pad_user_value[i] = option->value;
-		}
-		OptionList_setOptionValue(&config.core, np_pad_keys[i], "3 button pad");
-		option->lock = 1; // hidden from the menu for the session
+	// the user's choice is what this read just left, when it read the user's cfg
+	if (config.user_cfg || np_gamepad_user < 0) {
+		if (gamepad_type != 0)
+			LOG_info("Netplay pads: Controller = %s for the session (user: %s)\n", gamepad_labels[0],
+					 gamepad_labels[gamepad_type]);
+		np_gamepad_user = gamepad_type;
 	}
+	Config_setGamepadType(0);
 }
-
 void Config_readOptions(void) {
 	Config_readOptionsString(config.system_cfg);
 	Config_readOptionsString(config.default_cfg);
@@ -1380,8 +1383,8 @@ void Config_write(int override) {
 		}
 	}
 
-	if (has_custom_controllers)
-		fprintf(file, "%s = %i\n", "minarch_gamepad_type", gamepad_type);
+	if (has_custom_controllers && !gamepad_type_locked)
+		fprintf(file, "%s = %i\n", "minarch_gamepad_type", np_gamepad_user >= 0 ? np_gamepad_user : gamepad_type);
 
 	for (int i = 0; config.controls[i].name; i++) {
 		ButtonMapping* mapping = &config.controls[i];
@@ -1422,11 +1425,8 @@ void Config_restore(void) {
 	}
 	config.core.changed = 1; // let the core know
 
-	if (has_custom_controllers) {
-		gamepad_type = 0;
-		core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
-		core.set_controller_port_device(1, RETRO_DEVICE_JOYPAD);
-	}
+	if (has_custom_controllers && !gamepad_type_locked)
+		Config_setGamepadType(0);
 
 	for (int i = 0; config.controls[i].name; i++) {
 		ButtonMapping* mapping = &config.controls[i];

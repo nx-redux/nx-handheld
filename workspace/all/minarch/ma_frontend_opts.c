@@ -328,7 +328,7 @@ int OptionControls_optionChanged(MenuList* list, int i) {
 	if (item->values != gamepad_labels)
 		return MENU_CALLBACK_NOP;
 
-	if (has_custom_controllers) {
+	if (Config_gamepadRowShown()) {
 		gamepad_type = item->value;
 		int device = strtol(gamepad_values[item->value], NULL, 0);
 		core.set_controller_port_device(0, device);
@@ -348,10 +348,10 @@ static MenuList OptionControls_menu = {
 int OptionControls_openMenu(MenuList* list, int i) {
 	if (OptionControls_menu.items == NULL) {
 		// TODO: where do I free this?
-		OptionControls_menu.items = calloc(RETRO_BUTTON_COUNT + 1 + has_custom_controllers, sizeof(MenuItem));
+		OptionControls_menu.items = calloc(RETRO_BUTTON_COUNT + 1 + Config_gamepadRowShown(), sizeof(MenuItem));
 		int k = 0;
 
-		if (has_custom_controllers) {
+		if (Config_gamepadRowShown()) {
 			MenuItem* item = &OptionControls_menu.items[k++];
 			item->name = "Controller";
 			item->desc = "Select the type of controller.";
@@ -378,7 +378,7 @@ int OptionControls_openMenu(MenuList* list, int i) {
 		// update values
 		int k = 0;
 
-		if (has_custom_controllers) {
+		if (Config_gamepadRowShown()) {
 			MenuItem* item = &OptionControls_menu.items[k++];
 			item->value = gamepad_type;
 		}
