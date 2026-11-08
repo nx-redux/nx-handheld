@@ -104,7 +104,7 @@ gpsp_FLAGS = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep
 gpsp_DEPS = $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h)
 
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
-mednafen_supafaust_HASH = e25f66765938d33f9ad5850e8d6cd597e55b7299
+mednafen_supafaust_HASH = 642d1d1b6684aa7e306a02a89885f3f5456a5157
 
 mgba_HASH = 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
 # Upstream builds the libretro core with CMake only (8940477), via a build script
