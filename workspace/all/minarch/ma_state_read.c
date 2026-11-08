@@ -50,6 +50,6 @@ void* State_readData(StateReadFn rd, void* stream, size_t min_size, size_t want,
 			break;
 		len += (size_t)n;
 	}
-	*out_size = len > min_size ? len : min_size;
+	*out_size = len;
 	return buf;
 }

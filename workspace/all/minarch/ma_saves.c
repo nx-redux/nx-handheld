@@ -230,8 +230,8 @@ int State_read(void) { // from picoarch
 	// No need to parse the header any further
 	// (we only need MEM section which will always be the first one)
 
-	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4,
-	// so a shorter state is padded to state_size, and a longer one is read whole
+	// read whole and passed at its own size; a core whose size is wrong at first (mgba: Wario
+	// Land 4) refuses it now and gets it again from the retry once it runs
 	state = State_readData(State_readRz, state_rzfile, state_size, State_memSize(rastate_header), &data_size);
 	if (!state) {
 		LOG_error("Error reading state data from file: %s (%s)\n", filename, strerror(errno));

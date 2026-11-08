@@ -17,6 +17,7 @@ size_t State_memSize(const uint8_t* header);
 
 // Reads the state data: [want] bytes when known, else to the end. The buffer is at least
 // [min_size] (the core's serialize_size, zero-filled past the data) but grows past it, up
-// to STATE_READ_MAX. *out_size is what to pass to unserialize: max(data, min_size).
+// to STATE_READ_MAX. *out_size is what to pass to unserialize: the data's own size, so a core
+// that checks it refuses a state from another version instead of reading zero padding.
 // NULL on a read error or a state over STATE_READ_MAX; free() the result.
 void* State_readData(StateReadFn rd, void* stream, size_t min_size, size_t want, size_t* out_size);
