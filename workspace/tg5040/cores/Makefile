@@ -75,7 +75,7 @@ mednafen_pce_fast_REPO = https://github.com/libretro/beetle-pce-fast-libretro
 mednafen_pce_fast_HASH = 2de1ce1c3f237b161c126c54ba407990bb86d1e9
 
 mednafen_vb_REPO = https://github.com/libretro/beetle-vb-libretro
-mednafen_vb_HASH = 65debc7c4c7b85e2fd988d2be53496c2cf0b5f44
+mednafen_vb_HASH = d5ae54c8e23b573a3b34e888b2d48a588027e92c
 
 # WonderSwan / WonderSwan Color (WSC.pak). RetroAchievements via the WSC/WS
 # tags (see all/minarch/ra_consoles.h).
