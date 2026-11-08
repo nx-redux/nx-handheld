@@ -55,4 +55,18 @@ void WizCaps_coreReason(const char* caps, char* out, size_t out_size);
 // The label a "core-..." REJECT reason names, or "" when it names none.
 void WizCaps_reasonLabel(const char* reason, char* out, size_t out_size);
 
+// Two different cores that both sent a Wi-Fi mode ("wl=") yet can't link: the
+// modes differ, or the transport turns theirs into the real cable (the
+// Pokémon and Advance Wars modes over USB). Only builds that send "wl=" get
+// here, so they all know this reason: "link-<sender core>.<sender wl>.<receiver
+// wl>", the sender's core first so a phone on Auto can still switch to it.
+// False (and out "") when the refusal is about something else, or the reason
+// would not fit out_size (pass 32, the %31s the reply is parsed with).
+bool WizCaps_linkReason(const char* sender, const char* receiver, bool usb, char* out, size_t out_size);
+// Splits a "link-..." reason; false for any other reason or a malformed one.
+bool WizCaps_parseLinkReason(const char* reason, char* core, size_t core_size, char* sender_wl,
+							 size_t sender_size, char* receiver_wl, size_t receiver_size);
+// What a player calls a Wi-Fi mode ("Wireless Adapter"); "" for none/unknown.
+const char* WizCaps_linkModeName(const char* wl);
+
 #endif

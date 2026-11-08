@@ -195,3 +195,68 @@ void WizCaps_reasonLabel(const char* reason, char* out, size_t out_size) {
 	}
 	WizCaps_coreLabel(core, tag, out, out_size);
 }
+
+static bool is_wifi_mode(const char* wl) {
+	return gwl_mode_from_token(wl) != GWL_NONE;
+}
+
+bool WizCaps_linkReason(const char* sender, const char* receiver, bool usb, char* out, size_t out_size) {
+	char core[WIZ_CAPS_MAX];
+	char a[WIZ_CAPS_MAX];
+	char b[WIZ_CAPS_MAX];
+
+	if (!out || !out_size)
+		return false;
+	out[0] = '\0';
+	if (WizCaps_mgbaNeedsWl(sender, receiver, usb) || !WizCaps_coreMismatch(sender, receiver))
+		return false;
+	WizCaps_value(sender, "wl", a, sizeof(a));
+	WizCaps_value(receiver, "wl", b, sizeof(b));
+	// A side in no Wi-Fi mode runs the real cable, which needs the same core:
+	// the plain core refusal says that better.
+	if (!is_wifi_mode(a) || !is_wifi_mode(b) || gwl_mixed_ok(a, b, usb))
+		return false;
+	WizCaps_value(sender, "core", core, sizeof(core));
+	int n = snprintf(out, out_size, "link-%s.%s.%s", core, a, b);
+	if (n < 0 || (size_t)n >= out_size || strchr(core, '.')) {
+		out[0] = '\0';
+		return false;
+	}
+	return true;
+}
+
+bool WizCaps_parseLinkReason(const char* reason, char* core, size_t core_size, char* sender_wl,
+							 size_t sender_size, char* receiver_wl, size_t receiver_size) {
+	char buf[WIZ_CAPS_MAX];
+
+	if (!reason || strncmp(reason, "link-", 5) != 0 || !core || !sender_wl || !receiver_wl)
+		return false;
+	snprintf(buf, sizeof(buf), "%s", reason + 5);
+	char* dot1 = strchr(buf, '.');
+	char* dot2 = dot1 ? strchr(dot1 + 1, '.') : NULL;
+	if (!dot1 || !dot2 || dot1 == buf || strchr(dot2 + 1, '.'))
+		return false;
+	*dot1 = '\0';
+	*dot2 = '\0';
+	if (!is_wifi_mode(dot1 + 1) || !is_wifi_mode(dot2 + 1))
+		return false;
+	snprintf(core, core_size, "%s", buf);
+	snprintf(sender_wl, sender_size, "%s", dot1 + 1);
+	snprintf(receiver_wl, receiver_size, "%s", dot2 + 1);
+	return true;
+}
+
+const char* WizCaps_linkModeName(const char* wl) {
+	switch (gwl_mode_from_token(wl)) {
+	case GWL_RFU:
+		return "Wireless Adapter";
+	case GWL_POKE:
+		return "Pokémon cable";
+	case GWL_AW1:
+		return "Advance Wars cable";
+	case GWL_AW2:
+		return "Advance Wars 2 cable";
+	default:
+		return "";
+	}
+}
