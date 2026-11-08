@@ -116,10 +116,10 @@ index 00000000..e8c5ba1a
 +#include "serial_proto.c"
 diff --git forkSrcPrefix/src/gba/sio/nx_wifi_link.c forkDstPrefix/src/gba/sio/nx_wifi_link.c
 new file mode 100644
-index 00000000..e676430b
+index 00000000..c1bb2c76
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_wifi_link.c
-@@ -0,0 +1,467 @@
+@@ -0,0 +1,471 @@
 +/* nx_wifi_link.c - gpSP's serial.c (write_siocnt, write_rcnt, update_serial)
 + * ported onto mGBA's GBASIODriver, driving gba_wifi_link: the GBA Wireless
 + * Adapter in Normal-32 mode, the Pokemon and Advance Wars cable protocols in
@@ -579,7 +579,11 @@ index 00000000..e676430b
 +	                 GBASIONormalIsSc(sio->siocnt);
 +	bool multiParent = _isCable() && sio->mode == GBA_SIO_MULTI && !wl.client_id && GBASIOMultiplayerIsBusy(sio->siocnt);
 +	if (!rfuParent && !multiParent) {
-+		mTimingDeschedule(timing, &sio->completeEvent);
++		/* In a mode we don't handle, mGBA's stock code times the transfer:
++		 * cancelling its event would leave Start set for good. */
++		if (_driverHandlesMode(&wl.d, sio->mode)) {
++			mTimingDeschedule(timing, &sio->completeEvent);
++		}
 +	} else if (!mTimingIsScheduled(timing, &sio->completeEvent)) {
 +		_schedule(&sio->completeEvent, rfuParent ? (GBASIONormalIsInternalSc(sio->siocnt) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ)
 +		                                         : _multiCycles(sio->siocnt));
