@@ -148,8 +148,8 @@ genesis_plus_gx_HASH = f27655b592ef43f317272d79883bcaa10d3ac8ad
 
 pokemini_REPO = https://github.com/libretro/PokeMini
 pokemini_MAKEFILE = Makefile.libretro
-# Our patchfile doesn't work on latest Pokemon mini commits, pinning to last working hash for now
-pokemini_HASH = 78656d4615691c393e65e48672ce5fff5b1f97d3
+# Same pin as nx-mobile: netplay and Device Sync states need the same core on both.
+pokemini_HASH = 132111b76343559860532a1ccc094f93f1ed5650
 
 prboom_REPO = https://github.com/libretro/libretro-prboom
 prboom_HASH = 4849268e7342494193f2bbf2d0128a751cf58da7
