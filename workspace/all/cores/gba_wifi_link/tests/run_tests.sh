@@ -3,6 +3,8 @@
 #   check_upstream.sh  rfu.c / serial_proto.c are gpSP's, unchanged
 #   test_gwl           behaviour against a fake emulator
 #   test_gwl_diff      the library against gpSP's own code, same sessions
+#   gen_games.sh       gwl_games.h still matches gpSP's gba_over.h
+#   test_gwl_mode      the per-game auto mode rule and ROM probe
 set -e
 D=$(cd "$(dirname "$0")/.." && pwd)
 T=${TMPDIR:-/tmp}
@@ -41,3 +43,7 @@ for F in rfu serial_proto; do
 done
 $CC -I"$D" $LIB "$D/tests/test_gwl_diff.c" "$B/ref/rfu.o" "$B/ref/serial_proto.o" -o "$B/test_gwl_diff"
 "$B/test_gwl_diff"
+
+sh "$D/tests/gen_games.sh" --check
+$CC -I"$D" "$D/gwl_mode.c" "$D/tests/test_gwl_mode.c" -o "$B/test_gwl_mode"
+"$B/test_gwl_mode"
