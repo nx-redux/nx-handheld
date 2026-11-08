@@ -3,6 +3,7 @@
 // Both sides run the same scripted sessions; their traces (packets sent, I/O
 // writes, polls, and every call's result) must match byte for byte.
 // Build & run: workspace/all/cores/gba_wifi_link/tests/run_tests.sh
+#undef NDEBUG // the checks below must always run
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -166,6 +167,7 @@ static void ref_master_send(void) {
 
 static uint32_t now;	 // shared emulated cycle counter
 static uint32_t learned; // RFU: slot | devid the host side last handed out
+static int port_sends;
 
 static uint16_t p_read(void* c, uint32_t off) {
 	(void)c;
@@ -190,6 +192,7 @@ static void p_send(void* c, uint16_t id, const void* buf, size_t len) {
 	const uint8_t* b = buf;
 	if (len >= 12 && be32(b) == 0x52465531 && be32(b + 4) == 0x02) // RFU1 CONNECT_ACK
 		learned = be32(b + 8);
+	port_sends++;
 	put_send(&tport, id, buf, len);
 }
 static void p_poll(void* c) {
@@ -846,22 +849,20 @@ static void run_script(const Script* s) {
 	ninbox_port = ninbox_ref = 0;
 	now = ref_cpu_ticks = 777;
 	learned = 0;
-	int sends = 0, irqs = 0;
+	int irqs = 0;
+	port_sends = 0;
 	for (int i = 0; s->steps[i].op != STOP; i++) {
 		const Step* st = &s->steps[i];
 		put(&tport, 'T');
 		put(&tport, i);
 		put(&tref, 'T');
 		put(&tref, i);
-		int before = tport.n;
 		uint32_t rp = run_port(s, st);
 		uint32_t rr = run_ref(s, st);
 		put(&tport, 'R');
 		put(&tport, rp);
 		put(&tref, 'R');
 		put(&tref, rr);
-		for (int j = before; j < tport.n; j++)
-			sends += tport.w[j] == 'S';
 		if (st->op == UPDATE)
 			irqs += rp != 0;
 		if (st->op == UPDATE)
@@ -879,12 +880,12 @@ static void run_script(const Script* s) {
 		exit(1);
 	}
 	// A script that stops exercising the protocol would pass vacuously.
-	if (sends < s->min_sends || irqs < s->min_irqs) {
-		fprintf(stderr, "%s: only %d sends / %d IRQs (want %d / %d)\n", s->name, sends, irqs, s->min_sends,
+	if (port_sends < s->min_sends || irqs < s->min_irqs) {
+		fprintf(stderr, "%s: only %d sends / %d IRQs (want %d / %d)\n", s->name, port_sends, irqs, s->min_sends,
 				s->min_irqs);
 		exit(1);
 	}
-	printf("  %s: %d trace words, %d sends, %d IRQs, identical\n", s->name, tport.n, sends, irqs);
+	printf("  %s: %d trace words, %d sends, %d IRQs, identical\n", s->name, tport.n, port_sends, irqs);
 }
 
 int main(void) {

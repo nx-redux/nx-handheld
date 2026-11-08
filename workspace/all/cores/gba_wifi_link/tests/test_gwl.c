@@ -1,7 +1,9 @@
 // Host-compiled tests for gba_wifi_link against a fake emulator.
 // Build & run: workspace/all/cores/gba_wifi_link/tests/run_tests.sh
+#undef NDEBUG // the checks below must always run
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "../gwl.h"
 
@@ -56,11 +58,31 @@ static void f_poll(void* c) {
 	fk.ninbox = 0;
 }
 
+// run_tests.sh builds gwl.c with gpSP's receive functions renamed to these,
+// so a test can tell whether a packet reached gpSP's code at all.
+void gwl_gp_rfu_net_receive(const void* buf, size_t len, uint16_t client_id);
+void gwl_gp_serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id);
+void gwl_gp_serialaw_net_receive(const void* buf, size_t len, uint16_t client_id);
+static int dispatched;
+void gwl_spy_rfu_net_receive(const void* buf, size_t len, uint16_t client_id) {
+	dispatched++;
+	gwl_gp_rfu_net_receive(buf, len, client_id);
+}
+void gwl_spy_serialpoke_net_receive(const void* buf, size_t len, uint16_t client_id) {
+	dispatched++;
+	gwl_gp_serialpoke_net_receive(buf, len, client_id);
+}
+void gwl_spy_serialaw_net_receive(const void* buf, size_t len, uint16_t client_id) {
+	dispatched++;
+	gwl_gp_serialaw_net_receive(buf, len, client_id);
+}
+
 static const GwlHost host = {NULL, f_read, f_write, f_cycles, f_send, f_poll};
 
 static void setup(enum GwlMode mode, uint16_t client_id) {
 	memset(&fk, 0, sizeof(fk));
 	fk.cycles = 1234;
+	dispatched = 0;
 	gwl_begin(&host, mode, client_id);
 }
 
@@ -133,10 +155,10 @@ static void test_disconnect_frees_slot(void) {
 	setup(GWL_POKE, 0);
 	for (int i = 1; i <= 3; i++)
 		assert(gwl_connected(i));
-	assert(!gwl_connected(4));
+	assert(!gwl_connected(2)); // full, whatever the id
 	gwl_disconnected(2);
-	assert(gwl_connected(4));
-	assert(!gwl_connected(5));
+	assert(gwl_connected(2));
+	assert(!gwl_connected(3));
 }
 
 static void test_disconnect_tells_the_game(void) {
@@ -179,6 +201,111 @@ static void test_end_drops_transport(void) {
 	assert(gwl_mode() == GWL_RFU);
 }
 
+static uint32_t be32(const uint8_t* p) {
+	return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+}
+
+// Delivers a packet from a heap block of exactly len bytes, so that a read
+// past its end trips AddressSanitizer. words fill the start, big-endian.
+static void deliver(uint16_t from, size_t len, const uint32_t* words, int nwords) {
+	uint8_t* b = calloc(1, len);
+	for (int i = 0; i < nwords && (size_t)(i * 4 + 4) <= len; i++) {
+		b[i * 4] = words[i] >> 24;
+		b[i * 4 + 1] = words[i] >> 16;
+		b[i * 4 + 2] = words[i] >> 8;
+		b[i * 4 + 3] = words[i];
+	}
+	gwl_receive(b, len, from);
+	free(b);
+}
+
+#define RFU1 0x52465531
+
+// Host with client 1 connected; returns the slot | devid it was given.
+static uint32_t rfu_host_with_client(void) {
+	setup(GWL_RFU, 0);
+	rfu_host_start();
+	assert(gwl_connected(1));
+	const uint32_t req[] = {RFU1, 0x01, 0};
+	deliver(1, 16, req, 3);
+	assert(fk.nsent == 1 && be32(fk.sent[0].buf + 4) == 0x02); // CONNECT_ACK
+	return be32(fk.sent[0].buf + 8);
+}
+
+static void test_rfu_bad_client_data_dropped(void) {
+	uint32_t id = rfu_host_with_client();
+	int before = dispatched;
+	// More bytes than the 16-byte slot holds, even with a packet that long.
+	const uint32_t big[] = {RFU1, 0x06, 200u << 24 | id};
+	deliver(1, 12 + 200, big, 3);
+	// Claims 8 bytes but carries 4.
+	const uint32_t cut[] = {RFU1, 0x06, 8u << 24 | id, 0x01020304};
+	deliver(1, 12 + 4, cut, 4);
+	// Too short for its header.
+	deliver(1, 11, cut, 2);
+	assert(dispatched == before + 1);			  // only the short one: rfu.c drops it itself
+	assert(rfu_cmd(0x26, NULL, 0) == 0x996601A6); // RECV_DATA: nothing queued
+	assert(xfer(0x80000000) == 0);
+
+	// A well-formed packet still gets through.
+	const uint32_t ok[] = {RFU1, 0x06, 4u << 24 | id, 0x01020304};
+	deliver(1, 16, ok, 4);
+	assert(rfu_cmd(0x26, NULL, 0) == 0x996602A6);
+	assert(xfer(0x80000000) == 0x400);
+	assert(xfer(0x80000000) == 0x04030201);
+}
+
+static void test_rfu_short_broadcast_dropped(void) {
+	setup(GWL_RFU, 0);
+	rfu_handshake();
+	const uint32_t bc[] = {RFU1, 0x00, 0x1234, 1, 2, 3, 4, 5, 6};
+	deliver(2, 12 + 8, bc, 9);
+	assert(dispatched == 0);
+	assert(rfu_cmd(0x1d, NULL, 0) == 0x9966009D); // BCRD_FETCH: no peers
+	deliver(2, 36, bc, 9);
+	assert(dispatched == 1);
+	assert(rfu_cmd(0x1d, NULL, 0) == 0x9966079D); // one peer: id + 6 words
+}
+
+static void test_out_of_range_ids_dropped(void) {
+	const uint32_t req[] = {RFU1, 0x01, 0};
+	rfu_host_with_client();
+	fk.nsent = 0;
+	assert(!gwl_connected(32));
+	deliver(32, 16, req, 3);
+	deliver(0xFFFF, 16, req, 3);
+	assert(fk.nsent == 0); // no CONNECT_ACK / NACK
+	assert(gwl_connected(31));
+	deliver(31, 16, req, 3);
+	assert(fk.nsent == 1);
+
+	const uint32_t mpk[] = {0x4d504b31, 0x80000002, 1, 2, 3, 4};
+	setup(GWL_POKE, 0);
+	assert(!gwl_connected(4));
+	deliver(4, 24, mpk, 6);
+	deliver(0xFFFF, 24, mpk, 6);
+	assert(dispatched == 0);
+	deliver(3, 24, mpk, 6);
+	assert(dispatched == 1);
+
+	const uint32_t maw[] = {0x4d415731, 0x4fff0002, 0x00010002};
+	for (enum GwlMode m = GWL_AW1; m <= GWL_AW2; m++) {
+		setup(m, 0);
+		assert(!gwl_connected(4));
+		deliver(4, 12, maw, 3);
+		deliver(0xFFFF, 12, maw, 3);
+		assert(dispatched == 0);
+		deliver(1, 12, maw, 3);
+		assert(dispatched == 1);
+	}
+
+	// Our own id indexes the same slots: past them the cable link stays off.
+	setup(GWL_POKE, 4);
+	assert(gwl_mode() == GWL_NONE);
+	setup(GWL_RFU, 4);
+	assert(gwl_mode() == GWL_RFU);
+}
+
 int main(void) {
 	test_rfu_init_handshake();
 	test_rfu_broadcast_cadence();
@@ -187,6 +314,9 @@ int main(void) {
 	test_disconnect_tells_the_game();
 	test_none_mode_inert();
 	test_end_drops_transport();
+	test_rfu_bad_client_data_dropped();
+	test_rfu_short_broadcast_dropped();
+	test_out_of_range_ids_dropped();
 	printf("gba_wifi_link tests: OK\n");
 	return 0;
 }

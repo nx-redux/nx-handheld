@@ -14,7 +14,13 @@ rm -rf "$B"
 mkdir -p "$B/ref"
 LIB="$D/gwl.c $D/rfu.c $D/serial_proto.c"
 
-$CC -I"$D" $LIB "$D/tests/test_gwl.c" -o "$B/test_gwl"
+# gwl.c's calls into gpSP's receive functions go through test spies.
+SPY=""
+for S in rfu_net_receive serialpoke_net_receive serialaw_net_receive; do
+	SPY="$SPY -Dgwl_gp_$S=gwl_spy_$S"
+done
+$CC -I"$D" $SPY -c "$D/gwl.c" -o "$B/gwl_spy.o"
+$CC -I"$D" "$B/gwl_spy.o" "$D/rfu.c" "$D/serial_proto.c" "$D/tests/test_gwl.c" -o "$B/test_gwl"
 "$B/test_gwl"
 
 # The reference: gpSP's files next to a stub common.h, every global renamed

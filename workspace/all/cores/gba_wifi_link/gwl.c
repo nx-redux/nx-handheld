@@ -61,6 +61,9 @@ static int mode_to_serial(enum GwlMode mode) {
 void gwl_begin(const GwlHost* h, enum GwlMode mode, uint16_t client_id) {
 	host = *h;
 	serial_mode = mode_to_serial(mode);
+	// The cable protocols index their player slots by our own id too.
+	if (client_id >= MAX_SERMULT_NETPLAYERS && mode != GWL_RFU)
+		serial_mode = SERIAL_MODE_DISABLED;
 	netplay_num_clients = 0;
 	netplay_client_id = client_id;
 }
@@ -72,8 +75,21 @@ void gwl_end(void) {
 	host.poll = NULL;
 }
 
+// Peers are kept in per-id slots (32 for RFU, 4 for the cables), so ids past
+// them are refused here rather than connected and then never heard.
+static bool id_in_range(uint16_t client_id) {
+	switch (serial_mode) {
+	case SERIAL_MODE_RFU:
+		return client_id < MAX_RFU_NETPLAYERS;
+	case SERIAL_MODE_SERIAL_POKE:
+	case SERIAL_MODE_SERIAL_AW1:
+	case SERIAL_MODE_SERIAL_AW2:
+		return client_id < MAX_SERMULT_NETPLAYERS;
+	}
+	return true;
+}
+
 bool gwl_connected(uint16_t client_id) {
-	(void)client_id;
 	static const uint8_t maxpl[] = {
 		0,						// SERIAL_MODE_DISABLED
 		0,						// SERIAL_MODE_GBP
@@ -85,7 +101,7 @@ bool gwl_connected(uint16_t client_id) {
 	};
 	const u32 max_clients = maxpl[serial_mode] - 1U;
 
-	if (netplay_num_clients >= max_clients)
+	if (netplay_num_clients >= max_clients || !id_in_range(client_id))
 		return false;
 
 	netplay_num_clients++;
@@ -100,10 +116,45 @@ void gwl_disconnected(uint16_t client_id) {
 	netplay_num_clients--;
 }
 
+// rfu.c's wire format (pinned by check_upstream.sh): a 12-byte header of
+// three big-endian words (magic, type, header word), then the payload.
+#define RFU_NET_HDR 12
+#define RFU_NET_BROADCAST 0x00	 // payload: 6 words of broadcast data
+#define RFU_NET_CLIENT_SEND 0x06 // header word bits 24-31: payload bytes
+#define RFU_BCST_BYTES (6 * 4)	 // rfu_peer_bcst[].data
+#define RFU_CLIENT_DATA 16		 // rfu_host.clients[].pkts[].data
+
+static uint32_t be32(const uint8_t* p) {
+	return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+}
+
+// rfu.c trusts the peer for two sizes: a short broadcast is read past its
+// end, and a client packet's byte count is copied into a 16-byte slot
+// unchecked. It bounds the rest itself (HOST_SEND checks len against its
+// count, the other types carry no payload).
+static bool rfu_packet_ok(const uint8_t* b, size_t len) {
+	if (len < RFU_NET_HDR)
+		return true; // rfu.c drops it
+	switch (be32(b + 4)) {
+	case RFU_NET_BROADCAST:
+		return len >= RFU_NET_HDR + RFU_BCST_BYTES;
+	case RFU_NET_CLIENT_SEND: {
+		uint32_t blen = be32(b + 8) >> 24;
+		return blen <= RFU_CLIENT_DATA && len >= RFU_NET_HDR + blen;
+	}
+	}
+	return true;
+}
+
 void gwl_receive(const void* buf, size_t len, uint16_t client_id) {
+	// gpSP indexes per-peer state by client id; serial_proto.c checks its own
+	// packet sizes.
+	if (!id_in_range(client_id))
+		return;
 	switch (serial_mode) {
 	case SERIAL_MODE_RFU:
-		rfu_net_receive(buf, len, client_id);
+		if (rfu_packet_ok(buf, len))
+			rfu_net_receive(buf, len, client_id);
 		break;
 	case SERIAL_MODE_SERIAL_POKE:
 		serialpoke_net_receive(buf, len, client_id);
