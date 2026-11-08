@@ -38,8 +38,12 @@ void WizCaps_value(const char* caps, const char* key, char* out, size_t out_size
 bool WizCaps_coreMismatch(const char* ours, const char* theirs);
 // True when the two sides can't link: different cores, unless both run the same
 // Wi-Fi link mode ("wl=", gwl_mixed_ok; over USB only the Wireless Adapter
-// mode). A side without "wl=" (an older build) keeps the plain core rule.
+// mode). A side without "wl=" (an older build, or no caps) keeps the plain
+// core rule, except against mGBA off USB (WizCaps_mgbaNeedsWl).
 bool WizCaps_linkMismatch(const char* ours, const char* theirs, bool usb);
+// True off USB when one side runs mGBA and the other sent no "wl=": mGBA links
+// there only in a Wi-Fi mode, and that side would fall back to the real cable.
+bool WizCaps_mgbaNeedsWl(const char* ours, const char* theirs, bool usb);
 // The name a player knows a core by ("Genesis Plus GX"); unknown = as-is.
 const char* WizCaps_coreName(const char* core);
 // "<name> (<tag> folder)", or just the name when there is no tag.

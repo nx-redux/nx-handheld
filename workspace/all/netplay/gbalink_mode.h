@@ -10,9 +10,10 @@
 // Resolves the link option value handed to the core, from the user's choice:
 //  gpsp_serial: "auto" becomes the hidden "auto_cable" in USB Cable sessions,
 //   and the USB-only "lockstep" falls back to "auto" everywhere else.
-//  mgba_link_mode: a session whose peer sends no "wl=" is the real cable (an
-//   older build can't run the Wi-Fi modes); "cable" becomes "auto" over Wi-Fi,
-//   and "auto" becomes "auto_cable" over USB.
+//  mgba_link_mode: "cable" outside a session (no netplay_mode); a session
+//   whose peer sends no "wl=" is the real cable too (an older build can't run
+//   the Wi-Fi modes). Otherwise "cable" and "auto" become "auto_cable" over
+//   USB, and "cable" and "auto_cable" become "auto" off it.
 //  Both: two different cores (a mixed session) run the game's own mode, so
 //   whatever the user picked becomes "auto" ("auto_cable" over USB).
 // Every other key passes through unchanged.
@@ -25,8 +26,9 @@ const char* gbalink_link_mode_key(const char* core_name);
 
 // false when this core's link can't run over this transport: mGBA's real
 // cable is USB-only, so off USB it needs a Wi-Fi mode (our "wl=" is rfu,
-// poke, aw1 or aw2). gpSP and unknown cores: true.
-bool gbalink_transport_ok(const char* core_name, const char* netplay_mode, const char* our_caps);
+// poke, aw1 or aw2) and a peer that sent "wl=". gpSP and unknown cores: true.
+bool gbalink_transport_ok(const char* core_name, const char* netplay_mode, const char* our_caps,
+						  const char* peer_caps);
 
 // True when both caps name a core and the two differ.
 bool gbalink_mixed(const char* our_caps, const char* peer_caps);

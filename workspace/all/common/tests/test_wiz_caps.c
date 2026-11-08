@@ -29,8 +29,29 @@ static void test_link_mismatch(void) {
 	assert(!WizCaps_linkMismatch(gpsp_rfu, gpsp_rfu, true));
 	assert(!WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=none", "core=gpsp,tag=GBA", false)); // same core
 	assert(WizCaps_linkMismatch("core=picodrive,tag=MD", "core=genesis_plus_gx,tag=GPGX", false));
-	assert(!WizCaps_linkMismatch("", mgba_rfu, false));
 	assert(!WizCaps_linkMismatch(NULL, NULL, false));
+	// mGBA off USB with a side that sent no wl= (no caps at all, or an older
+	// build) would fall back to the real cable over Wi-Fi: refused either way round
+	assert(WizCaps_linkMismatch("", mgba_rfu, false));
+	assert(WizCaps_linkMismatch(mgba_rfu, "", false));
+	assert(WizCaps_linkMismatch(mgba_rfu, NULL, false));
+	assert(WizCaps_linkMismatch(mgba_rfu, "core=mgba,tag=MGBA", false));
+	assert(WizCaps_linkMismatch("core=mgba,tag=MGBA", mgba_rfu, false));
+	assert(WizCaps_linkMismatch(mgba_rfu, "dcbios=abc", false));
+	// over USB the real cable is fine, and gpSP never needs the peer's wl=
+	assert(!WizCaps_linkMismatch("", mgba_rfu, true));
+	assert(!WizCaps_linkMismatch(mgba_rfu, "core=mgba,tag=MGBA", true));
+	assert(!WizCaps_linkMismatch(mgba_rfu, NULL, true));
+	assert(!WizCaps_linkMismatch(gpsp_rfu, "", false));
+	assert(!WizCaps_linkMismatch("", gpsp_rfu, false));
+	assert(!WizCaps_linkMismatch(mgba_rfu, mgba_rfu, false));
+	// the same rule on its own, which picks the message both wizards show
+	assert(WizCaps_mgbaNeedsWl(mgba_rfu, "", false));
+	assert(WizCaps_mgbaNeedsWl("core=gpsp,tag=GBA", mgba_rfu, false));
+	assert(!WizCaps_mgbaNeedsWl(mgba_rfu, "", true));
+	assert(!WizCaps_mgbaNeedsWl(mgba_rfu, gpsp_rfu, false));
+	assert(!WizCaps_mgbaNeedsWl(gpsp_rfu, "core=gpsp,tag=GBA", false));
+	assert(!WizCaps_mgbaNeedsWl(NULL, NULL, false));
 }
 
 static void expect_label(const char* core, const char* tag, const char* want) {

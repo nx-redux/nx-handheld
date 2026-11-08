@@ -99,7 +99,21 @@ bool WizCaps_coreMismatch(const char* ours, const char* theirs) {
 	return a[0] && b[0] && strcmp(a, b) != 0;
 }
 
+static bool mgba_without_peer_wl(const char* caps, const char* other) {
+	char core[WIZ_CAPS_MAX];
+	char wl[WIZ_CAPS_MAX];
+	WizCaps_value(caps, "core", core, sizeof(core));
+	WizCaps_value(other, "wl", wl, sizeof(wl));
+	return strcmp(core, "mgba") == 0 && !wl[0];
+}
+
+bool WizCaps_mgbaNeedsWl(const char* ours, const char* theirs, bool usb) {
+	return !usb && (mgba_without_peer_wl(ours, theirs) || mgba_without_peer_wl(theirs, ours));
+}
+
 bool WizCaps_linkMismatch(const char* ours, const char* theirs, bool usb) {
+	if (WizCaps_mgbaNeedsWl(ours, theirs, usb))
+		return true;
 	if (!WizCaps_coreMismatch(ours, theirs))
 		return false;
 	char a[WIZ_CAPS_MAX];

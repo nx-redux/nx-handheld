@@ -85,9 +85,9 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 										  : LINK_TYPE_NETPLAY; // netpacket (GBA) > gblink > generic netplay
 
 	// Off the USB Cable mGBA links only in one of the Wi-Fi modes, which not
-	// every game has. The wizard only offers it then; this catches a stale or
-	// hand-made env.
-	if (type == LINK_TYPE_GBALINK && !gbalink_transport_ok(core_name, mode, getenv("NETPLAY_CAPS"))) {
+	// every game has, and only with a peer that knows them. The wizard only
+	// offers it then; this catches a stale or hand-made env.
+	if (type == LINK_TYPE_GBALINK && !gbalink_transport_ok(core_name, mode, getenv("NETPLAY_CAPS"), getenv("NETPLAY_PEER_CAPS"))) {
 		LOG_error("NetplayBoot: mGBA link needs the USB Cable for this game (NETPLAY_MODE=%s)\n", mode ? mode : "NULL");
 		boot_error = "mGBA link needs the USB Cable for this game";
 		return -1;

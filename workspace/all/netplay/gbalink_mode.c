@@ -14,12 +14,19 @@ bool gbalink_mixed(const char* our_caps, const char* peer_caps) {
 	return WizCaps_coreMismatch(our_caps, peer_caps);
 }
 
+static bool has_wl(const char* caps) {
+	char wl[WL_TOKEN_MAX];
+	WizCaps_value(caps, "wl", wl, sizeof(wl));
+	return wl[0] != '\0';
+}
+
 // gpsp_serial "auto" in a USB Cable session: the gpSP 004 patch resolves
 // "auto_cable" like "auto" (wireless adapter for games that have one), then
 // real cable for everything else; mGBA's mgba_link_mode does the same. gpSP's
 // "lockstep" is USB-only (decision 1 of the lockstep spec): anywhere else it
 // behaves as "auto", so a value persisted by an earlier USB session never
-// changes Wi-Fi or single-player play.
+// changes Wi-Fi or single-player play. mGBA's real cable is the lockstep one,
+// so off USB its "cable" and "auto_cable" become "auto" too.
 const char* gbalink_serial_option(const char* key, const char* value, const char* netplay_mode,
 								  const char* our_caps, const char* peer_caps) {
 	if (!key || !value)
@@ -28,22 +35,25 @@ const char* gbalink_serial_option(const char* key, const char* value, const char
 	bool mgba = strcmp(key, "mgba_link_mode") == 0;
 	if (!gpsp && !mgba)
 		return value;
-	bool usb = netplay_mode && strcmp(netplay_mode, "usb") == 0;
+	bool session = netplay_mode && netplay_mode[0];
+	bool usb = session && strcmp(netplay_mode, "usb") == 0;
 
-	if (mgba && netplay_mode) {
-		char wl[WL_TOKEN_MAX];
+	if (mgba) {
+		// The mode only matters in a session; "cable" keeps the core from
+		// scanning the ROM for it on every solo load.
+		if (!session)
+			return "cable";
 		// A peer that never heard of the Wi-Fi modes only speaks the real cable.
-		WizCaps_value(peer_caps, "wl", wl, sizeof(wl));
-		if (!wl[0])
+		if (!has_wl(peer_caps))
 			return "cable";
 	}
 	if (gbalink_mixed(our_caps, peer_caps))
 		return usb ? "auto_cable" : "auto";
-	if (usb && strcmp(value, "auto") == 0)
+	if (usb && (strcmp(value, "auto") == 0 || (mgba && strcmp(value, "cable") == 0)))
 		return "auto_cable";
 	if (!usb && gpsp && strcmp(value, "lockstep") == 0)
 		return "auto";
-	if (!usb && mgba && netplay_mode && strcmp(value, "cable") == 0)
+	if (!usb && mgba && (strcmp(value, "cable") == 0 || strcmp(value, "auto_cable") == 0))
 		return "auto";
 	return value;
 }
@@ -67,12 +77,14 @@ const char* gbalink_link_mode_key(const char* core_name) {
 	return NULL;
 }
 
-bool gbalink_transport_ok(const char* core_name, const char* netplay_mode, const char* our_caps) {
+bool gbalink_transport_ok(const char* core_name, const char* netplay_mode, const char* our_caps,
+						  const char* peer_caps) {
 	if (!core_name || strcasecmp(core_name, "mgba") != 0)
 		return true;
 	if (netplay_mode && strcmp(netplay_mode, "usb") == 0)
 		return true;
 	char wl[WL_TOKEN_MAX];
 	WizCaps_value(our_caps, "wl", wl, sizeof(wl));
-	return gwl_mode_from_token(wl) != GWL_NONE;
+	// A peer without wl= would leave us on the real cable (gbalink_serial_option).
+	return gwl_mode_from_token(wl) != GWL_NONE && has_wl(peer_caps);
 }
