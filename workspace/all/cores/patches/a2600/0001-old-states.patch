@@ -1,0 +1,223 @@
+# license: modifies Stella 2014 (https://github.com/libretro/stella2014-libretro), GPL-2.0 (stella/license.txt); this patch is distributed under the same license.
+# States from before the CartridgeEnhanced rework and the full TIA sound state (same "03090100state" header) load again:
+# retro_unserialize retries a state the new layout rejects with the old cart (bank, RAM; E0 slices; 3E's 256+ RAM banks)
+# and sound (six registers) fields. A state neither layout accepts leaves the running game as it was.
+diff --git a/libretro.cxx b/libretro.cxx
+index c1eebc5..c8db62c 100644
+--- a/libretro.cxx
++++ b/libretro.cxx
+@@ -1443,16 +1443,45 @@ bool retro_unserialize(const void *data, size_t size)
+     * would otherwise escape across the C libretro ABI and abort the whole
+     * process. This function is the firewall: any failure means "reject the
+     * state", reported as a false return, never a crash. */
++   Serializer before;
++   bool have_before = false;
+    try
+    {
+-      std::string s((const char*)data, size);
+-      Serializer state;
+-      state.set(s);
+-      if(!stateManager.loadState(state))
+-         return false;
++      have_before = stateManager.saveState(before);
+    }
+    catch(...)
+    {
++   }
++
++   bool loaded = false;
++   for(int legacy = 0; legacy < 2 && !loaded; ++legacy)
++   {
++      try
++      {
++         std::string s((const char*)data, size);
++         Serializer state;
++         state.set(s);
++         state.setLegacy(legacy != 0);
++         loaded = stateManager.loadState(state);
++      }
++      catch(...)
++      {
++      }
++   }
++
++   if(!loaded)
++   {
++      if(have_before)
++      {
++         try
++         {
++            before.setPosition(0);
++            stateManager.loadState(before);
++         }
++         catch(...)
++         {
++         }
++      }
+       return false;
+    }
+ 
+diff --git a/stella/src/common/Sound.cxx b/stella/src/common/Sound.cxx
+index 6decc9e..2b68ae4 100644
+--- a/stella/src/common/Sound.cxx
++++ b/stella/src/common/Sound.cxx
+@@ -293,6 +293,18 @@ bool Sound::load(Serializer& in)
+    if(in.getString() != name())
+       return false;
+ 
++   if(in.legacy())
++   {
++      uint8_t reg[6];
++      for(int i = 0; i < 6; ++i)
++         reg[i] = in.getByte();
++      myLastRegisterSetCycle = (int32_t) in.getInt();
++      myRegWriteQueue.clear();
++      for(int i = 0; i < 6; ++i)
++         myTIASound.set(0x15 + i, reg[i]);
++      return true;
++   }
++
+    if(!myTIASound.load(in))
+       return false;
+ 
+diff --git a/stella/src/emucore/Cart3E.cxx b/stella/src/emucore/Cart3E.cxx
+index 3005935..8eddd1e 100644
+--- a/stella/src/emucore/Cart3E.cxx
++++ b/stella/src/emucore/Cart3E.cxx
+@@ -105,3 +105,11 @@ bool Cartridge3E::poke(uint16_t address, uint8_t value)
+ 
+   return CartridgeEnhanced::poke(pokeAddress, value);
+ }
++
++bool Cartridge3E::loadLegacy(Serializer& in)
++{
++  uint16_t b = in.getShort();
++  in.getByteArray(myRAM, RAM_SIZE_3E);
++  bank(b < 256 ? b : (uint16_t)(b - 256 + romBankCount()));
++  return true;
++}
+diff --git a/stella/src/emucore/Cart3E.hxx b/stella/src/emucore/Cart3E.hxx
+index 6f78b47..67ac585 100644
+--- a/stella/src/emucore/Cart3E.hxx
++++ b/stella/src/emucore/Cart3E.hxx
+@@ -62,6 +62,7 @@ class Cartridge3E : public CartridgeEnhanced
+ 
+   protected:
+     bool checkSwitchBank(uint16_t address, uint8_t value);
++    bool loadLegacy(Serializer& in);
+ 
+   protected:
+     // 2K ROM banks
+diff --git a/stella/src/emucore/CartE0.cxx b/stella/src/emucore/CartE0.cxx
+index 3847ccf..89486ac 100644
+--- a/stella/src/emucore/CartE0.cxx
++++ b/stella/src/emucore/CartE0.cxx
+@@ -79,3 +79,12 @@ bool CartridgeE0::checkSwitchBank(uint16_t address, uint8_t)
+   }
+   return false;
+ }
++
++bool CartridgeE0::loadLegacy(Serializer& in)
++{
++  uint16_t slice[4];
++  in.getShortArray(slice, 4);
++  for(uint16_t seg = 0; seg < 3; ++seg)
++    bank(slice[seg] & 0x0007, seg);
++  return true;
++}
+diff --git a/stella/src/emucore/CartE0.hxx b/stella/src/emucore/CartE0.hxx
+index 5210cd0..07ce56b 100644
+--- a/stella/src/emucore/CartE0.hxx
++++ b/stella/src/emucore/CartE0.hxx
+@@ -52,6 +52,7 @@ class CartridgeE0 : public CartridgeEnhanced
+ 
+   protected:
+     bool checkSwitchBank(uint16_t address, uint8_t value);
++    bool loadLegacy(Serializer& in);
+ 
+     uint16_t hotspot() const { return 0x1FE0; }
+ 
+diff --git a/stella/src/emucore/CartEnhanced.cxx b/stella/src/emucore/CartEnhanced.cxx
+index 65f2353..ed3c11b 100644
+--- a/stella/src/emucore/CartEnhanced.cxx
++++ b/stella/src/emucore/CartEnhanced.cxx
+@@ -386,12 +386,23 @@ bool CartridgeEnhanced::save(Serializer& out) const
+ }
+ 
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
++bool CartridgeEnhanced::loadLegacy(Serializer& in)
++{
++  uint16_t b = in.getShort();
++  if(myRamSize > 0)
++    in.getByteArray(myRAM, myRamSize);
++  bank(b);
++  return true;
++}
++
+ bool CartridgeEnhanced::load(Serializer& in)
+ {
+   try
+   {
+     if(in.getString() != name())
+       return false;
++    if(in.legacy())
++      return loadLegacy(in);
+ 
+     uint16_t segs = (uint16_t)in.getInt();
+     for(uint16_t i = 0; i < segs && i < myBankSegs; ++i)
+diff --git a/stella/src/emucore/CartEnhanced.hxx b/stella/src/emucore/CartEnhanced.hxx
+index f2c88f8..924df64 100644
+--- a/stella/src/emucore/CartEnhanced.hxx
++++ b/stella/src/emucore/CartEnhanced.hxx
+@@ -129,6 +129,9 @@ class CartridgeEnhanced : public Cartridge
+     */
+     virtual bool poke(uint16_t address, uint8_t value);
+ 
++  protected:
++    virtual bool loadLegacy(Serializer& in);
++
+   protected:
+     // The size of a ROM bank expressed as a shift (12 => one 4K segment).
+     uint16_t myBankShift;
+diff --git a/stella/src/emucore/Serializer.cxx b/stella/src/emucore/Serializer.cxx
+index ebc5fe9..d5ee5fb 100644
+--- a/stella/src/emucore/Serializer.cxx
++++ b/stella/src/emucore/Serializer.cxx
+@@ -25,6 +25,7 @@
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ Serializer::Serializer(const string& filename, bool readonly)
+   : myStream(NULL),
++    myLegacy(false),
+     myUseFilestream(true)
+ {
+   if(readonly)
+@@ -70,6 +71,7 @@ Serializer::Serializer(const string& filename, bool readonly)
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ Serializer::Serializer(void)
+   : myStream(NULL),
++    myLegacy(false),
+     myUseFilestream(false)
+ {
+   myStream = new stringstream(ios::in | ios::out | ios::binary);
+diff --git a/stella/src/emucore/Serializer.hxx b/stella/src/emucore/Serializer.hxx
+index c210b46..f88434e 100644
+--- a/stella/src/emucore/Serializer.hxx
++++ b/stella/src/emucore/Serializer.hxx
+@@ -88,6 +88,9 @@ class Serializer
+     */
+     void setPosition(uint32_t pos);
+ 
++    void setLegacy(bool legacy) { myLegacy = legacy; }
++    bool legacy() const { return myLegacy; }
++
+     /**
+       Reads a byte value (unsigned 8-bit) from the current input stream.
+ 
+@@ -222,6 +225,7 @@ class Serializer
+   private:
+     // The stream to send the serialized data to.
+     iostream* myStream;
++    bool myLegacy;
+     bool myUseFilestream;
+ 
+     enum {
