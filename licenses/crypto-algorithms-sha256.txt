@@ -1,0 +1,11 @@
+crypto-algorithms (SHA-256)
+Source: https://github.com/B-Con/crypto-algorithms (sha256.c, sha256.h)
+Version: upstream master
+Shipped as: compiled into sync.elf (workspace/all/sync/sha256.c); used for Device Sync pairing codes and passwords
+License: public domain
+
+==== LICENSE (README of the upstream repository) ====
+
+These are basic implementations of standard cryptography algorithms, written by Brad Conte (brad@bradconte.com)
+from scratch and without any cross-referencing to other source code. The source code is released into the public
+domain free of any restrictions.

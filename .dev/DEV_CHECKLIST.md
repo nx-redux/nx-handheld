@@ -11,6 +11,20 @@ Move an entry from there to here once it compiles and needs hardware time.
 
 ---
 
+## Device Sync pairing v3: pairing code + per-run rsync password (built 2026-11-08)
+
+Both screens show a 4-digit code (from per-run nonces in HELLO/ACK `v3:` trailers); nothing transfers until both users
+press A (120 s limit); the serving daemon needs user `nxsync` with a per-run password (`/tmp/sync-run-*/rsyncd.secrets`,
+0600, deleted at the end); one `auth failed` line ends the run. Older peers are refused. Matches nx-mobile's
+fix/sync-pairing-update-check; host tests and a real rsync 3.4.1 daemon pass, no hardware run yet.
+
+- [ ] Brick ↔ phone (Wi-Fi and cable): same code on both; A on both in either order syncs; B on either side ends both;
+  120 s timeout; a v2 phone gets the update screen
+- [ ] Brick ↔ Brick: same code; the client's rsync runs against `nxsync@` (exit 0); cancel mid-transfer; an old-firmware
+  peer gets the update screen and stops on our FAIL
+- [ ] A full ROM sync (back-to-back connections stay under `max connections = 16`)
+- [ ] `/tmp/sync-run-*` is gone after every ending; the em dash renders in the device font
+
 ## minarch thread affinity (built + measured 2026-09-20; Smart Pro S re-swept with the Task 4.5 fix 2026-09-21)
 
 The `minarch_cpu_affinity = none|big|little` key is built and measured (spec

@@ -13,27 +13,34 @@
 // device 10.99.0.2.
 #define SYNC_CABLE_NET "10.99.0.0"
 
-// Discovery payload, after the HELLO/ACK prefix: "<ip>" or "<ip>:<flag>".
-// Flag 0 = ROMs off, R = ROMs on, c / C = the same but the sender must be the
-// rsync client (a phone). Old firmware reads only R. New handhelds append
-// "\0v2" after the C string: old firmware stops at the NUL, new firmware reads
-// it as "filters .userdata/shared" (a client-only peer filters too).
-#define SYNC_PAYLOAD_TRAILER "v2"
+// Discovery payload, after the HELLO/ACK prefix: "<ip>:<flag>" NUL
+// "v3:<nonce>". Flag 0 = ROMs off, R = ROMs on, c / C = the same but the
+// sender must be the rsync client (a phone). The nonce (sync_pair.h) is the
+// sender's for this run, the same in all its HELLOs and ACKs.
+#define SYNC_PAYLOAD_TRAILER "v3:"
 
 typedef struct {
 	char ip[16];
+	char nonce[17];
 	bool roms;
 	bool client_only;
-	bool filters;
 } SyncPeer;
 
-// len = bytes after the prefix, trailer included. False (out->ip empty) unless
-// the IP part is a dotted-quad IPv4 literal: it ends up in shell commands.
-bool sync_parse_payload(const char* buf, size_t len, SyncPeer* out);
+enum SyncPayload {
+	SYNC_PAYLOAD_BAD,	   // not a discovery payload (or not an IPv4 literal): ignored
+	SYNC_PAYLOAD_OK,	   // a v3 peer
+	SYNC_PAYLOAD_OUTDATED, // a valid address but no v3 trailer: the peer needs an update
+};
 
-// Writes prefix + "<ip>:<0|R>" + NUL + trailer; returns the byte count to send
-// (trailer included), or -1 when it doesn't fit.
-int sync_format_payload(char* out, size_t size, const char* prefix, const char* ip, bool roms);
+// len = bytes after the prefix, trailer included. Only a dotted-quad IPv4
+// literal is accepted (it ends up in shell commands); out->ip is set for OK
+// and OUTDATED, out->nonce only for OK. There is no older pairing to fall
+// back to: anything but "v3:<16 lowercase hex>" after the NUL is OUTDATED.
+enum SyncPayload sync_parse_payload(const char* buf, size_t len, SyncPeer* out);
+
+// Writes prefix + "<ip>:<0|R>" + NUL + "v3:" + nonce; returns the byte count
+// to send (trailer included), or -1 when it doesn't fit or nonce isn't one.
+int sync_format_payload(char* out, size_t size, const char* prefix, const char* ip, bool roms, const char* nonce);
 
 // True when this device runs the rsync daemon. A client-only side is always
 // the client; otherwise the lower IP serves (the rule old firmware uses).

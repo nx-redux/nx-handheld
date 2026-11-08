@@ -6,24 +6,36 @@
 #include <string.h>
 #include "../sync_proto.h"
 
+#define NONCE "0123456789abcdef"
+
+// A v3 payload: the C string s, NUL, "v3:" + NONCE.
+static enum SyncPayload parse_v3(const char* s, SyncPeer* p) {
+	char buf[128];
+	size_t n = strlen(s);
+	memcpy(buf, s, n + 1);
+	memcpy(buf + n + 1, "v3:" NONCE, 19);
+	return sync_parse_payload(buf, n + 1 + 19, p);
+}
+
 static SyncPeer parse(const char* s) {
 	SyncPeer p;
-	sync_parse_payload(s, strlen(s), &p);
+	assert(parse_v3(s, &p) == SYNC_PAYLOAD_OK);
+	assert(!strcmp(p.nonce, NONCE));
 	return p;
 }
 
 static void test_parse_flags(void) {
 	SyncPeer p = parse("192.168.1.5");
-	assert(!strcmp(p.ip, "192.168.1.5") && !p.roms && !p.client_only && !p.filters);
+	assert(!strcmp(p.ip, "192.168.1.5") && !p.roms && !p.client_only);
 	p = parse("192.168.1.5:0");
-	assert(!strcmp(p.ip, "192.168.1.5") && !p.roms && !p.client_only && !p.filters);
+	assert(!strcmp(p.ip, "192.168.1.5") && !p.roms && !p.client_only);
 	p = parse("192.168.1.5:R");
-	assert(!strcmp(p.ip, "192.168.1.5") && p.roms && !p.client_only && !p.filters);
+	assert(!strcmp(p.ip, "192.168.1.5") && p.roms && !p.client_only);
 	p = parse("10.99.0.1:c");
-	assert(!strcmp(p.ip, "10.99.0.1") && !p.roms && p.client_only && p.filters);
+	assert(!strcmp(p.ip, "10.99.0.1") && !p.roms && p.client_only);
 	p = parse("10.99.0.1:C");
-	assert(!strcmp(p.ip, "10.99.0.1") && p.roms && p.client_only && p.filters);
-	p = parse("192.168.1.5:x"); // unknown flag: ROMs off, as old firmware reads it
+	assert(!strcmp(p.ip, "10.99.0.1") && p.roms && p.client_only);
+	p = parse("192.168.1.5:x"); // unknown flag: ROMs off
 	assert(!strcmp(p.ip, "192.168.1.5") && !p.roms && !p.client_only);
 }
 
@@ -32,26 +44,65 @@ static void test_parse_rejects(void) {
 						 "1.2.3.4 :R", "::R", "999999999999999999999999999999999999999999999999999999999999999999", NULL};
 	for (int i = 0; bad[i]; i++) {
 		SyncPeer p;
-		assert(!sync_parse_payload(bad[i], strlen(bad[i]), &p));
-		assert(p.ip[0] == '\0' && !p.roms && !p.filters);
+		assert(parse_v3(bad[i], &p) == SYNC_PAYLOAD_BAD);
+		assert(p.ip[0] == '\0' && !p.roms && !p.nonce[0]);
+		assert(sync_parse_payload(bad[i], strlen(bad[i]), &p) == SYNC_PAYLOAD_BAD);
 	}
+}
+
+// A valid address without the v3 trailer: refused as needing an update, with
+// the address kept (FAIL goes to it) and no nonce.
+static void test_parse_outdated(void) {
+	struct {
+		const char* buf;
+		size_t len;
+	} old[] = {
+		{"192.168.1.5:R", 13},						  // no trailer (oldest firmware)
+		{"192.168.1.5:R\0v2", 16},					  // v2
+		{"192.168.1.5:R\0", 14},					  // NUL, nothing after
+		{"192.168.1.5:R\0v3:", 17},					  // no nonce
+		{"192.168.1.5:R\0v3:0123456789abcde", 32},	  // 15 hex
+		{"192.168.1.5:R\0v3:0123456789abcdef0", 34},  // 17 hex
+		{"192.168.1.5:R\0v3:0123456789ABCDEF", 33},	  // upper case
+		{"192.168.1.5:R\0v3:0123456789abcdeg", 33},	  // not hex
+		{"192.168.1.5:R\0v4:0123456789abcdef", 33},	  // another version
+		{"192.168.1.5:R\0v3:0123456789abcdef\0", 34}, // a trailing NUL
+		{"192.168.1.5:R\0v3:0123456\0"
+		 "89abcdef",
+		 33},											// a NUL inside
+		{"192.168.1.5:R\0v3:0123456789abcdef\0v2", 37}, // something after
+	};
+	for (size_t i = 0; i < sizeof(old) / sizeof(old[0]); i++) {
+		SyncPeer p;
+		assert(sync_parse_payload(old[i].buf, old[i].len, &p) == SYNC_PAYLOAD_OUTDATED);
+		assert(!strcmp(p.ip, "192.168.1.5") && !p.nonce[0] && !p.roms);
+	}
+	SyncPeer p;
+	assert(sync_parse_payload("192.168.1.5:R\0v3:0123456789abcdef", 33, &p) == SYNC_PAYLOAD_OK);
+	assert(!strcmp(p.nonce, NONCE) && p.roms);
 }
 
 static void test_format_roundtrip(void) {
 	char buf[128];
-	int n = sync_format_payload(buf, sizeof(buf), "HELLO_TRIMUI_SYNC:", "192.168.1.7", true);
-	assert(n == (int)strlen("HELLO_TRIMUI_SYNC:192.168.1.7:R") + 3);
-	// What old firmware sees: the C string only.
+	int n = sync_format_payload(buf, sizeof(buf), "HELLO_TRIMUI_SYNC:", "192.168.1.7", true, NONCE);
+	assert(n == (int)strlen("HELLO_TRIMUI_SYNC:192.168.1.7:R") + 1 + 19);
 	assert(!strcmp(buf, "HELLO_TRIMUI_SYNC:192.168.1.7:R"));
+	assert(!memcmp(buf + strlen(buf) + 1, "v3:" NONCE, 19));
 	SyncPeer p;
 	const char* pay = buf + strlen("HELLO_TRIMUI_SYNC:");
-	assert(sync_parse_payload(pay, n - (pay - buf), &p));
-	assert(!strcmp(p.ip, "192.168.1.7") && p.roms && !p.client_only && p.filters);
-	n = sync_format_payload(buf, sizeof(buf), "", "10.99.0.2", false);
-	assert(sync_parse_payload(buf, n, &p) && !p.roms && p.filters);
-	// A wrong trailer is not a filtering peer.
-	assert(sync_parse_payload("1.2.3.4:0\0v3", 12, &p) && !p.filters);
-	assert(sync_format_payload(buf, 12, "", "192.168.1.7", false) == -1);
+	assert(sync_parse_payload(pay, n - (pay - buf), &p) == SYNC_PAYLOAD_OK);
+	assert(!strcmp(p.ip, "192.168.1.7") && p.roms && !p.client_only && !strcmp(p.nonce, NONCE));
+	n = sync_format_payload(buf, sizeof(buf), "TRIMUI_SYNC_ACK:", "10.99.0.2", false, "fedcba9876543210");
+	pay = buf + strlen("TRIMUI_SYNC_ACK:");
+	assert(sync_parse_payload(pay, n - (pay - buf), &p) == SYNC_PAYLOAD_OK);
+	assert(!p.roms && !strcmp(p.nonce, "fedcba9876543210"));
+	// Exactly what fits, then one byte short.
+	int need = (int)strlen("192.168.1.7:0") + 1 + 19;
+	assert(sync_format_payload(buf, need, "", "192.168.1.7", false, NONCE) == need);
+	assert(sync_format_payload(buf, need - 1, "", "192.168.1.7", false, NONCE) == -1);
+	// Only a valid nonce goes out.
+	assert(sync_format_payload(buf, sizeof(buf), "", "192.168.1.7", false, "0123") == -1);
+	assert(sync_format_payload(buf, sizeof(buf), "", "192.168.1.7", false, "0123456789ABCDEF") == -1);
 }
 
 static void test_roles(void) {
@@ -503,6 +554,7 @@ int main(void) {
 
 	test_parse_flags();
 	test_parse_rejects();
+	test_parse_outdated();
 	test_format_roundtrip();
 	test_roles();
 	test_cable_net();

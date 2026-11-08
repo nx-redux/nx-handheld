@@ -26,6 +26,7 @@
 #include "ui_quitrequest.h"
 #include "utils.h"
 #include "sync_proto.h"
+#include "sync_pair.h"
 #include "sync_rsyncd.h"
 #include "usblink_state.h"
 #include "network_common.h"
@@ -37,11 +38,19 @@
 #define ACK_MSG "TRIMUI_SYNC_ACK:"
 #define READY_MSG "TRIMUI_SYNC_READY"
 #define DONE_MSG "TRIMUI_SYNC_DONE"
-// The client's run failed or was cancelled: the server stops waiting for DONE.
+// This side's run failed or was cancelled (or the pairing was): the peer stops
+// waiting for it.
 #define FAIL_MSG "TRIMUI_SYNC_FAIL"
+// This side's user confirmed the pairing code.
+#define OK_MSG "TRIMUI_SYNC_OK"
+#define PAIR_TIMEOUT_SEC 120
 #define BROADCAST_INTERVAL_MS 1000
 #define RSYNC_CONF_PATH "/tmp/rsyncd.conf"
 #define RSYNC_PID_PATH "/tmp/rsyncd.pid"
+#define RSYNC_LOG_PATH "/tmp/rsyncd.log"
+// mkdtemp() template of the server run's folder (mode 0700): the daemon's
+// secrets and lock files, removed with the daemon.
+#define RUN_DIR_TEMPLATE "/tmp/sync-run-XXXXXX"
 #define ROMS_EXCLUDES_PATH "/tmp/sync-roms-excludes.txt"
 // mkdtemp() templates: the peer's collections in, the peer's merged ones out.
 #define COLLECTIONS_TMP_TEMPLATE "/tmp/sync-collections-XXXXXX"
@@ -78,6 +87,7 @@ enum SyncState {
 	STATE_NO_WIFI,
 	STATE_READY,
 	STATE_WAITING,
+	STATE_PAIRING,
 	STATE_SYNCING,
 	STATE_ERROR,
 	STATE_DONE,
@@ -110,10 +120,21 @@ static volatile bool sync_roms = false;
 static volatile bool peer_sync_roms = false;
 // The peer must be the rsync client (a phone: its ROMs are not plain files).
 static volatile bool peer_client_only = false;
-// The peer filters .userdata/shared itself, so our daemon may filter too. Old
-// firmware doesn't: its pushes would fail (exit 23) on refused files, so for
-// it the daemon stays open, as before.
-static volatile bool peer_filters = false;
+// The peer answered without the v3 pairing: it needs an update first.
+static volatile bool peer_outdated = false;
+
+// Pairing: this run's nonce (in every HELLO and ACK), the peer's, and what
+// both derive from them (sync_pair.h).
+static char own_nonce[SYNC_NONCE_LEN + 1];
+static char peer_nonce[SYNC_NONCE_LEN + 1];
+static char pair_code[SYNC_PAIR_CODE_LEN + 1];
+static char pair_password[SYNC_PAIR_PASSWORD_LEN + 1];
+// The user pressed A on the code; the sync thread sends OK from then on.
+static volatile bool pair_confirmed = false;
+// Both sides confirmed: the sync thread went on to the transfer.
+static volatile bool sync_paired = false;
+// Why the run failed, shown instead of the generic line; NULL for that.
+static const char* volatile fail_reason = NULL;
 
 // The link the user picked on the Ready screen; the cable is the default.
 // Both devices must pick the same one.
@@ -231,7 +252,7 @@ static void reack_lost_hello(int sock, const char* msg, const struct sockaddr_in
 	if (strcmp(src_ip, peer_ip) != 0)
 		return;
 	char ack_buf[128];
-	int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms);
+	int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms, own_nonce);
 	if (len > 0)
 		send_udp_bytes(sock, ack_buf, len, peer_ip);
 }
@@ -307,7 +328,7 @@ static void* discovery_thread_func(void* arg) {
 
 			if (own_ip[0]) {
 				// Rebuilt every time: it carries the current ROMs toggle.
-				int n = sync_format_payload(send_buf, sizeof(send_buf), HELLO_MSG, own_ip, sync_roms);
+				int n = sync_format_payload(send_buf, sizeof(send_buf), HELLO_MSG, own_ip, sync_roms, own_nonce);
 				if (n > 0)
 					send_udp_bytes(udp_sock, send_buf, n, cable ? cable_peer : broadcast_ip);
 			}
@@ -336,7 +357,8 @@ static void* discovery_thread_func(void* arg) {
 			continue;
 
 		SyncPeer sender;
-		if (!sync_parse_payload(recv_buf + prefix_len, n - prefix_len, &sender))
+		enum SyncPayload kind = sync_parse_payload(recv_buf + prefix_len, n - prefix_len, &sender);
+		if (kind == SYNC_PAYLOAD_BAD)
 			continue;
 
 		// The packet must come from the address it advertises (it ends up in
@@ -348,18 +370,35 @@ static void* discovery_thread_func(void* arg) {
 		if (!own_ip[0] || (via_cable ? strcmp(sender.ip, cable_peer) != 0 : sync_ip_is_cable(sender.ip)))
 			continue;
 
+		// No pairing without v3 on both sides. FAIL ends the older peer's run,
+		// which our HELLO or ACK may have started.
+		if (kind == SYNC_PAYLOAD_OUTDATED) {
+			if (!peer_found) {
+				snprintf(peer_ip, sizeof(peer_ip), "%s", sender.ip);
+				for (int i = 0; i < 5; i++) {
+					send_udp_message(udp_sock, FAIL_MSG, peer_ip);
+					usleep(200000);
+				}
+				peer_outdated = true;
+				__sync_synchronize();
+				peer_found = true;
+				discovery_running = false;
+			}
+			continue;
+		}
+
 		if (hello) {
 			char ack_buf[128];
-			int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms);
+			int len = sync_format_payload(ack_buf, sizeof(ack_buf), ACK_MSG, own_ip, sync_roms, own_nonce);
 			if (len > 0)
 				send_udp_bytes(udp_sock, ack_buf, len, sender.ip);
 		}
 
 		if (!peer_found) {
 			snprintf(peer_ip, sizeof(peer_ip), "%s", sender.ip);
+			snprintf(peer_nonce, sizeof(peer_nonce), "%s", sender.nonce);
 			peer_sync_roms = sender.roms;
 			peer_client_only = sender.client_only;
-			peer_filters = sender.filters;
 			__sync_synchronize();
 			peer_found = true;
 			discovery_running = false;
@@ -381,8 +420,15 @@ static void start_discovery(void) {
 	peer_found = false;
 	peer_sync_roms = false;
 	peer_client_only = false;
-	peer_filters = false;
+	peer_outdated = false;
 	peer_ip[0] = '\0';
+	peer_nonce[0] = '\0';
+	sync_paired = false;
+	fail_reason = NULL;
+	if (!sync_nonce_new(own_nonce)) {
+		state = STATE_ERROR;
+		return;
+	}
 	discovery_running = true;
 
 	// Prevent sleep and power off during discovery and sync
@@ -422,18 +468,25 @@ static void stop_discovery(void) {
 	// or immediately if discovery is stopped without syncing (B to exit).
 }
 
-static int wait_for_udp_message(const char* expected, int timeout_sec) {
+// resend (or NULL): sent to the peer every second while waiting.
+static int wait_for_udp_message(const char* expected, int timeout_sec, const char* resend) {
 	int sock = create_recv_socket();
 	if (sock < 0)
 		return -1;
 
 	char buf[256];
 	time_t start = time(NULL);
+	uint32_t last_sent = SDL_GetTicks() - 1000;
 
 	while (!sync_cancel && !app_quit) {
 		if (time(NULL) - start > timeout_sec) {
 			close(sock);
 			return -1;
+		}
+		uint32_t now = SDL_GetTicks();
+		if (resend && now - last_sent >= 1000) {
+			send_udp_message(sock, resend, peer_ip);
+			last_sent = now;
 		}
 
 		fd_set readfds;
@@ -465,10 +518,17 @@ static int wait_for_udp_message(const char* expected, int timeout_sec) {
 	return -1;
 }
 
-static void write_rsync_config(void) {
+// The server run's folder (RUN_DIR_TEMPLATE), "" when there is none.
+static char run_dir[sizeof(RUN_DIR_TEMPLATE)];
+// The sync thread makes and removes it; B on the main thread removes it too.
+static pthread_mutex_t run_dir_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void remove_temp_dir(const char* dir);
+
+static bool write_rsync_config(const char* dir) {
 	FILE* fp = fopen(RSYNC_CONF_PATH, "w");
 	if (!fp)
-		return;
+		return false;
 
 	fprintf(fp, "pid file = %s\n", RSYNC_PID_PATH);
 	fprintf(fp, "port = %d\n", SYNC_RSYNC_PORT);
@@ -476,33 +536,30 @@ static void write_rsync_config(void) {
 	fprintf(fp, "read only = no\n");
 	fprintf(fp, "uid = 0\n");
 	fprintf(fp, "gid = 0\n");
-	fprintf(fp, "log file = /tmp/rsyncd.log\n");
+	fprintf(fp, "log file = %s\n", RSYNC_LOG_PATH);
 	fprintf(fp, "transfer logging = yes\n");
 	fprintf(fp, "log format = %%o %%f (%%l bytes)\n");
-	// Writable as root and unauthenticated: only the paired peer may connect.
-	fprintf(fp, "hosts allow = %s\n\n", peer_ip);
+	// Writable as root: only the paired peer, with this run's password.
+	bool ok = sync_daemon_auth_lines(fp, peer_ip, dir);
+	fprintf(fp, "\n");
 	fprintf(fp, "[shared]\n");
 	fprintf(fp, "  path = %s\n", SHARED_DATA_PATH);
 	fprintf(fp, "  read only = no\n");
-	// Only for a peer that filters too: the daemon refuses excluded files, and
-	// old firmware fails its whole sync on that (rsync exit 23).
 	char rules[1024];
-	if (peer_filters && sync_shared_daemon_filter(rules, sizeof(rules)) > 0)
+	if (sync_shared_daemon_filter(rules, sizeof(rules)) > 0)
 		fprintf(fp, "  filter = %s\n", rules);
 	fprintf(fp, "\n");
 	fprintf(fp, "[saves]\n");
 	fprintf(fp, "  path = %s\n", saves_path());
 	fprintf(fp, "  read only = no\n");
-	if (peer_filters)
-		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
 	fprintf(fp, "\n");
 	// Every sync, ROMs on or off. Writable: a phone client pushes and pulls
 	// Bios/<TAG>/ here (--ignore-existing, as the handheld client does).
 	fprintf(fp, "[bios]\n");
 	fprintf(fp, "  path = %s\n", BIOS_PATH);
 	fprintf(fp, "  read only = no\n");
-	fprintf(fp, "  exclude = %s%s%s\n", SYNC_BIOS_EXCLUDE_PATTERN, peer_filters ? " " : "",
-			peer_filters ? SYNC_JUNK_DAEMON_EXCLUDE : "");
+	fprintf(fp, "  exclude = %s %s\n", SYNC_BIOS_EXCLUDE_PATTERN, SYNC_JUNK_DAEMON_EXCLUDE);
 	fprintf(fp, "\n");
 	// Every sync too. The client pulls Collections/*.txt, merges, and pushes
 	// back the ones it added lines to (a phone client does the same).
@@ -511,28 +568,46 @@ static void write_rsync_config(void) {
 	fprintf(fp, "[collections]\n");
 	fprintf(fp, "  path = %s\n", COLLECTIONS_PATH);
 	fprintf(fp, "  read only = no\n");
-	fprintf(fp, "  exclude = %s%s%s\n", SYNC_COLLECTIONS_DAEMON_EXCLUDE, peer_filters ? " " : "",
-			peer_filters ? SYNC_JUNK_DAEMON_EXCLUDE : "");
+	fprintf(fp, "  exclude = %s %s\n", SYNC_COLLECTIONS_DAEMON_EXCLUDE, SYNC_JUNK_DAEMON_EXCLUDE);
 	fprintf(fp, "\n");
 	fprintf(fp, "[roms]\n");
 	fprintf(fp, "  path = %s\n", ROMS_PATH);
 	fprintf(fp, "  read only = no\n");
-	if (peer_filters)
-		fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
+	fprintf(fp, "  exclude = %s\n", SYNC_JUNK_DAEMON_EXCLUDE);
 
-	fclose(fp);
+	if (ferror(fp))
+		ok = false;
+	if (fclose(fp) != 0)
+		ok = false;
+	return ok;
+}
+
+static void stop_rsync_daemon(void) {
+	sync_rsyncd_stop(RSYNC_PID_PATH, RSYNC_CONF_PATH);
+	// The password goes with the daemon, whichever way the run ends.
+	pthread_mutex_lock(&run_dir_mutex);
+	if (run_dir[0])
+		remove_temp_dir(run_dir);
+	run_dir[0] = '\0';
+	pthread_mutex_unlock(&run_dir_mutex);
 }
 
 static int start_rsync_daemon(void) {
 	if (access(sync_rsyncd_bin(), X_OK) != 0)
 		return -1;
 
-	write_rsync_config();
-	return sync_rsyncd_start(RSYNC_CONF_PATH, RSYNC_PID_PATH);
-}
-
-static void stop_rsync_daemon(void) {
-	sync_rsyncd_stop(RSYNC_PID_PATH, RSYNC_CONF_PATH);
+	pthread_mutex_lock(&run_dir_mutex);
+	char dir[] = RUN_DIR_TEMPLATE;
+	bool ok = mkdtemp(dir) != NULL;
+	if (ok)
+		snprintf(run_dir, sizeof(run_dir), "%s", dir);
+	pthread_mutex_unlock(&run_dir_mutex);
+	if (ok)
+		ok = sync_write_secrets(dir, pair_password) && write_rsync_config(dir) &&
+			 sync_rsyncd_start(RSYNC_CONF_PATH, RSYNC_PID_PATH) == 0;
+	if (!ok)
+		stop_rsync_daemon();
+	return ok ? 0 : -1;
 }
 
 // Progress tracking for current phase
@@ -585,10 +660,10 @@ static bool peer_entries(const char* folder, bool dirs_only, SyncNames* out) {
 	char cmd[MAX_PATH * 8 + 256];
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
-	snprintf(cmd, sizeof(cmd), "'%s' --list-only --8-bit-output --timeout=30 'rsync://%s:%d/roms/%s%s' 2>&1",
+	snprintf(cmd, sizeof(cmd), "'%s' --list-only --8-bit-output --timeout=30 '" SYNC_RSYNC_URL "%s:%d/roms/%s%s' 2>&1",
 			 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), peer_ip, SYNC_RSYNC_PORT, shq(folder, dir_q, sizeof(dir_q)),
 			 folder[0] ? "/" : "");
-	FILE* fp = popen(cmd, "r");
+	FILE* fp = sync_popen_with_password(cmd, pair_password);
 	if (!fp)
 		return false;
 	char line[MAX_PATH * 2];
@@ -735,35 +810,35 @@ static int run_rsync_phase(int phase, const char* extra) {
 	char dir_q[MAX_PATH * 4];
 	switch (phase) {
 	case 1:
-		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/shared/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ " SYNC_RSYNC_URL "%s:%d/shared/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 2:
-		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/saves/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ " SYNC_RSYNC_URL "%s:%d/saves/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, shq(saves_path(), dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case 3:
-		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/shared/ '%s'/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s " SYNC_RSYNC_URL "%s:%d/shared/ '%s'/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, shared_filter, peer_ip, SYNC_RSYNC_PORT, shq(SHARED_DATA_PATH, dir_q, sizeof(dir_q)));
 		break;
 	case 4:
-		snprintf(cmd, sizeof(cmd), "'%s' %s rsync://%s:%d/saves/ '%s'/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s " SYNC_RSYNC_URL "%s:%d/saves/ '%s'/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, peer_ip, SYNC_RSYNC_PORT, shq(saves_path(), dir_q, sizeof(dir_q)));
 		break;
 	case SYNC_PHASE_BIOS_PUSH:
-		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/bios/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ " SYNC_RSYNC_URL "%s:%d/bios/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(BIOS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case SYNC_PHASE_BIOS_PULL:
-		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/bios/ '%s'/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s " SYNC_RSYNC_URL "%s:%d/bios/ '%s'/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(BIOS_PATH, dir_q, sizeof(dir_q)));
 		break;
 	case SYNC_PHASE_ROMS_PUSH:
-		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ rsync://%s:%d/roms/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s '%s'/ " SYNC_RSYNC_URL "%s:%d/roms/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, shq(ROMS_PATH, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		break;
 	case SYNC_PHASE_ROMS_PULL:
-		snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/roms/ '%s'/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s %s " SYNC_RSYNC_URL "%s:%d/roms/ '%s'/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), rsync_opts, extra, peer_ip, SYNC_RSYNC_PORT, shq(ROMS_PATH, dir_q, sizeof(dir_q)));
 		break;
 	default:
@@ -780,7 +855,7 @@ static int run_rsync_cmd(const char* cmd) {
 	phase_files_transferred = 0;
 	phase_unknown_module = false;
 
-	FILE* fp = popen(cmd, "r");
+	FILE* fp = sync_popen_with_password(cmd, pair_password);
 	if (!fp)
 		return -1;
 
@@ -821,7 +896,7 @@ static int run_rsync_cmd(const char* cmd) {
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
-// Empties and removes a collections temp folder (it only ever holds files).
+// Empties and removes a temp folder (it only ever holds files).
 static void remove_temp_dir(const char* dir) {
 	DIR* d = opendir(dir);
 	if (d) {
@@ -1090,7 +1165,7 @@ static int sync_collections(int* changed, int* scanned) {
 	char cmd[MAX_PATH * 8 + 768];
 	char bin_q[MAX_PATH * 4];
 	char dir_q[MAX_PATH * 4];
-	snprintf(cmd, sizeof(cmd), "'%s' %s %s rsync://%s:%d/collections/ '%s'/ 2>&1",
+	snprintf(cmd, sizeof(cmd), "'%s' %s %s " SYNC_RSYNC_URL "%s:%d/collections/ '%s'/ 2>&1",
 			 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS, SYNC_COLLECTIONS_PULL_ARGS, peer_ip,
 			 SYNC_RSYNC_PORT, shq(in_dir, dir_q, sizeof(dir_q)));
 	ret = run_rsync_cmd(cmd);
@@ -1126,7 +1201,7 @@ static int sync_collections(int* changed, int* scanned) {
 	}
 
 	if (pushed) {
-		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ rsync://%s:%d/collections/ 2>&1",
+		snprintf(cmd, sizeof(cmd), "'%s' %s '%s'/ " SYNC_RSYNC_URL "%s:%d/collections/ 2>&1",
 				 shq(sync_rsyncd_bin(), bin_q, sizeof(bin_q)), SYNC_COLLECTIONS_RSYNC_OPTS,
 				 shq(out_dir, dir_q, sizeof(dir_q)), peer_ip, SYNC_RSYNC_PORT);
 		ret = run_rsync_cmd(cmd);
@@ -1148,8 +1223,97 @@ done:
 	return ret;
 }
 
+enum PairResult {
+	PAIR_OK,
+	PAIR_STOPPED,	// B here, or the app quit
+	PAIR_PEER_FAIL, // the other device cancelled or gave up
+	PAIR_TIMEOUT,
+	PAIR_ERROR,
+};
+
+// Both users confirm the code before anything is served or sent. Once A is
+// pressed, OK goes to the peer every second until the peer's OK arrives (a
+// client also takes the server's READY: the server stops sending OK once it
+// has started its daemon). Any end but the peer's own FAIL sends FAIL to it.
+static enum PairResult confirm_pairing(void) {
+	int sock = create_recv_socket();
+	if (sock < 0) {
+		log_add("ERROR: Failed to create socket");
+		notify_peer(FAIL_MSG);
+		return PAIR_ERROR;
+	}
+
+	char buf[256];
+	time_t start = time(NULL);
+	bool peer_ok = false;
+	bool sent = false;
+	uint32_t last_ok = 0;
+	enum PairResult ret;
+	for (;;) {
+		if (sync_cancel || app_quit) {
+			ret = PAIR_STOPPED;
+			break;
+		}
+		if (pair_confirmed && peer_ok) {
+			ret = PAIR_OK;
+			break;
+		}
+		if (time(NULL) - start >= PAIR_TIMEOUT_SEC) {
+			ret = PAIR_TIMEOUT;
+			break;
+		}
+		uint32_t now = SDL_GetTicks();
+		if (pair_confirmed && (!sent || now - last_ok >= 1000)) {
+			send_udp_message(sock, OK_MSG, peer_ip);
+			last_ok = now;
+			sent = true;
+		}
+
+		fd_set readfds;
+		FD_ZERO(&readfds);
+		FD_SET(sock, &readfds);
+		struct timeval tv = {0, 200000};
+		if (select(sock + 1, &readfds, NULL, NULL, &tv) <= 0)
+			continue;
+		struct sockaddr_in from;
+		socklen_t fromlen = sizeof(from);
+		ssize_t n = recvfrom(sock, buf, sizeof(buf) - 1, 0, (struct sockaddr*)&from, &fromlen);
+		if (n <= 0)
+			continue;
+		buf[n] = '\0';
+		char src_ip[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &from.sin_addr, src_ip, sizeof(src_ip));
+		if (strcmp(src_ip, peer_ip) != 0)
+			continue;
+		if (!strcmp(buf, OK_MSG) || (!is_server && !strcmp(buf, READY_MSG))) {
+			peer_ok = true;
+		} else if (!strcmp(buf, FAIL_MSG)) {
+			ret = PAIR_PEER_FAIL;
+			break;
+		} else {
+			reack_lost_hello(sock, buf, &from);
+		}
+	}
+	close(sock);
+	if (ret != PAIR_OK && ret != PAIR_PEER_FAIL)
+		notify_peer(FAIL_MSG);
+	return ret;
+}
+
 static void* sync_thread_func(void* arg) {
 	(void)arg;
+
+	enum PairResult pair = confirm_pairing();
+	if (pair != PAIR_OK) {
+		if (pair == PAIR_PEER_FAIL)
+			fail_reason = "The other device cancelled the pairing.";
+		else if (pair == PAIR_TIMEOUT)
+			fail_reason = "Pairing not confirmed.";
+		sync_result = pair == PAIR_STOPPED ? 1 : -1;
+		sync_done = true;
+		return NULL;
+	}
+	sync_paired = true;
 
 	mkdir_p(SHARED_DATA_PATH);
 	mkdir_p(saves_path());
@@ -1164,7 +1328,7 @@ static void* sync_thread_func(void* arg) {
 		log_add("Starting as server...");
 
 		// Truncate daemon log before starting daemon so we read a clean file
-		FILE* trunc = fopen("/tmp/rsyncd.log", "w");
+		FILE* trunc = fopen(RSYNC_LOG_PATH, "w");
 		if (trunc)
 			fclose(trunc);
 
@@ -1194,8 +1358,9 @@ static void* sync_thread_func(void* arg) {
 		time_t start = time(NULL);
 		int ret = -1;
 		uint32_t last_ready = 0;
+		bool auth_failed = false;
 
-		FILE* daemon_log = fopen("/tmp/rsyncd.log", "r");
+		FILE* daemon_log = fopen(RSYNC_LOG_PATH, "r");
 
 		while (!sync_cancel && !app_quit) {
 			if (time(NULL) - start > 3600) {
@@ -1211,7 +1376,7 @@ static void* sync_thread_func(void* arg) {
 
 			// Tail the rsync daemon log for new lines
 			if (!daemon_log)
-				daemon_log = fopen("/tmp/rsyncd.log", "r");
+				daemon_log = fopen(RSYNC_LOG_PATH, "r");
 			if (daemon_log) {
 				char logline[512];
 				while (fgets(logline, sizeof(logline), daemon_log) != NULL) {
@@ -1228,6 +1393,11 @@ static void* sync_thread_func(void* arg) {
 					if (bracket && *(bracket + 1) == ' ')
 						msg = bracket + 2;
 
+					// A wrong password ends the run at once: one guess
+					// per run, not one per possible code.
+					if (sync_daemon_log_auth_failed(msg))
+						auth_failed = true;
+
 					// For transfer lines ("send X" / "recv X"), show just the path
 					if (strncmp(msg, "send ", 5) == 0)
 						msg += 5;
@@ -1238,6 +1408,12 @@ static void* sync_thread_func(void* arg) {
 						log_add(msg);
 				}
 				// fgets returns NULL at EOF; file handle stays valid for subsequent reads
+			}
+			if (auth_failed) {
+				stop_rsync_daemon();
+				notify_peer(FAIL_MSG);
+				fail_reason = "The other device failed the pairing check.";
+				break;
 			}
 
 			fd_set readfds;
@@ -1283,7 +1459,9 @@ static void* sync_thread_func(void* arg) {
 		log_add("Waiting for server...");
 		sync_phase = 0;
 
-		int ret = wait_for_udp_message(READY_MSG, 30);
+		// OK again meanwhile: the server may have missed every OK sent while
+		// pairing, and it waits for one before it starts the daemon.
+		int ret = wait_for_udp_message(READY_MSG, 30, OK_MSG);
 		if (ret != 0) {
 			log_add("ERROR: Server not ready (timeout)");
 			sync_result = -1;
@@ -1433,6 +1611,14 @@ static void start_sync(void) {
 	sync_done = false;
 	sync_result = 0;
 	sync_phase = 0;
+	pair_confirmed = false;
+	sync_paired = false;
+	fail_reason = NULL;
+	if (!sync_pair_derive(own_ip, own_nonce, peer_ip, peer_nonce, pair_code, pair_password)) {
+		allow_power();
+		state = STATE_ERROR;
+		return;
+	}
 
 	log_clear();
 	char msg[LOG_LINE_LEN];
@@ -1447,13 +1633,38 @@ static void start_sync(void) {
 	PWR_disableSleep();
 	PWR_disableAutosleep();
 
-	state = STATE_SYNCING;
+	state = STATE_PAIRING;
 	if (pthread_create(&sync_thread, NULL, sync_thread_func, NULL) != 0) {
 		allow_power();
 		state = STATE_ERROR;
 		return;
 	}
 	sync_thread_active = true;
+}
+
+// Forgets the run's password once nothing needs it any more.
+static void end_run(void) {
+	memset(pair_password, 0, sizeof(pair_password));
+}
+
+// The sync thread is done: tear the session down and show how it ended.
+static void finish_sync(void) {
+	if (sync_thread_active) {
+		pthread_join(sync_thread, NULL);
+		sync_thread_active = false;
+	}
+	stop_rsync_daemon();
+	// The session is over; Sync again starts a new one.
+	cable_link_stop();
+	allow_power();
+	end_run();
+
+	if (sync_roms && sync_paired) {
+		unlink(EMULIST_CACHE_PATH);
+		unlink(ROMINDEX_CACHE_PATH);
+	}
+
+	state = sync_result == 0 ? STATE_DONE : STATE_ERROR;
 }
 
 static void cancel_sync(void) {
@@ -1577,6 +1788,23 @@ static void render_screen(void) {
 		UI_renderButtonHintBar(screen, (char*[]){"B", "BACK", NULL});
 		break;
 
+	case STATE_PAIRING: {
+		char msg[160];
+		if (pair_confirmed) {
+			uint32_t now = SDL_GetTicks();
+			if (now - last_dot_time > 500) {
+				dot_count = (dot_count + 1) % 4;
+				last_dot_time = now;
+			}
+			snprintf(msg, sizeof(msg), "Pairing code %s\n\nWaiting for the other device%.*s", pair_code, dot_count + 1, "...");
+			UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
+		} else {
+			snprintf(msg, sizeof(msg), "Pairing code %s —\nthe same on the other device?", pair_code);
+			UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", "A", "SYNC", NULL});
+		}
+		UI_renderCenteredMessage(screen, msg);
+	} break;
+
 	case STATE_SYNCING: {
 		UI_renderButtonHintBar(screen, (char*[]){"B", "CANCEL", NULL});
 
@@ -1626,15 +1854,21 @@ static void render_screen(void) {
 	}
 
 	case STATE_ERROR: {
-		int top_y = menu_h + SCALE1(PADDING);
-		int bottom_y = screen->h - SCALE1(PILL_SIZE + PADDING * 3 + FONT_LARGE);
+		const char* reason = fail_reason;
+		// Ended before any transfer: the reason alone, without the log.
+		if (reason && !sync_paired) {
+			UI_renderCenteredMessage(screen, reason);
+		} else {
+			int top_y = menu_h + SCALE1(PADDING);
+			int bottom_y = screen->h - SCALE1(PILL_SIZE + PADDING * 3 + FONT_LARGE);
 
-		render_log(top_y, bottom_y);
+			render_log(top_y, bottom_y);
 
-		// Error message below log
-		GFX_blitText(font.large, "Sync failed. Press A to retry.", 0, COLOR_WHITE, screen,
-					 &(SDL_Rect){SCALE1(PADDING), bottom_y + SCALE1(PADDING),
-								 screen->w - SCALE1(PADDING * 2), SCALE1(FONT_LARGE)});
+			// Error message below log
+			GFX_blitText(font.large, reason ? reason : "Sync failed. Press A to retry.", 0, COLOR_WHITE, screen,
+						 &(SDL_Rect){SCALE1(PADDING), bottom_y + SCALE1(PADDING),
+									 screen->w - SCALE1(PADDING * 2), SCALE1(FONT_LARGE)});
+		}
 	}
 		UI_renderButtonHintBar(screen, (char*[]){"B", "EXIT", "A", "RETRY", NULL});
 		break;
@@ -1726,8 +1960,33 @@ int main(int argc, char* argv[]) {
 			} else if (peer_found) {
 				__sync_synchronize();
 				stop_discovery();
-				start_sync();
+				if (peer_outdated) {
+					cable_link_stop();
+					allow_power();
+					log_clear();
+					fail_reason = "The other device needs an update.\nUpdate NX Redux on it to sync.";
+					state = STATE_ERROR;
+				} else {
+					start_sync();
+				}
 				dirty = true;
+			}
+			break;
+
+		case STATE_PAIRING:
+			dirty = true;
+			if (PAD_justPressed(BTN_B)) {
+				// The sync thread sends FAIL on its way out.
+				cancel_sync();
+				cable_link_stop();
+				end_run();
+				state = STATE_READY;
+			} else if (sync_paired) {
+				state = STATE_SYNCING;
+			} else if (sync_done) {
+				finish_sync();
+			} else if (!pair_confirmed && PAD_justPressed(BTN_A)) {
+				pair_confirmed = true;
 			}
 			break;
 
@@ -1736,29 +1995,11 @@ int main(int argc, char* argv[]) {
 			if (PAD_justPressed(BTN_B)) {
 				cancel_sync();
 				cable_link_stop();
+				end_run();
 				state = STATE_ERROR;
 				dirty = true;
 			} else if (sync_done) {
-				if (sync_thread_active) {
-					pthread_join(sync_thread, NULL);
-					sync_thread_active = false;
-				}
-				stop_rsync_daemon();
-				// The session is over; Sync again starts a new one.
-				cable_link_stop();
-				allow_power();
-
-				if (sync_roms) {
-					unlink(EMULIST_CACHE_PATH);
-					unlink(ROMINDEX_CACHE_PATH);
-				}
-
-				if (sync_result == 0) {
-					state = STATE_DONE;
-				} else {
-					state = STATE_ERROR;
-				}
-				dirty = true;
+				finish_sync();
 			}
 			break;
 

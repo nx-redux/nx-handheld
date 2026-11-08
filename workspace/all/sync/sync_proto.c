@@ -1,4 +1,5 @@
 #include "sync_proto.h"
+#include "sync_pair.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -34,13 +35,13 @@ const char* const sync_shared_rules[] = {
 	NULL,
 };
 
-bool sync_parse_payload(const char* buf, size_t len, SyncPeer* out) {
+enum SyncPayload sync_parse_payload(const char* buf, size_t len, SyncPeer* out) {
 	memset(out, 0, sizeof(*out));
 	size_t slen = strnlen(buf, len);
 
 	char text[64];
 	if (slen >= sizeof(text))
-		return false;
+		return SYNC_PAYLOAD_BAD;
 	memcpy(text, buf, slen);
 	text[slen] = '\0';
 
@@ -50,33 +51,36 @@ bool sync_parse_payload(const char* buf, size_t len, SyncPeer* out) {
 		flag = colon[1];
 		*colon = '\0';
 	}
-	out->roms = (flag == 'R' || flag == 'C');
-	out->client_only = (flag == 'c' || flag == 'C');
-
-	size_t tlen = strlen(SYNC_PAYLOAD_TRAILER);
-	if (slen < len && len - slen - 1 == tlen && !memcmp(buf + slen + 1, SYNC_PAYLOAD_TRAILER, tlen))
-		out->filters = true;
-	if (out->client_only)
-		out->filters = true;
 
 	struct in_addr addr;
-	if (strlen(text) >= sizeof(out->ip) || inet_pton(AF_INET, text, &addr) != 1) {
-		memset(out, 0, sizeof(*out));
-		return false;
-	}
+	if (strlen(text) >= sizeof(out->ip) || inet_pton(AF_INET, text, &addr) != 1)
+		return SYNC_PAYLOAD_BAD;
 	strcpy(out->ip, text);
-	return true;
+
+	size_t tlen = strlen(SYNC_PAYLOAD_TRAILER);
+	const char* trailer = buf + slen + 1;
+	if (slen == len || len - slen - 1 != tlen + SYNC_NONCE_LEN || memcmp(trailer, SYNC_PAYLOAD_TRAILER, tlen) != 0 ||
+		!sync_nonce_valid(trailer + tlen, SYNC_NONCE_LEN))
+		return SYNC_PAYLOAD_OUTDATED;
+	memcpy(out->nonce, trailer + tlen, SYNC_NONCE_LEN);
+	out->nonce[SYNC_NONCE_LEN] = '\0';
+	out->roms = (flag == 'R' || flag == 'C');
+	out->client_only = (flag == 'c' || flag == 'C');
+	return SYNC_PAYLOAD_OK;
 }
 
-int sync_format_payload(char* out, size_t size, const char* prefix, const char* ip, bool roms) {
+int sync_format_payload(char* out, size_t size, const char* prefix, const char* ip, bool roms, const char* nonce) {
+	if (!sync_nonce_valid(nonce, strlen(nonce)))
+		return -1;
 	int n = snprintf(out, size, "%s%s:%s", prefix, ip, roms ? "R" : "0");
 	if (n < 0)
 		return -1;
 	size_t tlen = strlen(SYNC_PAYLOAD_TRAILER);
-	if ((size_t)n + 1 + tlen > size)
+	if ((size_t)n + 1 + tlen + SYNC_NONCE_LEN > size)
 		return -1;
 	memcpy(out + n + 1, SYNC_PAYLOAD_TRAILER, tlen);
-	return n + 1 + (int)tlen;
+	memcpy(out + n + 1 + tlen, nonce, SYNC_NONCE_LEN);
+	return n + 1 + (int)tlen + SYNC_NONCE_LEN;
 }
 
 static uint32_t ip_host_order(const char* ip) {
