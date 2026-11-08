@@ -208,7 +208,7 @@ bluemsx_HASH = 036376d6679c9e153712dbbb3fdca774afc49706
 gearcoleco_REPO = https://github.com/drhelius/Gearcoleco.git
 gearcoleco_CORE = gearcoleco_libretro.so
 gearcoleco_BUILD_PATH = gearcoleco/platforms/libretro
-gearcoleco_HASH = ed5095b3ce158ff0cf82395a61c2476505634894
+gearcoleco_HASH = 2805e70fd56c3bb6a0412a4ddaf210eefc8a5d7c
 
 ###############################
 
