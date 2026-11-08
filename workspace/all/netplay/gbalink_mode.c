@@ -5,36 +5,13 @@
 #include <strings.h>
 
 #include "gwl_mode.h"
+#include "wiz_caps.h"
 
-// The value of "<key>=" in a comma-separated caps token, copied into out.
-static bool caps_value(const char* caps, const char* key, char* out, size_t out_size) {
-	out[0] = '\0';
-	if (!caps)
-		return false;
-	size_t key_len = strlen(key);
-	for (const char* p = caps; *p;) {
-		const char* end = strchr(p, ',');
-		size_t len = end ? (size_t)(end - p) : strlen(p);
-		if (len > key_len + 1 && strncmp(p, key, key_len) == 0 && p[key_len] == '=') {
-			size_t n = len - key_len - 1;
-			if (n >= out_size)
-				n = out_size - 1;
-			memcpy(out, p + key_len + 1, n);
-			out[n] = '\0';
-			return true;
-		}
-		if (!end)
-			break;
-		p = end + 1;
-	}
-	return false;
-}
+// Longest "wl=" value ("none", "rfu", "poke", "aw1", "aw2") with room to spare.
+#define WL_TOKEN_MAX 16
 
 bool gbalink_mixed(const char* our_caps, const char* peer_caps) {
-	char a[64], b[64];
-	caps_value(our_caps, "core", a, sizeof(a));
-	caps_value(peer_caps, "core", b, sizeof(b));
-	return a[0] && b[0] && strcmp(a, b) != 0;
+	return WizCaps_coreMismatch(our_caps, peer_caps);
 }
 
 // gpsp_serial "auto" in a USB Cable session: the gpSP 004 patch resolves
@@ -54,9 +31,10 @@ const char* gbalink_serial_option(const char* key, const char* value, const char
 	bool usb = netplay_mode && strcmp(netplay_mode, "usb") == 0;
 
 	if (mgba && netplay_mode) {
-		char wl[16];
+		char wl[WL_TOKEN_MAX];
 		// A peer that never heard of the Wi-Fi modes only speaks the real cable.
-		if (!caps_value(peer_caps, "wl", wl, sizeof(wl)))
+		WizCaps_value(peer_caps, "wl", wl, sizeof(wl));
+		if (!wl[0])
 			return "cable";
 	}
 	if (gbalink_mixed(our_caps, peer_caps))
@@ -85,7 +63,7 @@ bool gbalink_transport_ok(const char* core_name, const char* netplay_mode, const
 		return true;
 	if (netplay_mode && strcmp(netplay_mode, "usb") == 0)
 		return true;
-	char wl[16];
-	caps_value(our_caps, "wl", wl, sizeof(wl));
+	char wl[WL_TOKEN_MAX];
+	WizCaps_value(our_caps, "wl", wl, sizeof(wl));
 	return gwl_mode_from_token(wl) != GWL_NONE;
 }

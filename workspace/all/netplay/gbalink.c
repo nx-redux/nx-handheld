@@ -862,7 +862,7 @@ int GBALink_connectToHost(const char* ip, uint16_t port) {
 				if (hdr.size > 0 && hdr.size < sizeof(data)) {
 					data[hdr.size] = '\0'; // Ensure null-terminated
 					const char* host_link_mode = (const char*)data;
-					// No link-mode option (mGBA) or none sent: nothing to match
+					// No link-mode option for this core or none sent: nothing to match
 					const char* key = gbalink_link_mode_key(gl.core_name);
 					if (key && host_link_mode[0]) {
 						// Get client's current link mode

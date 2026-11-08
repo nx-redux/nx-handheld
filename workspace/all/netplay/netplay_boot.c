@@ -41,7 +41,7 @@ static int boot_start_host(LinkType type, const char* core_name, const char* gam
 						   const char* hotspot_ip, const char* peer_ip) {
 	switch (type) {
 	case LINK_TYPE_GBALINK: {
-		// The host's link mode, synced to the client; NULL for cores without one (mGBA)
+		// The host's link mode, synced to the client; NULL for cores without one
 		const char* key = gbalink_link_mode_key(core_name);
 		return GBALink_startHost(game_name, crc, hotspot_ip, key ? minarch_getCoreOptionValue(key) : NULL, peer_ip);
 	}
@@ -84,11 +84,12 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 					: support.has_gblink  ? LINK_TYPE_GBLINK
 										  : LINK_TYPE_NETPLAY; // netpacket (GBA) > gblink > generic netplay
 
-	// mGBA's link is the real cable, which only runs over the USB Cable. The
-	// wizard offers mGBA nothing else; this catches a stale or hand-made env.
+	// Off the USB Cable mGBA links only in one of the Wi-Fi modes, which not
+	// every game has. The wizard only offers it then; this catches a stale or
+	// hand-made env.
 	if (type == LINK_TYPE_GBALINK && !gbalink_transport_ok(core_name, mode, getenv("NETPLAY_CAPS"))) {
-		LOG_error("NetplayBoot: mGBA link needs the USB Cable (NETPLAY_MODE=%s)\n", mode ? mode : "NULL");
-		boot_error = "MGBA link needs the USB Cable";
+		LOG_error("NetplayBoot: mGBA link needs the USB Cable for this game (NETPLAY_MODE=%s)\n", mode ? mode : "NULL");
+		boot_error = "mGBA link needs the USB Cable for this game";
 		return -1;
 	}
 
@@ -111,7 +112,7 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 		if (rc == 0)
 			return 0;
 		if (type == LINK_TYPE_GBALINK && rc == GBALINK_CONNECT_NEEDS_RELOAD && gbalink_link_mode_key(core_name)) {
-			// Host runs a different gpsp_serial mode: adopt it for this session
+			// Host runs a different link mode: adopt it for this session
 			// (the saved config keeps the joiner's own), reload the core with
 			// the new mode, then reconnect. The engine getters/appliers live in
 			// gbalink.c.
