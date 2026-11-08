@@ -92,6 +92,27 @@ bool sync_is_server(bool own_client_only, bool peer_client_only, const char* own
 	return ip_host_order(own_ip) < ip_host_order(peer_ip);
 }
 
+SyncMsg sync_msg_kind(const char* buf) {
+	if (!strncmp(buf, HELLO_MSG, strlen(HELLO_MSG)))
+		return SYNC_MSG_HELLO;
+	if (!strncmp(buf, ACK_MSG, strlen(ACK_MSG)))
+		return SYNC_MSG_ACK;
+	if (!strcmp(buf, READY_MSG))
+		return SYNC_MSG_READY;
+	if (!strcmp(buf, DONE_MSG))
+		return SYNC_MSG_DONE;
+	if (!strcmp(buf, FAIL_MSG))
+		return SYNC_MSG_FAIL;
+	return SYNC_MSG_OTHER;
+}
+
+// The peer's address gets a line of its own: with it, the question is too
+// wide for the Brick's screen at the large font.
+int sync_confirm_text(char* out, size_t size, const char* peer_ip, const char* own_ip) {
+	int n = snprintf(out, size, "Sync with the device at\n%s?\n\nThis device: %s", peer_ip, own_ip);
+	return n < 0 || (size_t)n >= size ? -1 : n;
+}
+
 bool sync_ip_is_cable(const char* ip) {
 	struct in_addr a;
 	if (inet_pton(AF_INET, ip, &a) != 1)

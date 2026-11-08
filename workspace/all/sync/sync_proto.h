@@ -13,6 +13,32 @@
 // device 10.99.0.2.
 #define SYNC_CABLE_NET "10.99.0.0"
 
+// The UDP messages (port 19999). HELLO and ACK carry the discovery payload.
+#define HELLO_MSG "HELLO_TRIMUI_SYNC:"
+#define ACK_MSG "TRIMUI_SYNC_ACK:"
+#define READY_MSG "TRIMUI_SYNC_READY"
+#define DONE_MSG "TRIMUI_SYNC_DONE"
+// The run failed or was cancelled on the sending side.
+#define FAIL_MSG "TRIMUI_SYNC_FAIL"
+
+typedef enum {
+	SYNC_MSG_OTHER,
+	SYNC_MSG_HELLO,
+	SYNC_MSG_ACK,
+	SYNC_MSG_READY,
+	SYNC_MSG_DONE,
+	SYNC_MSG_FAIL,
+} SyncMsg;
+
+// Which message a received datagram (NUL-terminated) is.
+SyncMsg sync_msg_kind(const char* buf);
+
+// The confirm screen shown after discovery pairs and before anything
+// transfers: the user checks the other device's address against the one that
+// device shows as its own. Length, or -1 when out is too small.
+int sync_confirm_text(char* out, size_t size, const char* peer_ip, const char* own_ip);
+#define SYNC_PEER_CANCELLED_TEXT "The other device\ncancelled the sync."
+
 // Discovery payload, after the HELLO/ACK prefix: "<ip>" or "<ip>:<flag>".
 // Flag 0 = ROMs off, R = ROMs on, c / C = the same but the sender must be the
 // rsync client (a phone). Old firmware reads only R. New handhelds append
