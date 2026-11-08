@@ -78,11 +78,12 @@ int main(void) {
 		CHECK(buf && out == 300 && !memcmp(buf, data, 300) && s.pos == 300, "want: reads exactly want bytes");
 		free(buf);
 	}
-	// want smaller than min_size: zero-padded to min_size
+	// want smaller than min_size: passed at its own size (a core's size check sees the real length),
+	// the buffer still zero-filled to min_size
 	{
 		Stream s = {data, sizeof(data), 0, 0, 0, 0};
 		buf = State_readData(mem_read, &s, 512, 200, &out);
-		CHECK(buf && out == 512 && !memcmp(buf, data, 200) && all_are(buf + 200, 312, 0), "short state zero-padded to min_size");
+		CHECK(buf && out == 200 && !memcmp(buf, data, 200) && all_are(buf + 200, 312, 0), "short state keeps its own size");
 		free(buf);
 	}
 	// raw state (want 0): reads to the end, growing past min_size
@@ -96,7 +97,7 @@ int main(void) {
 	{
 		Stream s = {data, 50, 0, 0, 0, 0};
 		buf = State_readData(mem_read, &s, 256, 0, &out);
-		CHECK(buf && out == 256 && !memcmp(buf, data, 50) && all_are(buf + 50, 206, 0), "raw short state padded");
+		CHECK(buf && out == 50 && !memcmp(buf, data, 50) && all_are(buf + 50, 206, 0), "raw short state keeps its own size");
 		free(buf);
 	}
 	// raw state of exactly min_size: one extra read finds the end
@@ -106,7 +107,7 @@ int main(void) {
 		CHECK(buf && out == 128 && !memcmp(buf, data, 128), "raw state of exactly min_size");
 		free(buf);
 	}
-	// want larger than the stream: what is there, padded to min_size
+	// want larger than the stream: what is there
 	{
 		Stream s = {data, 100, 0, 0, 0, 0};
 		buf = State_readData(mem_read, &s, 50, 400, &out);
