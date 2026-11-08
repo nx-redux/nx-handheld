@@ -1,11 +1,9 @@
 # license: modifies FB Neo (https://github.com/libretro/FBNeo), FB Neo license (src/license.txt); this patch is distributed under the same license.
 diff --git a/src/burner/libretro/Makefile b/src/burner/libretro/Makefile
-old mode 100644
-new mode 100755
-index 0b7d646c7..2784aa150
+index 35a4e4a..8ce2430 100644
 --- a/src/burner/libretro/Makefile
 +++ b/src/burner/libretro/Makefile
-@@ -346,6 +346,22 @@ else ifeq ($(platform), classic_armv7_a7)
+@@ -367,6 +367,22 @@ else ifeq ($(platform), classic_armv7_a7)
  	CFLAGS += $(PLATFORM_FLAGS)
  	CXXFLAGS += $(PLATFORM_FLAGS)
  
@@ -29,10 +27,10 @@ index 0b7d646c7..2784aa150
  # Playstation Classic
  else ifeq ($(platform), classic_armv8_a35)
 diff --git a/src/burner/libretro/libretro.cpp b/src/burner/libretro/libretro.cpp
-index 3726ec60f..30a6c8cd6 100644
+index 4e7f8b9..3886b6f 100644
 --- a/src/burner/libretro/libretro.cpp
 +++ b/src/burner/libretro/libretro.cpp
-@@ -78,7 +78,7 @@ INT32 nAudSegLen = 0;
+@@ -82,7 +82,7 @@ INT32 nAudSegLen = 0;
  
  static UINT8* pVidImage              = NULL;
  static bool bVidImageNeedRealloc     = false;
@@ -40,8 +38,8 @@ index 3726ec60f..30a6c8cd6 100644
 +static bool bRotationDone            = true;
  static int16_t *pAudBuffer           = NULL;
  static char text_missing_files[2048] = "";
- 
-@@ -1550,8 +1550,46 @@ void retro_run()
+ static bool bCDEmuStarted            = false;
+@@ -1516,8 +1516,46 @@ void retro_run()
  		// current frame will be corrupted, let's dupe instead
  		pBurnDraw = NULL;
  	}
@@ -89,7 +87,7 @@ index 3726ec60f..30a6c8cd6 100644
  
  	bool updated = false;
  	if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-@@ -1567,7 +1605,7 @@ void retro_run()
+@@ -1535,7 +1573,7 @@ void retro_run()
  		// change orientation/geometry if vertical mode was toggled on/off
  		if (old_nVerticalMode != nVerticalMode)
  		{
@@ -98,12 +96,12 @@ index 3726ec60f..30a6c8cd6 100644
  			struct retro_system_av_info av_info;
  			retro_get_system_av_info(&av_info);
  			environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &av_info);
-@@ -2184,7 +2222,7 @@ static bool retro_load_game_common()
+@@ -2432,7 +2470,7 @@ static bool retro_load_game_common()
  
  		// Initializing display, autorotate if needed
  		BurnDrvGetFullSize(&nGameWidth, &nGameHeight);
 -		SetRotation();
 +		//SetRotation();
+ 		BurnSetResolution(nNewWidth, nNewHeight);
  		SetColorDepth();
  
- 		VideoBufferInit();

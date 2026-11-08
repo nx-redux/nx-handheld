@@ -1,0 +1,20 @@
+# license: modifies FB Neo (https://github.com/libretro/FBNeo), FB Neo license (src/license.txt); this patch is distributed under the same license.
+# retro_unserialize read the areas back in order with no layout check: a state from another core version (Neo Geo's
+# YM2610 state grew between 6a5cc250 and d15071ab) was copied in misaligned until the read ran out, then the game ran
+# on it and crashed (mslug: lfo_pm_table read out of bounds in fm.c). A state of another size is now rejected untouched.
+diff --git a/src/burner/libretro/retro_memory.cpp b/src/burner/libretro/retro_memory.cpp
+index 45d7b9c05..a34a633cb 100644
+--- a/src/burner/libretro/retro_memory.cpp
++++ b/src/burner/libretro/retro_memory.cpp
+@@ -381,6 +381,11 @@ bool retro_unserialize(const void *data, size_t size)
+ 	if (nBurnDrvActive == ~0U)
+ 		return true;
+ 
++	// The areas are read back in order with no layout check, so a state of another size (another core version,
++	// whose scanned areas changed) would be copied in misaligned before the read runs out: reject it untouched.
++	if (size != retro_serialize_size())
++		return false;
++
+ 	// We want ACB_FULLSCAN | ACB_WRITE for loading states
+ 	INT32 nAction = ACB_FULLSCAN | ACB_WRITE;
+ 

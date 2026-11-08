@@ -67,7 +67,7 @@ fbneo_REPO = https://github.com/libretro/FBNeo
 fbneo_CORE = fbneo_libretro.so
 fbneo_BUILD_PATH = fbneo/src/burner/libretro
 fbneo_MAKE = make
-fbneo_HASH = 6a5cc250c2db8d874a06ee86e302a2a78918b4c1
+fbneo_HASH = d15071abf14191eebb4a5d7c7147398edcf237c8
 # the root LICENSE.md only links to this
 fbneo_LICENSE = src/license.txt
 
