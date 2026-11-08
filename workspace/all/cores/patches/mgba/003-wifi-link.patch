@@ -1,4 +1,3 @@
-# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); the changes to mGBA's files are distributed under the same license. The new nx_wifi_link.h/.c port gpSP's serial.c and, like the NXRedux gba_wifi_link code they compile in (gpSP's rfu.c and serial_proto.c), are GPL-2.0-or-later, so the built core is distributed under GPL-2.0-or-later (MPL-2.0 section 3.3).
 diff --git forkSrcPrefix/CMakeLists.txt forkDstPrefix/CMakeLists.txt
 index b2020098..c84b6c0c 100644
 --- forkSrcPrefix/CMakeLists.txt
@@ -70,6 +69,21 @@ index 00000000..582cb1de
 +CXX_GUARD_END
 +
 +#endif
+diff --git forkSrcPrefix/src/gba/sio.c forkDstPrefix/src/gba/sio.c
+index 22b79675..7a96965b 100644
+--- forkSrcPrefix/src/gba/sio.c
++++ forkDstPrefix/src/gba/sio.c
+@@ -156,6 +156,10 @@ static void _startTransfer(struct GBASIO* sio) {
+ }
+ 
+ void GBASIOWriteSIOCNT(struct GBASIO* sio, uint16_t value) {
++	// The value as written, for a driver to read: Multi mode below ORs the
++	// old Busy into value, and nx_wifi_link's child needs the game's own bit.
++	// io.c stores the same value here when this returns.
++	sio->p->memory.io[GBA_REG(SIOCNT)] = value;
+ 	if ((value ^ sio->siocnt) & 0x3000) {
+ 		sio->siocnt = value & 0x3000;
+ 		_switchMode(sio);
 diff --git forkSrcPrefix/src/gba/sio/nx_gwl_gwl.c forkDstPrefix/src/gba/sio/nx_gwl_gwl.c
 new file mode 100644
 index 00000000..45fedf77
@@ -116,14 +130,14 @@ index 00000000..e8c5ba1a
 +#include "serial_proto.c"
 diff --git forkSrcPrefix/src/gba/sio/nx_wifi_link.c forkDstPrefix/src/gba/sio/nx_wifi_link.c
 new file mode 100644
-index 00000000..c1bb2c76
+index 00000000..bf66eaf9
 --- /dev/null
 +++ forkDstPrefix/src/gba/sio/nx_wifi_link.c
-@@ -0,0 +1,471 @@
+@@ -0,0 +1,505 @@
 +/* nx_wifi_link.c - gpSP's serial.c (write_siocnt, write_rcnt, update_serial)
 + * ported onto mGBA's GBASIODriver, driving gba_wifi_link: the GBA Wireless
-+ * Adapter in Normal-32 mode, the Pokemon and Advance Wars cable protocols in
-+ * Multi mode. The register handling and timings are gpSP's so the protocol
++ * Adapter in Normal mode (8 and 32 bit), the Pokemon and Advance Wars cable
++ * protocols in Multi mode. The register handling and timings are gpSP's so the protocol
 + * code sees the same sequences it does on gpSP.
 + *
 + * gpSP's serial.c: Copyright (C) 2023 David Guillen Fandos <david@davidgf.net>
@@ -136,10 +150,11 @@ index 00000000..c1bb2c76
 +
 +#include <string.h>
 +
-+/* gpSP's transfer times (serial.c): a Normal-32 word to the adapter, and one
-+ * Multi-mode message per player at each baud rate. */
-+#define RFU_XFER_CYCLES_2MHZ (67 << 2)
-+#define RFU_XFER_CYCLES_256KHZ (524 << 2)
++/* gpSP's transfer times (serial.c): a Normal-8 byte to the adapter (a
++ * Normal-32 word takes four times as long), and one Multi-mode message per
++ * player at each baud rate. */
++#define RFU_XFER_CYCLES_2MHZ 67
++#define RFU_XFER_CYCLES_256KHZ 524
 +static const int32_t MULTI_MSG_CYCLES[4] = { 31457, 7864, 5242, 2621 };
 +
 +/* About as often as gpSP's main loop calls update_serial: at each of a
@@ -239,6 +254,11 @@ index 00000000..c1bb2c76
 +	}
 +}
 +
++static int32_t _rfuCycles(uint16_t siocnt) {
++	int32_t cycles = GBASIONormalIsInternalSc(siocnt) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ;
++	return GBASIONormalIsLength(siocnt) ? cycles << 2 : cycles;
++}
++
 +static int32_t _multiCycles(uint16_t siocnt) {
 +	return MULTI_MSG_CYCLES[siocnt & 3] * (wl.peers + 1);
 +}
@@ -257,11 +277,14 @@ index 00000000..c1bb2c76
 +	} else if (sio->mode == GBA_SIO_MULTI) {
 +		/* A child: the fake parent's transfer ends with what the protocol
 +		 * wrote to SIOMULTI0-3. Outside Multi mode a game expects no
-+		 * transfer, so nothing is raised. */
++		 * transfer, so nothing is raised. gpSP never touches a child's
++		 * Busy here: it stays as the game wrote it. */
 +		uint16_t* io = wl.gba->memory.io;
 +		uint16_t data[4] = { io[GBA_REG(SIOMULTI0)], io[GBA_REG(SIOMULTI1)], io[GBA_REG(SIOMULTI2)],
 +		                     io[GBA_REG(SIOMULTI3)] };
++		bool busy = GBASIOMultiplayerIsBusy(sio->siocnt);
 +		GBASIOMultiplayerFinishTransfer(sio, data, cyclesLate);
++		sio->siocnt = GBASIOMultiplayerSetBusy(sio->siocnt, busy);
 +	}
 +}
 +
@@ -308,7 +331,10 @@ index 00000000..c1bb2c76
 +
 +static bool _driverHandlesMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
 +	UNUSED(driver);
-+	return wl.mode == GWL_RFU ? mode == GBA_SIO_NORMAL_32 : mode == GBA_SIO_MULTI;
++	if (wl.mode == GWL_RFU) {
++		return mode == GBA_SIO_NORMAL_8 || mode == GBA_SIO_NORMAL_32;
++	}
++	return mode == GBA_SIO_MULTI;
 +}
 +
 +static void _driverSetMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
@@ -361,10 +387,16 @@ index 00000000..c1bb2c76
 +	struct GBASIO* sio = driver->p;
 +	uint16_t old = sio->siocnt;
 +	if (sio->mode == GBA_SIO_MULTI) {
-+		/* mGBA keeps Busy latched until the transfer ends; the rest of
-+		 * the status fields are gpSP's. */
++		/* The status fields are gpSP's. A parent's Busy stays as mGBA
++		 * latched it until the transfer ends, as gpSP starts no second
++		 * one meanwhile. A child's Busy is the game's, as on gpSP: sio.c
++		 * ORs the old Busy into value, so take the bit as written. */
 +		uint16_t v = (value & 0xFF83) | _mulSiocnt();
-+		if (!wl.client_id && GBASIOMultiplayerIsBusy(v) && !GBASIOMultiplayerIsBusy(old) &&
++		if (wl.client_id) {
++			uint16_t written = wl.gba->memory.io[GBA_REG(SIOCNT)];
++			return GBASIOMultiplayerSetBusy(v, GBASIOMultiplayerIsBusy(written));
++		}
++		if (GBASIOMultiplayerIsBusy(v) && !GBASIOMultiplayerIsBusy(old) &&
 +		    mTimingIsScheduled(&wl.gba->timing, &sio->completeEvent)) {
 +			/* start() sent it; gpSP's duration, from the baud written now. */
 +			_schedule(&sio->completeEvent, _multiCycles(v));
@@ -372,14 +404,21 @@ index 00000000..c1bb2c76
 +		return v;
 +	}
 +
-+	/* Normal-32 with the adapter. */
++	/* Normal mode (8 or 32 bit) with the adapter. */
 +	uint16_t v = (value & 0x7F8B) | (old & 0x0004);
 +	/* gpSP starts on the Start bit's level, not its edge: a game that flips
 +	 * the clock to internal with Start already set sends then. */
 +	if (GBASIONormalIsStart(v) && GBASIONormalIsSc(v) && !mTimingIsScheduled(&wl.gba->timing, &sio->completeEvent)) {
 +		uint16_t* io = wl.gba->memory.io;
++		/* gpSP sends SIODATA32 in 8-bit mode too. */
 +		wl.rfuReply = gwl_rfu_transfer((uint32_t) io[GBA_REG(SIODATA32_LO)] | ((uint32_t) io[GBA_REG(SIODATA32_HI)] << 16));
-+		_schedule(&sio->completeEvent, GBASIONormalIsInternalSc(v) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ);
++		if (sio->mode == GBA_SIO_NORMAL_8) {
++			/* gpSP puts the reply in SIODATA32 at the start, whatever the
++			 * length; mGBA's 8-bit finish only stores a byte to SIODATA8. */
++			io[GBA_REG(SIODATA32_LO)] = wl.rfuReply;
++			io[GBA_REG(SIODATA32_HI)] = wl.rfuReply >> 16;
++		}
++		_schedule(&sio->completeEvent, _rfuCycles(v));
 +	}
 +	/* The adapter's SI/SO acknowledge. */
 +	bool soRise = GBASIONormalIsIdleSo(v) && !GBASIONormalIsIdleSo(old);
@@ -427,6 +466,15 @@ index 00000000..c1bb2c76
 +	data[1] = io[GBA_REG(SIOMULTI1)];
 +	data[2] = io[GBA_REG(SIOMULTI2)];
 +	data[3] = io[GBA_REG(SIOMULTI3)];
++}
++
++/* gpSP leaves SIODATA8 alone, and mGBA stores the byte returned there. */
++static uint8_t _driverFinishNormal8(struct GBASIODriver* driver) {
++	if (!_driverHandlesMode(driver, GBA_SIO_NORMAL_8)) {
++		return 0;
++	}
++	driver->p->siocnt = GBASIONormalFillSi(driver->p->siocnt);
++	return (uint8_t) driver->p->p->memory.io[GBA_REG(SIODATA8)];
 +}
 +
 +static uint32_t _driverFinishNormal32(struct GBASIODriver* driver) {
@@ -482,6 +530,7 @@ index 00000000..c1bb2c76
 +	wl.d.writeSIOCNT = _driverWriteSIOCNT;
 +	wl.d.start = _driverStart;
 +	wl.d.finishMultiplayer = _driverFinishMultiplayer;
++	wl.d.finishNormal8 = _driverFinishNormal8;
 +	wl.d.finishNormal32 = _driverFinishNormal32;
 +
 +	wl.tick.context = NULL;
@@ -559,8 +608,8 @@ index 00000000..c1bb2c76
 + * our tick nor the link, and the peers did not load it: the adapter or
 + * protocol starts over, as on a replug. mGBA restores sio.completeEvent when
 + * the state had Start/Busy set, so a transfer caught in flight still ends,
-+ * but the adapter's reply to it was not saved: it ends with nothing on the
-+ * line. A completion restored for a transfer we don't time (the adapter's
++ * but the adapter's reply to a Normal-32 word was not saved: it ends with
++ * nothing on the line (a Normal-8 reply is already in SIODATA32). A completion restored for a transfer we don't time (the adapter's
 + * push to a child GBA, a cable child) is dropped, as those end from the
 + * tick. States without the event get one for a parent's transfer, rather
 + * than leaving the game's Busy/Start bit stuck. */
@@ -575,7 +624,7 @@ index 00000000..c1bb2c76
 +	if (wl.mode == GWL_RFU) {
 +		wl.rfuReply = 0xFFFFFFFFu;
 +	}
-+	bool rfuParent = wl.mode == GWL_RFU && sio->mode == GBA_SIO_NORMAL_32 && GBASIONormalIsStart(sio->siocnt) &&
++	bool rfuParent = wl.mode == GWL_RFU && _driverHandlesMode(&wl.d, sio->mode) && GBASIONormalIsStart(sio->siocnt) &&
 +	                 GBASIONormalIsSc(sio->siocnt);
 +	bool multiParent = _isCable() && sio->mode == GBA_SIO_MULTI && !wl.client_id && GBASIOMultiplayerIsBusy(sio->siocnt);
 +	if (!rfuParent && !multiParent) {
@@ -585,8 +634,7 @@ index 00000000..c1bb2c76
 +			mTimingDeschedule(timing, &sio->completeEvent);
 +		}
 +	} else if (!mTimingIsScheduled(timing, &sio->completeEvent)) {
-+		_schedule(&sio->completeEvent, rfuParent ? (GBASIONormalIsInternalSc(sio->siocnt) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ)
-+		                                         : _multiCycles(sio->siocnt));
++		_schedule(&sio->completeEvent, rfuParent ? _rfuCycles(sio->siocnt) : _multiCycles(sio->siocnt));
 +	}
 +	_refreshMultiBits();
 +	_rearmTick();
