@@ -136,9 +136,7 @@ Component source lives in `workspace/all/<component>` (shared) and
   new files vanish from it; splice per-file sections instead.
 - N64 is the mupen64plus-next libretro core (`workspace/all/cores/mupen64plus_next/`,
   patches in `workspace/all/cores/patches/mupen64plus_next/`, the built-in Rice
-  plugin's in `…/mupen64plus_next/rice/patches/`). Before `make build-core
-  CORE=mupen64plus_next`, run `workspace/all/cores/mupen64plus_next/fetch-deps.sh
-  <plat>` once (SDL2_net source; the toolchain image has no curl).
+  plugin's in `…/mupen64plus_next/rice/patches/`).
 - **Adding a device:** the device-marker cleanup
   `rm -f $SDCARD_PATH/tg5040-brick tg5040-brickpro tg5040-smartpro tg5050-smartpros`
   is hardcoded in three places (`workspace/tg5040/install/boot.sh`,

@@ -1,10 +1,10 @@
 diff --git a/Makefile.common b/Makefile.common
-index 37adaca..f8e8a01 100644
+index 390e006..b5834f4 100644
 --- a/Makefile.common
 +++ b/Makefile.common
-@@ -98,6 +98,12 @@ SOURCES_C = \
- 	$(CORE_DIR)/src/plugin/dummy_audio.c \
+@@ -99,6 +99,12 @@ SOURCES_C = \
  	$(CORE_DIR)/src/plugin/dummy_input.c
+ 	#$(CORE_DIR)/src/main/netplay.c
  
 +# nx-redux: standalone N64.pak save import (sources live in our repo)
 +ifneq ($(NX_SRC_DIR),)
@@ -16,10 +16,10 @@ index 37adaca..f8e8a01 100644
  ifeq ($(HAVE_RICE), 1)
  SOURCES_C += $(ROOT_DIR)/custom/mupen64plus-core/plugin/rice_glue.c
 diff --git a/libretro/libretro.c b/libretro/libretro.c
-index fc545a2..0f84383 100644
+index 7e0edf9..2c6b866 100644
 --- a/libretro/libretro.c
 +++ b/libretro/libretro.c
-@@ -116,6 +116,30 @@ struct retro_rumble_interface rumble;
+@@ -114,6 +114,30 @@ struct retro_rumble_interface rumble;
  
  save_memory_data saved_memory;
  
@@ -50,7 +50,7 @@ index fc545a2..0f84383 100644
  static cothread_t game_thread;
  cothread_t retro_thread;
  
-@@ -2020,6 +2044,10 @@ bool retro_load_game(const struct retro_game_info *game)
+@@ -1963,6 +1987,10 @@ bool retro_load_game(const struct retro_game_info *game)
  
      glsm_ctx_params_t params = {0};
      format_saved_memory();

@@ -128,12 +128,6 @@ jobs:
           path: workspace/${{ matrix.toolchain }}/cores/output/
           key: core-${{ matrix.toolchain }}-${{ matrix.core }}-${{ steps.cache-key.outputs.hash }}
 
-      - name: Fetch ${{ matrix.core }} build inputs
-        # a core's fetch-deps.sh downloads what its build needs but the
-        # toolchain image cannot fetch (mupen64plus_next: SDL2_net)
-        if: steps.cache.outputs.cache-hit != 'true' && hashFiles(format('workspace/all/cores/{0}/fetch-deps.sh', matrix.core)) != ''
-        run: sh workspace/all/cores/${{ matrix.core }}/fetch-deps.sh ${{ matrix.toolchain }}
-
       - name: Build ${{ matrix.core }} core
         if: steps.cache.outputs.cache-hit != 'true'
         run: make build-core CORE=${{ matrix.core }}

@@ -249,8 +249,7 @@ flycast_legacy_MAKE = CPATH=$(CURDIR)/../../all/cores/flycast_legacy/include mak
 
 # mupen64plus-next (N64.pak): GLES3, GLideN64 + new aarch64 dynarec and the
 # Rice video plugin built in (patch 0003 + build-rice.sh) for the PowerVR
-# devices. Patches 0002/0006 (the core's own netplay) only act on NX_M64P_*
-# session env, which nothing sets since N64 netplay moved to lockstep.
+# devices. Netplay is minarch's lockstep engine.
 mupen64plus_next_REPO = https://github.com/libretro/mupen64plus-libretro-nx
 mupen64plus_next_HASH = 15bada85906593376e8fd697f1b0b3af3a20f512
 # No real submodules, but a stray gitlink (paraLLEl RSP's lightning/gnulib, no
