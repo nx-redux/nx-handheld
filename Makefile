@@ -115,8 +115,7 @@ system:
 	cp ./workspace/$(PLATFORM)/keymon/keymon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/$(PLATFORM)/sleepmon/sleepmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/syncsettings/build/$(PLATFORM)/syncsettings.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	# taskset: pins N64.pak's netplay relay (m64p-server) off the emulator's
-	# cores. Built from source here so a full `make deploy` stays
+	# taskset: pins a helper off the emulator's cores (Gen1recomp). Built from source here so a full `make deploy` stays
 	# reproducible; see workspace/all/taskset/Makefile for why it must be
 	# dynamically linked (NOT -static) on this toolchain/kernel combination.
 	cp ./workspace/all/taskset/build/$(PLATFORM)/taskset ./build/SYSTEM/$(PLATFORM)/bin/
@@ -185,8 +184,6 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cp ./workspace/all/netplay-wizard/build/$(PLATFORM)/netplay.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	# USB cable netplay link daemon (started/stopped by netplay.elf)
 	cp ./workspace/all/usblink/build/$(PLATFORM)/usblink.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	# N64 netplay relay server (N64.pak)
-	cp ./workspace/all/n64-netplay-server/build/$(PLATFORM)/m64p-server.elf ./build/SYSTEM/$(PLATFORM)/paks/Emus/N64.pak/
 
 	# Pre-launch emulator options editor (run bare off PATH by options.sh and
 	# the Emulator Settings tool)

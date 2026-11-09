@@ -6,6 +6,7 @@
 #include "ma_rewind.h"
 #include "ma_cpu_profile.h"
 #include "ma_config_value.h"
+#include "netplay_core_rules.h"
 
 char* onoff_labels[] = {
 	"Off",
@@ -1299,11 +1300,29 @@ static void Config_forceNetplayPads(void) {
 	}
 	Config_setGamepadType(0);
 }
+
+// netplay: the core's session options (netplay_core_rules.c), locked; the user's cfg is untouched
+static void Config_forceNetplayOptions(void) {
+	const char* role = getenv("NETPLAY_ROLE");
+	if (!role || !role[0])
+		return;
+	size_t n = 0;
+	const NetplayForcedOption* forced = NetplayRules_forcedOptions(core.name, &n);
+	for (size_t i = 0; i < n; i++) {
+		Option* option = OptionList_getOption(&config.core, forced[i].key);
+		if (!option)
+			continue;
+		OptionList_setOptionValue(&config.core, forced[i].key, forced[i].value);
+		option->lock = 1;
+	}
+}
+
 void Config_readOptions(void) {
 	Config_readOptionsString(config.system_cfg);
 	Config_readOptionsString(config.default_cfg);
 	Config_readOptionsString(config.user_cfg);
 	Config_forceNetplayPads(); // after the user's cfg: a session overrides it
+	Config_forceNetplayOptions();
 	Config_forceSessionOption();
 }
 void Config_reapplyOptions(void) {

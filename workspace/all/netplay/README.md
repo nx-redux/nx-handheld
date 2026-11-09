@@ -9,26 +9,34 @@ the session. `netplay_boot.c` turns the wizard's env handoff
 `netplay-prelaunch.sh`) into an engine session before the first frame.
 
 Minarch selects one of three link backends per core (`checkCoreLinkSupport`);
-N64 and DC are a separate path: the netplay runs inside the core, and the
+DC is a separate path: the netplay runs inside the core, and the
 pre-launch wizard is used for rendezvous only (`core_netplay.c`,
-`NX_CORE_NETPLAY=1`; minarch runs no link engine of its own for them):
+`NX_CORE_NETPLAY=1`; minarch runs no link engine of its own for it):
 
 | Backend | Cores | Ports |
 |---|---|---|
-| Netplay (frame-sync rollback) | fbneo, fceumm, snes9x, mednafen_supafaust, picodrive, genesis_plus_gx, pcsx_rearmed, swanstation | 55435/55436 |
+| Netplay (frame-sync rollback) | fbneo, fceumm, snes9x, mednafen_supafaust, picodrive, genesis_plus_gx, pcsx_rearmed, swanstation, mupen64plus_next | 55435/55436 |
 | GBA Link (gpSP RFU/serial, mGBA real link cable over USB Cable only; libretro netpacket) | gpsp, mgba | 55437/55438 |
 | GB Link (gambatte serial) | gambatte | 56400/56421 |
-| N64 core netplay (mupen64plus protocol via the host's `m64p-server.elf` relay) | mupen64plus_next (`N64.pak`, `nx_n64_netplay.sh`) | 55445 |
 | DC core netplay (flycast GGPO rollback) | flycast (`DC.pak`, `nx_dc_netplay.sh`) | — |
 
-N64's wizard just brokers role + peer IP; then the host starts
-`m64p-server.elf` (shipped in `N64.pak`) and both sides hand the session to the
-core in `NX_M64P_*`. Saves are not rsync'd by the wizard — the mupen64plus
-netplay protocol transfers the host's save files to the joiner in-band (host
-authoritative). The joiner plays on them from `NETPLAY_SAVES_DIR` in `/tmp`, so
-its real single-player saves stay untouched. DC works the same way with the
-session in `NX_GGPO_*`: the host serves its memory cards / settings, the client
-plays on copies in `/tmp`.
+DC's wizard just brokers role + peer IP and the session goes to the core in
+`NX_GGPO_*`: the host serves its memory cards / settings, the client plays on
+copies in `/tmp`.
+
+N64 (mupen64plus_next) runs on the lockstep engine, two players, with three
+differences from the other lockstep cores:
+- **Presync:** the core refuses `retro_unserialize` until it has run, so both
+  sides run 30 frames on their own before the connect-time state sync
+  (`Netplay_setPresyncFrames`, set in `netplay_boot.c`).
+- **Forced options:** `Config_forceNetplayN64` (`ma_config.c`) locks every
+  option that changes the emulation to one value for the session, the same set
+  NX Redux Mobile forces. GLideN64's Copy Color/Depth To RDRAM are Off (each
+  device would write a different image where the game reads it) and its
+  threaded renderer is off (timing-dependent). Rice ↔ GLideN64 stays in sync;
+  only the framebuffer region of RDRAM differs.
+- **Display:** with the copies off, GLideN64 doesn't draw Mario Kart 64's 2P
+  split-screen HUD; Rice does.
 
 ## Gotchas (all hardware-verified 2026-08-01, Brick ↔ Smart Pro S)
 

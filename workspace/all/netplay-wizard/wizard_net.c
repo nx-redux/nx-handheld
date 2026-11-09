@@ -566,7 +566,7 @@ static int wiz_host_serve(const WizArgs* a, WizSession* s, int fd, WizLineReader
 }
 
 // The host half of one accepted connection, up to and INCLUDING the HELLO reply
-// and (for --serve-dir, unused by N64) the save-sync phase — but NOT the START.
+// and (for --serve-dir) the save-sync phase — but NOT the START.
 // The START is sent to every retained joiner at once from the start phase in
 // wiz_host_rendezvous, so a handshaked joiner's reader and IP are handed back to
 // the caller through reader_out / ip_out (ip_out must hold at least 16 bytes).
@@ -675,7 +675,7 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 
 	snprintf(ip_out, 16, "%s", peer_ip);
 	// wiz_host_serve() serves from this joiner's directory keyed on s->peer_ip;
-	// set it per-joiner. On the m64p star topology (N64) the host's own
+	// set it per-joiner. With several joiners (--max-players > 2) the host's own
 	// s->peer_ip is unused, so the last joiner's value left here is harmless.
 	snprintf(s->peer_ip, sizeof(s->peer_ip), "%s", peer_ip);
 

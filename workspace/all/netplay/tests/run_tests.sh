@@ -19,3 +19,6 @@ cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/network_com
 OUT_FW=${TMPDIR:-/tmp}/test_frame_window
 cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/tests/test_frame_window.c" -o "$OUT_FW"
 "$OUT_FW"
+OUT_CR=${TMPDIR:-/tmp}/test_core_rules
+cc -std=gnu99 -Wall -Wextra -Werror -fsanitize=address -g -I"$D" "$D/netplay_core_rules.c" "$D/tests/test_core_rules.c" -o "$OUT_CR"
+"$OUT_CR"
