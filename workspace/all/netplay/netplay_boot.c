@@ -11,6 +11,7 @@
 #include "netplay_boot.h"
 #include "netplay_helper.h"
 #include "netplay.h"
+#include "netplay_core_rules.h"
 #include "gbalink.h"
 #include "gbalink_mode.h"
 #include "gblink.h"
@@ -96,6 +97,9 @@ int NetplayBoot_startFromEnv(const char* core_name) {
 	char game_name[256];
 	getGameName(game_name, sizeof(game_name));
 	uint32_t crc = calculateGameCRC();
+
+	if (type == LINK_TYPE_NETPLAY)
+		Netplay_setPresyncFrames(NetplayRules_presyncFrames(core_name));
 
 	if (strcmp(role, "host") == 0)
 		// the wizard's paired joiner; both engines are two-player, so it is the only one to accept

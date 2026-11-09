@@ -110,6 +110,8 @@ bool Netplay_shouldStall(void);
 int Netplay_sendState(const void* data, size_t size);
 int Netplay_receiveState(void* data, size_t size);
 bool Netplay_needsStateSync(void);
+// Frames each side runs before the connect-time state sync (mupen64plus-next refuses a state until it ran)
+void Netplay_setPresyncFrames(int frames);
 void Netplay_completeStateSync(void);
 
 // Pause/resume for menu (keeps connection alive)

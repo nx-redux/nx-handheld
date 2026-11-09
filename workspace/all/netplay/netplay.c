@@ -118,6 +118,8 @@ static struct {
 
 	// State sync flags
 	bool needs_state_sync;
+	int presync_frames; // frames each side runs on its own before the state sync (a core that takes no state until it ran)
+	int presync_done;
 
 	// Threading
 	pthread_t listen_thread;
@@ -200,7 +202,8 @@ bool Netplay_checkCoreSupport(const char* core_name) {
 		strcasecmp(core_name, "picodrive") == 0 ||
 		strcasecmp(core_name, "genesis_plus_gx") == 0 ||
 		strcasecmp(core_name, "pcsx_rearmed") == 0 ||
-		strcasecmp(core_name, "swanstation") == 0) {
+		strcasecmp(core_name, "swanstation") == 0 ||
+		strcasecmp(core_name, "mupen64plus_next") == 0) {
 		return true;
 	}
 	return false;
@@ -817,6 +820,12 @@ int Netplay_receiveState(void* data, size_t size) {
 	return 0;
 }
 
+void Netplay_setPresyncFrames(int frames) {
+	Netplay_init(); // the start's lazy init would clear it otherwise
+	np.presync_frames = frames > 0 ? frames : 0;
+	np.presync_done = 0;
+}
+
 bool Netplay_needsStateSync(void) {
 	return np.needs_state_sync && np.state == NETPLAY_STATE_SYNCING;
 }
@@ -931,6 +940,10 @@ int Netplay_update(uint16_t local_input,
 				   Netplay_UnserializeFn unserialize_fn) {
 	// Handle state sync when connection is established
 	if (Netplay_needsStateSync()) {
+		if (np.presync_done < np.presync_frames) {
+			np.presync_done++;
+			return 1; // run on our own: the host's state replaces this at the sync
+		}
 		if (!serialize_size_fn || !serialize_fn || !unserialize_fn) {
 			Netplay_disconnect();
 			return 1; // Run frame normally after disconnect

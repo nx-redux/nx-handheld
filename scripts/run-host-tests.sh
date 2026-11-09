@@ -26,11 +26,8 @@ run() { # name, command...
 
 for runner in workspace/all/*/tests/run_tests.sh; do
 	component=$(basename "$(dirname "$(dirname "$runner")")")
-	# the n64 server's runner expects the client built by its Makefile
-	[ "$component" = "n64-netplay-server" ] && continue
 	run "$component" sh "$runner"
 done
-run n64-netplay-server make -C workspace/all/n64-netplay-server test
 
 # Host-only wrappers; the *-e2e and device scripts need adb and are run by hand.
 for t in archive-cache cheat-match cheat-mem cheatdb-data rewind-budget apply-patches \

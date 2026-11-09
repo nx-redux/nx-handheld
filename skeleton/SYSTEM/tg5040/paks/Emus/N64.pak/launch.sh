@@ -38,10 +38,10 @@ if [ "$NX_HAS_TX" = 1 ]; then
 	swapon "$SWAPFILE" 2>/dev/null
 fi
 
-# Netplay launch (Y / "Launch with Netplay"): wizard + m64p-server; a no-op
-# for a plain launch
-. "$CORES_PATH/nx_n64_netplay.sh"
-nx_n64_netplay
+# Netplay launch (Y / "Launch with Netplay"): minarch's lockstep engine, two
+# players, with the wizard and save sync every lockstep pak uses; a no-op for a
+# plain launch
+. "$SHARED_SYSTEM_PATH/bin/netplay-prelaunch.sh"
 
 # All four A53 cores: emulation, the GLideN64/Rice GL thread and audio.
 echo 1 >"$SYS/devices/system/cpu/cpu1/online" 2>/dev/null
@@ -50,5 +50,7 @@ echo 1 >"$SYS/devices/system/cpu/cpu3/online" 2>/dev/null
 
 minarch.elf "$CORES_PATH/${EMU_EXE}_libretro.so" "$ROM" &> "$LOGS_PATH/$EMU_TAG.txt"
 
-nx_n64_netplay_cleanup
+if [ -f /tmp/netplay_session ]; then
+	netplay.elf --cleanup >> "$LOGS_PATH/netplay-wizard.txt" 2>&1
+fi
 swapoff "$SWAPFILE" 2>/dev/null

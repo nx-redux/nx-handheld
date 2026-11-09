@@ -59,7 +59,6 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/osdctl/ && make
 	cd ./all/osdmusic/ && make
 	cd ./all/osdwait/ && make
-	cd ./all/n64-netplay-server/ && make
 endif
 	cd ./all/scraper/ && make
 ifdef COMPILE_CORES
