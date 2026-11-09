@@ -94,9 +94,9 @@ gambatte_REPO = https://github.com/libretro/gambatte-libretro
 gambatte_HASH = 77f2567d718b8973d02caa2daa8dce4953faf811
 
 # Pinned: upstream gpsp drifts under the all/cores/patches/gpsp/* patches
-# (rfu.c for 001/002, the JIT cache mapping for 003, load_gamepak for 004).
+# (rfu.c for 001/002/007, the JIT cache mapping for 003, load_gamepak for 004).
 # When bumping this hash, regen them against the new source in the same change.
-# Keep nx-mobile's gpsp_HASH on the same commit (it shares 001/002/004).
+# Keep nx-mobile's gpsp_HASH on the same commit (it shares 001/002/004/007).
 gpsp_HASH = 5819380c2ffb0900219d700a382ee68c464ebb99
 # The lockstep link state machine (shared with mGBA) is compiled in from
 # all/cores/sio_lockstep (004 patch); NX_SIOLS_DIR points the patched Makefile at it.

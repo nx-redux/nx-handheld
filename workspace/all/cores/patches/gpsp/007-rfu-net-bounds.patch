@@ -1,0 +1,26 @@
+# license: modifies gpSP (https://github.com/libretro/gpsp), GPL-2.0 (COPYING); this patch is distributed under the same license.
+diff --git a/rfu.c b/rfu.c
+--- a/rfu.c
++++ b/rfu.c
+@@ -764,7 +764,8 @@ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id) {
+     case NET_RFU_BROADCAST:
+       // Fill the broadcast slot for the peer
+       RFU_DEBUG_LOG("Got broadcast (client: #%d devID: %02x)\n", client_id, hdata);
+-      if (client_id < MAX_RFU_PEERS) {
++      // The payload carries six words; a short packet would be read past its end.
++      if (client_id < MAX_RFU_PEERS && len >= 12 + 6 * 4) {
+         rfu_peer_bcst[client_id].device_id = hdata;
+         rfu_peer_bcst[client_id].valid = 1;
+         rfu_peer_bcst[client_id].ttl = 0xff;
+@@ -873,6 +874,11 @@ void rfu_net_receive(const void* buf, size_t len, uint16_t client_id) {
+         u32 clid = (hdata >> 16) & 0x3;
+         u32 blen = hdata >> 24;
+ 
++        // blen comes from the peer: past the 16-byte slot or the packet's own
++        // payload it would overflow the queue or read beyond the buffer.
++        if (blen > sizeof(rfu_host.clients[clid].pkts[0].data) || len < 12 + blen)
++          break;
++
+         // Validate the slot with device ID
+         if (rfu_host.clients[clid].devid == cdevid) {
+           rfu_host.clients[clid].clttl = 0;   // Account for packet reception
