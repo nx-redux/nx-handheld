@@ -36,6 +36,14 @@ void WizCaps_value(const char* caps, const char* key, char* out, size_t out_size
 // True only when both tokens name a core and the two differ. A side with none
 // (Dreamcast's dcbios=, or an older build) is let through; tags never refuse.
 bool WizCaps_coreMismatch(const char* ours, const char* theirs);
+// True when the two sides can't link: different cores, unless both run the same
+// Wi-Fi link mode ("wl=", gwl_mixed_ok; over USB only the Wireless Adapter
+// mode). A side without "wl=" (an older build, or no caps) keeps the plain
+// core rule, except against mGBA off USB (WizCaps_mgbaNeedsWl).
+bool WizCaps_linkMismatch(const char* ours, const char* theirs, bool usb);
+// True off USB when one side runs mGBA and the other sent no "wl=": mGBA links
+// there only in a Wi-Fi mode, and that side would fall back to the real cable.
+bool WizCaps_mgbaNeedsWl(const char* ours, const char* theirs, bool usb);
 // The name a player knows a core by ("Genesis Plus GX"); unknown = as-is.
 const char* WizCaps_coreName(const char* core);
 // "<name> (<tag> folder)", or just the name when there is no tag.
@@ -46,5 +54,19 @@ void WizCaps_coreLabel(const char* core, const char* tag, char* out, size_t out_
 void WizCaps_coreReason(const char* caps, char* out, size_t out_size);
 // The label a "core-..." REJECT reason names, or "" when it names none.
 void WizCaps_reasonLabel(const char* reason, char* out, size_t out_size);
+
+// Two different cores that both sent a Wi-Fi mode ("wl=") yet can't link: the
+// modes differ, or the transport turns theirs into the real cable (the
+// Pokémon and Advance Wars modes over USB). Only builds that send "wl=" get
+// here, so they all know this reason: "link-<sender core>.<sender wl>.<receiver
+// wl>", the sender's core first so a phone on Auto can still switch to it.
+// False (and out "") when the refusal is about something else, or the reason
+// would not fit out_size (pass 32, the %31s the reply is parsed with).
+bool WizCaps_linkReason(const char* sender, const char* receiver, bool usb, char* out, size_t out_size);
+// Splits a "link-..." reason; false for any other reason or a malformed one.
+bool WizCaps_parseLinkReason(const char* reason, char* core, size_t core_size, char* sender_wl,
+							 size_t sender_size, char* receiver_wl, size_t receiver_size);
+// What a player calls a Wi-Fi mode ("Wireless Adapter"); "" for none/unknown.
+const char* WizCaps_linkModeName(const char* wl);
 
 #endif

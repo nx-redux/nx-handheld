@@ -109,13 +109,14 @@ mednafen_supafaust_HASH = 642d1d1b6684aa7e306a02a89885f3f5456a5157
 mgba_HASH = 7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6
 # Upstream builds the libretro core with CMake only (8940477), via a build script
 # like flycast/ppsspp. The real link cable (all/cores/patches/mgba/001) compiles in
-# the same lockstep state machine as gpSP; NX_SIOLS_DIR points the patched
-# CMakeLists.txt at it.
-mgba_MAKE = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep sh $(CURDIR)/../../all/cores/mgba/build-libretro.sh $(PLATFORM)
-mgba_DEPS = ../../all/cores/mgba/build-libretro.sh ../../all/cores/flycast/toolchain-aarch64.cmake $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h ../../all/cores/patches/mgba/*.patch)
+# the same lockstep state machine as gpSP, and the Wi-Fi link (003) gpSP's
+# Wireless Adapter and cable protocols from all/cores/gba_wifi_link; NX_SIOLS_DIR
+# and NX_GWL_DIR point the patched CMakeLists.txt at them.
+mgba_MAKE = NX_SIOLS_DIR=$(CURDIR)/../../all/cores/sio_lockstep NX_GWL_DIR=$(CURDIR)/../../all/cores/gba_wifi_link sh $(CURDIR)/../../all/cores/mgba/build-libretro.sh $(PLATFORM)
+mgba_DEPS = ../../all/cores/mgba/build-libretro.sh ../../all/cores/flycast/toolchain-aarch64.cmake $(wildcard ../../all/cores/sio_lockstep/*.c ../../all/cores/sio_lockstep/*.h ../../all/cores/gba_wifi_link/*.c ../../all/cores/gba_wifi_link/*.h ../../all/cores/patches/mgba/*.patch)
 # That code is GPL-2.0-or-later, so the shipped license says the combined core is
 # distributed under the GPL (MPL-2.0 section 3.3).
-mgba_LICENSE_NOTICE = ../../all/cores/mgba/LICENSE-sio_lockstep.txt
+mgba_LICENSE_NOTICE = ../../all/cores/mgba/LICENSE-sio_lockstep.txt ../../all/cores/gba_wifi_link/NOTICE.txt
 
 pcsx_rearmed_MAKEFILE = Makefile.libretro
 pcsx_rearmed_HASH = 7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e

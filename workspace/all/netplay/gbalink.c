@@ -862,23 +862,19 @@ int GBALink_connectToHost(const char* ip, uint16_t port) {
 				if (hdr.size > 0 && hdr.size < sizeof(data)) {
 					data[hdr.size] = '\0'; // Ensure null-terminated
 					const char* host_link_mode = (const char*)data;
-					// No link-mode option (mGBA) or none sent: nothing to match
 					const char* key = gbalink_link_mode_key(gl.core_name);
-					if (key && host_link_mode[0]) {
-						// Get client's current link mode
-						const char* client_mode = minarch_getCoreOptionValue(key);
-
-						// Check if modes differ (need reload for gpsp to pick up new mode)
-						if (!client_mode || strcmp(client_mode, host_link_mode) != 0) {
-							// Store the modes for UI confirmation
-							strncpy(gl.pending_link_mode, host_link_mode, sizeof(gl.pending_link_mode) - 1);
-							gl.pending_link_mode[sizeof(gl.pending_link_mode) - 1] = '\0';
-							strncpy(gl.client_link_mode, client_mode ? client_mode : "auto",
-									sizeof(gl.client_link_mode) - 1);
-							gl.client_link_mode[sizeof(gl.client_link_mode) - 1] = '\0';
-							gl.needs_reload = true;
-							needs_reload = true;
-						}
+					const char* client_mode = key ? minarch_getCoreOptionValue(key) : NULL;
+					// A different mode needs a reload (gpsp reads it only at load)
+					if (gbalink_adopt_host_mode(gl.core_name, host_link_mode, client_mode,
+												getenv("NETPLAY_CAPS"), getenv("NETPLAY_PEER_CAPS"))) {
+						// Store the modes for UI confirmation
+						strncpy(gl.pending_link_mode, host_link_mode, sizeof(gl.pending_link_mode) - 1);
+						gl.pending_link_mode[sizeof(gl.pending_link_mode) - 1] = '\0';
+						strncpy(gl.client_link_mode, client_mode ? client_mode : "auto",
+								sizeof(gl.client_link_mode) - 1);
+						gl.client_link_mode[sizeof(gl.client_link_mode) - 1] = '\0';
+						gl.needs_reload = true;
+						needs_reload = true;
 					}
 				}
 				host_ready = true;

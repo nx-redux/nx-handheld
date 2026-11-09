@@ -1,0 +1,836 @@
+# license: modifies mGBA (https://github.com/libretro/mgba), MPL-2.0 (LICENSE); the changes to mGBA's files are distributed under the same license. The new nx_wifi_link.h/.c port gpSP's serial.c and, like the NXRedux gba_wifi_link code they compile in (gpSP's rfu.c and serial_proto.c), are GPL-2.0-or-later, so the built core is distributed under GPL-2.0-or-later (MPL-2.0 section 3.3).
+diff --git forkSrcPrefix/CMakeLists.txt forkDstPrefix/CMakeLists.txt
+index b2020098..c84b6c0c 100644
+--- forkSrcPrefix/CMakeLists.txt
++++ forkDstPrefix/CMakeLists.txt
+@@ -1039,6 +1039,23 @@ if(BUILD_LIBRETRO)
+ 	list(APPEND LIBRETRO_CORE_SRC ${NX_SIO_SRC})
+ 	set_source_files_properties(${NX_SIO_SRC} PROPERTIES COMPILE_OPTIONS -Wall INCLUDE_DIRECTORIES ${NX_SIOLS_DIR}
+ 		OBJECT_DEPENDS "${NX_SIOLS_DIR}/sio_lockstep.c;${NX_SIOLS_DIR}/sio_lockstep.h")
++	# NXRedux: gpSP's Wireless Adapter and cable protocols over netplay
++	# (src/gba/sio/nx_wifi_link.c, the mgba_link_mode option). The protocol
++	# code, shared with gpSP's, lives and is unit-tested in the NXRedux tree;
++	# the cores build script passes NX_GWL_DIR.
++	set(NX_GWL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../all/cores/gba_wifi_link" CACHE PATH "NXRedux gba_wifi_link source dir")
++	file(GLOB NX_GWL_DEPS ${NX_GWL_DIR}/*.c ${NX_GWL_DIR}/*.h)
++	set(NX_GWL_GPSP_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_gwl_rfu.c ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_gwl_serial_proto.c)
++	set(NX_GWL_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_wifi_link.c ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_gwl_gwl.c ${CMAKE_CURRENT_SOURCE_DIR}/src/gba/sio/nx_gwl_gwl_mode.c)
++	list(APPEND LIBRETRO_CORE_SRC ${NX_GWL_SRC} ${NX_GWL_GPSP_SRC})
++	set_source_files_properties(${NX_GWL_SRC} PROPERTIES COMPILE_OPTIONS -Wall INCLUDE_DIRECTORIES ${NX_GWL_DIR}
++		OBJECT_DEPENDS "${NX_GWL_DEPS}")
++	# gpSP's files, unchanged: the warnings gcc gives on them are muted, and
++	# no -Werror there.
++	set_source_files_properties(${NX_GWL_GPSP_SRC} PROPERTIES
++		COMPILE_OPTIONS "-Wno-missing-field-initializers;-Wno-implicit-fallthrough;-Wno-sign-compare;-Wno-empty-body"
++		INCLUDE_DIRECTORIES ${NX_GWL_DIR} OBJECT_DEPENDS "${NX_GWL_DEPS}")
++	set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/libretro/libretro.c APPEND PROPERTY INCLUDE_DIRECTORIES ${NX_GWL_DIR})
+ 	if(CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND NOT APPLE)
+ 		# Link-based function probes always succeed under static try-compile,
+ 		# so every find_function result above is untrustworthy; use the set
+diff --git forkSrcPrefix/include/mgba/internal/gba/sio/nx_wifi_link.h forkDstPrefix/include/mgba/internal/gba/sio/nx_wifi_link.h
+new file mode 100644
+index 00000000..582cb1de
+--- /dev/null
++++ forkDstPrefix/include/mgba/internal/gba/sio/nx_wifi_link.h
+@@ -0,0 +1,37 @@
++/* nx_wifi_link.h - gpSP's GBA Wireless Adapter and link-cable protocol
++ * emulation (Pokemon, Advance Wars) on mGBA's serial port, over libretro
++ * netpacket, wire-compatible with gpSP netplay.
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef GBA_SIO_NX_WIFI_LINK_H
++#define GBA_SIO_NX_WIFI_LINK_H
++
++#include <mgba-util/common.h>
++
++CXX_GUARD_START
++
++#include "gwl.h"
++
++/* The protocols live in gba_wifi_link (NX_GWL_DIR, shared with the Brick and
++ * phone frontends); this driver is gpSP's serial.c glue on mGBA's
++ * GBASIODriver. One link per process, like gba_wifi_link itself. */
++
++struct GBA;
++
++/* Netplay session up: the device for mode goes on the serial port. send gets
++ * the netplay client id to send to (0xFFFF: everyone). */
++void nx_wifi_link_attach(struct GBA* gba, enum GwlMode mode, uint16_t client_id,
++                         void (*send)(uint16_t client_id, const void* buf, size_t len), void (*poll)(void));
++/* Session over: the driver is removed and the serial port is stock again. */
++void nx_wifi_link_detach(struct GBA* gba);
++/* false: refuse the peer (more than the mode has slots for). */
++bool nx_wifi_link_connected(uint16_t client_id);
++void nx_wifi_link_disconnected(uint16_t client_id);
++void nx_wifi_link_receive(const void* buf, size_t len, uint16_t client_id);
++/* Once per retro_run. */
++void nx_wifi_link_frame_update(void);
++/* After a savestate load (retro_unserialize). */
++void nx_wifi_link_state_loaded(void);
++
++CXX_GUARD_END
++
++#endif
+diff --git forkSrcPrefix/src/gba/sio.c forkDstPrefix/src/gba/sio.c
+index 22b79675..7a96965b 100644
+--- forkSrcPrefix/src/gba/sio.c
++++ forkDstPrefix/src/gba/sio.c
+@@ -156,6 +156,10 @@ static void _startTransfer(struct GBASIO* sio) {
+ }
+ 
+ void GBASIOWriteSIOCNT(struct GBASIO* sio, uint16_t value) {
++	// The value as written, for a driver to read: Multi mode below ORs the
++	// old Busy into value, and nx_wifi_link's child needs the game's own bit.
++	// io.c stores the same value here when this returns.
++	sio->p->memory.io[GBA_REG(SIOCNT)] = value;
+ 	if ((value ^ sio->siocnt) & 0x3000) {
+ 		sio->siocnt = value & 0x3000;
+ 		_switchMode(sio);
+diff --git forkSrcPrefix/src/gba/sio/nx_gwl_gwl.c forkDstPrefix/src/gba/sio/nx_gwl_gwl.c
+new file mode 100644
+index 00000000..45fedf77
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_gwl_gwl.c
+@@ -0,0 +1,5 @@
++/* Compiles gba_wifi_link's netpacket glue into the core from the NXRedux tree
++ * (workspace/all/cores/gba_wifi_link, NX_GWL_DIR), where it is unit-tested
++ * against gpSP's own code. GPL-2.0-or-later, so the core is distributed
++ * under GPL-2.0-or-later as MPL-2.0 section 3.3 allows. */
++#include "gwl.c"
+diff --git forkSrcPrefix/src/gba/sio/nx_gwl_gwl_mode.c forkDstPrefix/src/gba/sio/nx_gwl_gwl_mode.c
+new file mode 100644
+index 00000000..7a165b2b
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_gwl_gwl_mode.c
+@@ -0,0 +1,5 @@
++/* Compiles gba_wifi_link's per-game link mode into the core from the NXRedux tree
++ * (workspace/all/cores/gba_wifi_link, NX_GWL_DIR), where it is unit-tested
++ * against gpSP's own code. GPL-2.0-or-later, so the core is distributed
++ * under GPL-2.0-or-later as MPL-2.0 section 3.3 allows. */
++#include "gwl_mode.c"
+diff --git forkSrcPrefix/src/gba/sio/nx_gwl_rfu.c forkDstPrefix/src/gba/sio/nx_gwl_rfu.c
+new file mode 100644
+index 00000000..9f3e381d
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_gwl_rfu.c
+@@ -0,0 +1,5 @@
++/* Compiles gpSP's Wireless Adapter emulation into the core from the NXRedux tree
++ * (workspace/all/cores/gba_wifi_link, NX_GWL_DIR), where it is unit-tested
++ * against gpSP's own code. GPL-2.0-or-later, so the core is distributed
++ * under GPL-2.0-or-later as MPL-2.0 section 3.3 allows. */
++#include "rfu.c"
+diff --git forkSrcPrefix/src/gba/sio/nx_gwl_serial_proto.c forkDstPrefix/src/gba/sio/nx_gwl_serial_proto.c
+new file mode 100644
+index 00000000..e8c5ba1a
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_gwl_serial_proto.c
+@@ -0,0 +1,5 @@
++/* Compiles gpSP's Pokemon and Advance Wars cable protocols into the core from the NXRedux tree
++ * (workspace/all/cores/gba_wifi_link, NX_GWL_DIR), where it is unit-tested
++ * against gpSP's own code. GPL-2.0-or-later, so the core is distributed
++ * under GPL-2.0-or-later as MPL-2.0 section 3.3 allows. */
++#include "serial_proto.c"
+diff --git forkSrcPrefix/src/gba/sio/nx_wifi_link.c forkDstPrefix/src/gba/sio/nx_wifi_link.c
+new file mode 100644
+index 00000000..421b5786
+--- /dev/null
++++ forkDstPrefix/src/gba/sio/nx_wifi_link.c
+@@ -0,0 +1,506 @@
++/* nx_wifi_link.c - gpSP's serial.c (write_siocnt, write_rcnt, update_serial)
++ * ported onto mGBA's GBASIODriver, driving gba_wifi_link: the GBA Wireless
++ * Adapter in Normal mode (8 and 32 bit), the Pokemon and Advance Wars cable
++ * protocols in Multi mode. The register handling and timings are gpSP's so the protocol
++ * code sees the same sequences it does on gpSP.
++ *
++ * gpSP's serial.c: Copyright (C) 2023 David Guillen Fandos <david@davidgf.net>
++ * SPDX-License-Identifier: GPL-2.0-or-later */
++#include <mgba/internal/gba/sio/nx_wifi_link.h>
++
++#include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/io.h>
++#include <mgba/internal/gba/sio.h>
++
++#include <string.h>
++
++/* gpSP's transfer times (serial.c): a Normal-8 byte to the adapter (a
++ * Normal-32 word takes four times as long), and one Multi-mode message per
++ * player at each baud rate. */
++#define RFU_XFER_CYCLES_2MHZ 67
++#define RFU_XFER_CYCLES_256KHZ 524
++static const int32_t MULTI_MSG_CYCLES[4] = { 31457, 7864, 5242, 2621 };
++
++/* About as often as gpSP's main loop calls update_serial: at each of a
++ * scanline's two video events. The protocols push the adapter's words to the
++ * GBA and time their fake parent from these calls. */
++#define TICK_CYCLES (VIDEO_HORIZONTAL_LENGTH / 2)
++
++/* Longer than any packet gpSP sends (an Advance Wars packet is 520 bytes). */
++#define MAX_PACKET 1024
++
++static struct {
++	struct GBASIODriver d;
++	struct GBA* gba;
++	bool begun;    /* gwl_begin done: the netplay session is ours */
++	bool attached; /* our driver is on the serial port */
++	enum GwlMode mode;
++	uint16_t client_id;
++	int peers; /* connected peers, gpSP's netplay_num_clients */
++	void (*send)(uint16_t, const void*, size_t);
++	void (*poll)(void);
++	struct mTimingEvent tick;
++	uint32_t last; /* mTimingCurrentTime at the last gwl_update (wraps) */
++	enum GBASIOMode sioMode; /* to see Multi mode entered or left */
++	uint32_t rfuReply; /* the adapter's word for the transfer in flight */
++} wl;
++
++static bool _isCable(void) {
++	return wl.mode == GWL_POKE || wl.mode == GWL_AW1 || wl.mode == GWL_AW2;
++}
++
++static uint32_t _now(void) {
++	return (uint32_t) mTimingCurrentTime(&wl.gba->timing);
++}
++
++/* ---- GwlHost: gpSP's read_ioreg / write_ioreg / cpu_ticks / netpacket --- */
++
++static uint16_t _readIo(void* ctx, uint32_t off) {
++	UNUSED(ctx);
++	switch (off) {
++	case GBA_REG_SIOCNT:
++		return wl.gba->sio.siocnt;
++	case GBA_REG_RCNT:
++		return wl.gba->sio.rcnt;
++	default:
++		return wl.gba->memory.io[off >> 1];
++	}
++}
++
++static void _writeIo(void* ctx, uint32_t off, uint16_t v) {
++	UNUSED(ctx);
++	switch (off) {
++	case GBA_REG_SIOCNT:
++		wl.gba->sio.siocnt = v;
++		break;
++	case GBA_REG_RCNT:
++		wl.gba->sio.rcnt = v;
++		break;
++	default:
++		wl.gba->memory.io[off >> 1] = v;
++		break;
++	}
++}
++
++static uint32_t _cycles(void* ctx) {
++	UNUSED(ctx);
++	return _now();
++}
++
++static void _send(void* ctx, uint16_t client_id, const void* buf, size_t len) {
++	UNUSED(ctx);
++	if (wl.send) {
++		wl.send(client_id, buf, len);
++	}
++}
++
++static void _poll(void* ctx) {
++	UNUSED(ctx);
++	if (wl.poll) {
++		wl.poll();
++	}
++}
++
++/* ---- serial.c ---------------------------------------------------------- */
++
++/* gpSP's serial_mul_siocnt: every GBA ready, our id, parent or child. */
++static uint16_t _mulSiocnt(void) {
++	return 0x8 | ((wl.client_id & 3) << 4) | (wl.client_id ? 0x4 : 0);
++}
++
++/* The Multi-mode SI/SD/ID/error fields, for a game that reads SIOCNT
++ * without writing it first (attach, a savestate from before the session). */
++static void _refreshMultiBits(void) {
++	struct GBASIO* sio = &wl.gba->sio;
++	if (_isCable() && sio->mode == GBA_SIO_MULTI) {
++		sio->siocnt = (sio->siocnt & 0xFF83) | _mulSiocnt();
++		sio->rcnt = GBASIORegisterRCNTSetSi(sio->rcnt, !!wl.client_id);
++	}
++}
++
++static int32_t _rfuCycles(uint16_t siocnt) {
++	int32_t cycles = GBASIONormalIsInternalSc(siocnt) ? RFU_XFER_CYCLES_2MHZ : RFU_XFER_CYCLES_256KHZ;
++	return GBASIONormalIsLength(siocnt) ? cycles << 2 : cycles;
++}
++
++static int32_t _multiCycles(uint16_t siocnt) {
++	return MULTI_MSG_CYCLES[siocnt & 3] * (wl.peers + 1);
++}
++
++static void _schedule(struct mTimingEvent* event, int32_t cycles) {
++	mTimingDeschedule(&wl.gba->timing, event);
++	mTimingSchedule(&wl.gba->timing, event, cycles);
++}
++
++/* update_serial's IRQ, when the protocol code says so. */
++static void _linkIrq(uint32_t cyclesLate) {
++	struct GBASIO* sio = &wl.gba->sio;
++	if (wl.mode == GWL_RFU) {
++		/* rfu_update already put the word in SIODATA32 and cleared Start. */
++		GBARaiseIRQ(wl.gba, GBA_IRQ_SIO, cyclesLate);
++	} else if (sio->mode == GBA_SIO_MULTI) {
++		/* A child: the fake parent's transfer ends with what the protocol
++		 * wrote to SIOMULTI0-3. Outside Multi mode a game expects no
++		 * transfer, so nothing is raised. gpSP never touches a child's
++		 * Busy here: it stays as the game wrote it. */
++		uint16_t* io = wl.gba->memory.io;
++		uint16_t data[4] = { io[GBA_REG(SIOMULTI0)], io[GBA_REG(SIOMULTI1)], io[GBA_REG(SIOMULTI2)],
++		                     io[GBA_REG(SIOMULTI3)] };
++		bool busy = GBASIOMultiplayerIsBusy(sio->siocnt);
++		GBASIOMultiplayerFinishTransfer(sio, data, cyclesLate);
++		sio->siocnt = GBASIOMultiplayerSetBusy(sio->siocnt, busy);
++	}
++}
++
++static void _tickCallback(struct mTiming* timing, void* context, uint32_t cyclesLate) {
++	UNUSED(context);
++	uint32_t now = _now();
++	unsigned elapsed = now - wl.last;
++	wl.last = now;
++	bool irq = gwl_update(elapsed);
++	if (!wl.attached) {
++		return; /* the session ended inside the poll */
++	}
++	if (irq) {
++		_linkIrq(cyclesLate);
++	}
++	mTimingSchedule(timing, &wl.tick, TICK_CYCLES);
++}
++
++static void _rearmTick(void) {
++	wl.last = _now();
++	_schedule(&wl.tick, TICK_CYCLES);
++}
++
++/* ---- GBASIODriver ------------------------------------------------------ */
++
++static bool _driverInit(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return true;
++}
++
++/* Also when another driver replaces ours (a savestate of a GB Player game):
++ * from then on the serial port is not ours to touch. */
++static void _driverDeinit(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	mTimingDeschedule(&wl.gba->timing, &wl.tick);
++	wl.attached = false;
++}
++
++/* GBAReset: it cleared the timing list (and global time) before calling us. */
++static void _driverReset(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	_rearmTick();
++}
++
++static bool _driverHandlesMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
++	UNUSED(driver);
++	if (wl.mode == GWL_RFU) {
++		return mode == GBA_SIO_NORMAL_8 || mode == GBA_SIO_NORMAL_32;
++	}
++	return mode == GBA_SIO_MULTI;
++}
++
++static void _driverSetMode(struct GBASIODriver* driver, enum GBASIOMode mode) {
++	UNUSED(driver);
++	if (_isCable() && (wl.sioMode == GBA_SIO_MULTI) != (mode == GBA_SIO_MULTI)) {
++		gwl_reset_proto();
++	}
++	wl.sioMode = mode;
++}
++
++/* GBASIOTransferCycles takes at most 3 others; the adapter is no cable. */
++static int _driverConnectedDevices(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	if (!_isCable()) {
++		return 0;
++	}
++	return wl.peers < MAX_GBAS - 1 ? wl.peers : MAX_GBAS - 1;
++}
++
++static int _driverDeviceId(struct GBASIODriver* driver) {
++	UNUSED(driver);
++	return _isCable() ? wl.client_id & 3 : 0;
++}
++
++/* write_rcnt. Called in every mode, with the old low RCNT bits still in
++ * sio->rcnt; the value returned is stored as without a driver. */
++static uint16_t _driverWriteRCNT(struct GBASIODriver* driver, uint16_t value) {
++	struct GBASIO* sio = driver->p;
++	switch (sio->mode) {
++	case GBA_SIO_GPIO:
++		/* Pulling PD high resets the adapter. */
++		if (wl.mode == GWL_RFU && (value & 0x20) && !(sio->rcnt & 0x02)) {
++			gwl_reset_rfu();
++		}
++		break;
++	case GBA_SIO_MULTI:
++		if (_isCable()) {
++			sio->siocnt = (sio->siocnt & 0xFF83) | _mulSiocnt();
++		}
++		break;
++	default:
++		break;
++	}
++	return value;
++}
++
++/* write_siocnt. GBASIOWriteSIOCNT calls this after its own handling (and
++ * after start()), with sio->siocnt still the old value. */
++static uint16_t _driverWriteSIOCNT(struct GBASIODriver* driver, uint16_t value) {
++	struct GBASIO* sio = driver->p;
++	uint16_t old = sio->siocnt;
++	if (sio->mode == GBA_SIO_MULTI) {
++		/* The status fields are gpSP's. A parent's Busy stays as mGBA
++		 * latched it until the transfer ends, as gpSP starts no second
++		 * one meanwhile. A child's Busy is the game's, as on gpSP: sio.c
++		 * ORs the old Busy into value, so take the bit as written. */
++		uint16_t v = (value & 0xFF83) | _mulSiocnt();
++		if (wl.client_id) {
++			uint16_t written = wl.gba->memory.io[GBA_REG(SIOCNT)];
++			return GBASIOMultiplayerSetBusy(v, GBASIOMultiplayerIsBusy(written));
++		}
++		if (GBASIOMultiplayerIsBusy(v) && !GBASIOMultiplayerIsBusy(old) &&
++		    mTimingIsScheduled(&wl.gba->timing, &sio->completeEvent)) {
++			/* start() sent it; gpSP's duration, from the baud written now. */
++			_schedule(&sio->completeEvent, _multiCycles(v));
++		}
++		return v;
++	}
++
++	/* Normal mode (8 or 32 bit) with the adapter. */
++	uint16_t v = (value & 0x7F8B) | (old & 0x0004);
++	/* gpSP starts on the Start bit's level, not its edge: a game that flips
++	 * the clock to internal with Start already set sends then. */
++	if (GBASIONormalIsStart(v) && GBASIONormalIsSc(v) && !mTimingIsScheduled(&wl.gba->timing, &sio->completeEvent)) {
++		uint16_t* io = wl.gba->memory.io;
++		/* gpSP sends SIODATA32 in 8-bit mode too. */
++		wl.rfuReply = gwl_rfu_transfer((uint32_t) io[GBA_REG(SIODATA32_LO)] | ((uint32_t) io[GBA_REG(SIODATA32_HI)] << 16));
++		if (sio->mode == GBA_SIO_NORMAL_8) {
++			/* gpSP puts the reply in SIODATA32 at the start, whatever the
++			 * length; mGBA's 8-bit finish only stores a byte to SIODATA8. */
++			io[GBA_REG(SIODATA32_LO)] = wl.rfuReply;
++			io[GBA_REG(SIODATA32_HI)] = wl.rfuReply >> 16;
++		}
++		_schedule(&sio->completeEvent, _rfuCycles(v));
++	}
++	/* The adapter's SI/SO acknowledge. */
++	bool soRise = GBASIONormalIsIdleSo(v) && !GBASIONormalIsIdleSo(old);
++	bool soFall = !GBASIONormalIsIdleSo(v) && GBASIONormalIsIdleSo(old);
++	if (GBASIONormalIsSc(v)) {
++		/* Parent: the GBA going busy lets the adapter show ready. */
++		if (soRise) {
++			v = GBASIONormalClearSi(v);
++		}
++	} else {
++		/* Child: SI follows SO, the adapter busy while the GBA is. */
++		if (soRise) {
++			v = GBASIONormalFillSi(v);
++		}
++		if (soFall) {
++			v = GBASIONormalClearSi(v);
++		}
++	}
++	return v;
++}
++
++/* _startTransfer: true = mGBA schedules completeEvent, which calls finish*. */
++static bool _driverStart(struct GBASIODriver* driver) {
++	struct GBASIO* sio = driver->p;
++	if (!_driverHandlesMode(driver, sio->mode)) {
++		return true; /* as without a driver */
++	}
++	if (sio->mode == GBA_SIO_MULTI) {
++		/* Only the parent gets here (sio.c). */
++		gwl_multi_master_send();
++		return true;
++	}
++	/* Normal mode (8 or 32 bit): the clock source is in the value being
++	 * written, so _driverWriteSIOCNT starts the transfer. */
++	return false;
++}
++
++static void _driverFinishMultiplayer(struct GBASIODriver* driver, uint16_t data[4]) {
++	if (!_driverHandlesMode(driver, GBA_SIO_MULTI)) {
++		return;
++	}
++	/* What the protocol wrote at the start; gpSP keeps it as the result. */
++	uint16_t* io = driver->p->p->memory.io;
++	data[0] = io[GBA_REG(SIOMULTI0)];
++	data[1] = io[GBA_REG(SIOMULTI1)];
++	data[2] = io[GBA_REG(SIOMULTI2)];
++	data[3] = io[GBA_REG(SIOMULTI3)];
++}
++
++/* gpSP leaves SIODATA8 alone, and mGBA stores the byte returned there. */
++static uint8_t _driverFinishNormal8(struct GBASIODriver* driver) {
++	if (!_driverHandlesMode(driver, GBA_SIO_NORMAL_8)) {
++		return 0;
++	}
++	driver->p->siocnt = GBASIONormalFillSi(driver->p->siocnt);
++	return (uint8_t) driver->p->p->memory.io[GBA_REG(SIODATA8)];
++}
++
++static uint32_t _driverFinishNormal32(struct GBASIODriver* driver) {
++	if (!_driverHandlesMode(driver, GBA_SIO_NORMAL_32)) {
++		return 0;
++	}
++	/* gpSP ends the word with SI high: the adapter's busy for the handshake. */
++	driver->p->siocnt = GBASIONormalFillSi(driver->p->siocnt);
++	return wl.rfuReply;
++}
++
++/* ---- frontend side ----------------------------------------------------- */
++
++static void _resetLink(void) {
++	if (wl.mode == GWL_RFU) {
++		gwl_reset_rfu();
++	} else {
++		gwl_reset_proto();
++	}
++}
++
++void nx_wifi_link_attach(struct GBA* gba, enum GwlMode mode, uint16_t client_id,
++                         void (*send)(uint16_t, const void*, size_t), void (*poll)(void)) {
++	if (wl.begun) {
++		nx_wifi_link_detach(wl.gba);
++	}
++	wl.gba = gba;
++	wl.send = send;
++	wl.poll = poll;
++	wl.peers = 0;
++	wl.client_id = client_id;
++
++	GwlHost host = { NULL, _readIo, _writeIo, _cycles, _send, _poll };
++	gwl_begin(&host, mode, client_id);
++	wl.begun = true;
++	/* GWL_NONE when the mode has no slot for our id: the port stays stock. */
++	wl.mode = gwl_mode();
++	if (wl.mode == GWL_NONE) {
++		return;
++	}
++	/* A previous session's adapter or protocol state means nothing now. */
++	_resetLink();
++
++	memset(&wl.d, 0, sizeof(wl.d));
++	wl.d.init = _driverInit;
++	wl.d.deinit = _driverDeinit;
++	wl.d.reset = _driverReset;
++	wl.d.setMode = _driverSetMode;
++	wl.d.handlesMode = _driverHandlesMode;
++	wl.d.connectedDevices = _driverConnectedDevices;
++	wl.d.deviceId = _driverDeviceId;
++	wl.d.writeRCNT = _driverWriteRCNT;
++	wl.d.writeSIOCNT = _driverWriteSIOCNT;
++	wl.d.start = _driverStart;
++	wl.d.finishMultiplayer = _driverFinishMultiplayer;
++	wl.d.finishNormal8 = _driverFinishNormal8;
++	wl.d.finishNormal32 = _driverFinishNormal32;
++
++	wl.tick.context = NULL;
++	wl.tick.name = "NX Wi-Fi link";
++	wl.tick.callback = _tickCallback;
++	wl.tick.priority = 0x81;
++
++	wl.sioMode = gba->sio.mode;
++	GBASIOSetDriver(&gba->sio, &wl.d);
++	wl.attached = gba->sio.driver == &wl.d;
++	if (wl.attached) {
++		_refreshMultiBits();
++		_rearmTick();
++	}
++}
++
++void nx_wifi_link_detach(struct GBA* gba) {
++	if (!wl.begun) {
++		return;
++	}
++	gwl_end();
++	wl.begun = false;
++	wl.send = NULL;
++	wl.poll = NULL;
++	if (wl.attached) {
++		wl.attached = false;
++		if (gba && gba->sio.driver == &wl.d) {
++			GBASIOSetDriver(&gba->sio, NULL);
++		}
++	}
++}
++
++bool nx_wifi_link_connected(uint16_t client_id) {
++	if (!wl.begun || !gwl_connected(client_id)) {
++		return false;
++	}
++	wl.peers++;
++	return true;
++}
++
++void nx_wifi_link_disconnected(uint16_t client_id) {
++	if (!wl.begun) {
++		return;
++	}
++	gwl_disconnected(client_id);
++	if (wl.peers > 0) {
++		wl.peers--;
++	}
++}
++
++void nx_wifi_link_receive(const void* buf, size_t len, uint16_t client_id) {
++	if (!wl.begun) {
++		return;
++	}
++	/* gpSP's protocol code reads packets as 32-bit words. */
++	if (((uintptr_t) buf & 3) == 0) {
++		gwl_receive(buf, len, client_id);
++		return;
++	}
++	uint32_t aligned[MAX_PACKET / 4];
++	if (len > sizeof(aligned)) {
++		return;
++	}
++	memcpy(aligned, buf, len);
++	gwl_receive(aligned, len, client_id);
++}
++
++void nx_wifi_link_frame_update(void) {
++	if (wl.begun) {
++		gwl_frame_update();
++	}
++}
++
++/* A savestate restores mGBA's timing (global time, event list) but neither
++ * our tick nor the link, and the peers did not load it: the adapter or
++ * protocol starts over, as on a replug. mGBA restores sio.completeEvent when
++ * the state had Start/Busy set, so a transfer caught in flight still ends,
++ * but the adapter's reply to a Normal-32 word was not saved: it ends with
++ * nothing on the line (a Normal-8 reply is already in SIODATA32). A
++ * completion restored for a transfer we don't time (the adapter's push to
++ * a child GBA, a cable child) is dropped, as those end from the tick.
++ * States without the event get one for a parent's transfer, rather than
++ * leaving the game's Busy/Start bit stuck. */
++void nx_wifi_link_state_loaded(void) {
++	if (!wl.attached) {
++		return;
++	}
++	struct GBASIO* sio = &wl.gba->sio;
++	struct mTiming* timing = &wl.gba->timing;
++	_resetLink();
++	wl.sioMode = sio->mode;
++	if (wl.mode == GWL_RFU) {
++		wl.rfuReply = 0xFFFFFFFFu;
++	}
++	bool rfuParent = wl.mode == GWL_RFU && _driverHandlesMode(&wl.d, sio->mode) && GBASIONormalIsStart(sio->siocnt) &&
++	                 GBASIONormalIsSc(sio->siocnt);
++	bool multiParent = _isCable() && sio->mode == GBA_SIO_MULTI && !wl.client_id && GBASIOMultiplayerIsBusy(sio->siocnt);
++	if (!rfuParent && !multiParent) {
++		/* In a mode we don't handle, mGBA's stock code times the transfer:
++		 * cancelling its event would leave Start set for good. */
++		if (_driverHandlesMode(&wl.d, sio->mode)) {
++			mTimingDeschedule(timing, &sio->completeEvent);
++		}
++	} else if (!mTimingIsScheduled(timing, &sio->completeEvent)) {
++		_schedule(&sio->completeEvent, rfuParent ? _rfuCycles(sio->siocnt) : _multiCycles(sio->siocnt));
++	}
++	_refreshMultiBits();
++	_rearmTick();
++}
+diff --git forkSrcPrefix/src/platform/libretro/libretro.c forkDstPrefix/src/platform/libretro/libretro.c
+index d15f9c93..f2283851 100644
+--- forkSrcPrefix/src/platform/libretro/libretro.c
++++ forkDstPrefix/src/platform/libretro/libretro.c
+@@ -25,6 +25,8 @@
+ #include <mgba/gba/interface.h>
+ #include <mgba/internal/gba/gba.h>
+ #include <mgba/internal/gba/sio/nx_lockstep.h>
++#include <mgba/internal/gba/sio/nx_wifi_link.h>
++#include "gwl_mode.h"
+ #endif
+ #include <mgba-util/memory.h>
+ #include <mgba-util/vfs.h>
+@@ -92,6 +94,10 @@ static retro_netpacket_poll_receive_t np_poll;
+ static uint16_t np_client_id;
+ static bool np_peer; /* one cable: at most one other player */
+ static uint16_t np_peer_id;
++/* mgba_link_mode, resolved at load: real cable, Wi-Fi link (np_wl_mode) or
++ * nothing on the serial port */
++static enum GwlLinkPick np_link;
++static enum GwlMode np_wl_mode;
+ #endif
+ static mColor* outputBuffer = NULL;
+ static struct LibretroAudioConverter audioConverter;
+@@ -1549,7 +1555,11 @@ void retro_run(void) {
+ 	}
+ #ifdef M_CORE_GBA
+ 	if (np_send) {
+-		nx_lockstep_frame_update();
++		if (np_link == GWL_PICK_WIFI) {
++			nx_wifi_link_frame_update();
++		} else {
++			nx_lockstep_frame_update();
++		}
+ 	}
+ #endif
+ 	uint16_t keys;
+@@ -2002,11 +2012,25 @@ static void np_io_poll(void) {
+ 	}
+ }
+ 
++/* gpSP's netpacket_send: the protocols address one peer or all of them. */
++static void np_wl_send(uint16_t client_id, const void* buf, size_t len) {
++	if (np_send) {
++		np_send(RETRO_NETPACKET_RELIABLE | RETRO_NETPACKET_FLUSH_HINT, buf, len, client_id);
++	}
++}
++
+ static void RETRO_CALLCONV np_start(uint16_t client_id, retro_netpacket_send_t send_fn, retro_netpacket_poll_receive_t poll_receive_fn) {
+ 	np_send = send_fn;
+ 	np_poll = poll_receive_fn;
+ 	np_client_id = client_id;
+ 	np_peer = false;
++	if (np_link == GWL_PICK_WIFI) {
++		nx_wifi_link_attach(core->board, np_wl_mode, client_id, np_wl_send, np_io_poll);
++		return;
++	}
++	if (np_link == GWL_PICK_NONE) {
++		return; /* mgba_link_mode: nothing on the serial port */
++	}
+ 	nx_lockstep_attach(core->board, np_io_send, np_io_poll);
+ 	/* A client only starts once it is connected; the host links when its
+ 	 * client connects (np_connected), not while it waits for one. */
+@@ -2016,13 +2040,17 @@ static void RETRO_CALLCONV np_start(uint16_t client_id, retro_netpacket_send_t s
+ }
+ 
+ static void RETRO_CALLCONV np_receive(const void* buf, size_t len, uint16_t client_id) {
+-	UNUSED(client_id);
++	if (np_link == GWL_PICK_WIFI) {
++		nx_wifi_link_receive(buf, len, client_id);
++		return;
++	}
+ 	nx_lockstep_receive(buf, len);
+ }
+ 
+ static void RETRO_CALLCONV np_stop(void) {
+ 	if (np_send) { /* not after retro_unload_game already detached */
+ 		nx_lockstep_detach(core->board);
++		nx_wifi_link_detach(core->board);
+ 	}
+ 	np_send = NULL;
+ 	np_poll = NULL;
+@@ -2030,6 +2058,9 @@ static void RETRO_CALLCONV np_stop(void) {
+ }
+ 
+ static bool RETRO_CALLCONV np_connected(uint16_t client_id) {
++	if (np_link == GWL_PICK_WIFI) {
++		return nx_wifi_link_connected(client_id);
++	}
+ 	if (np_peer) {
+ 		return false;
+ 	}
+@@ -2045,6 +2076,10 @@ static bool RETRO_CALLCONV np_connected(uint16_t client_id) {
+ }
+ 
+ static void RETRO_CALLCONV np_disconnected(uint16_t client_id) {
++	if (np_link == GWL_PICK_WIFI) {
++		nx_wifi_link_disconnected(client_id);
++		return;
++	}
+ 	if (!np_peer || client_id != np_peer_id) {
+ 		return;
+ 	}
+@@ -2061,6 +2096,31 @@ static const struct retro_netpacket_callback np_iface = {
+ 	np_disconnected,
+ 	"nx-mgba-lockstep-1",
+ };
++
++/* The same callbacks; the version names the driver in use. */
++static const struct retro_netpacket_callback np_wl_iface = {
++	np_start,
++	np_receive,
++	np_stop,
++	NULL, /* poll */
++	np_connected,
++	np_disconnected,
++	"nx-mgba-wifi-link-1",
++};
++
++/* mgba_link_mode. The game's auto mode (gpSP's rule) is read from the ROM in
++ * memory, only for the options that use it. */
++static void _resolveLinkMode(void) {
++	struct retro_variable var = { .key = "mgba_link_mode", .value = NULL };
++	const char* option = environCallback(RETRO_ENVIRONMENT_GET_VARIABLE, &var) ? var.value : NULL;
++	enum GwlMode autoMode = GWL_NONE;
++	if (option && (strcmp(option, "auto") == 0 || strcmp(option, "auto_cable") == 0)) {
++		struct GBA* gba = core->board;
++		autoMode = gwl_auto_mode((const uint8_t*) gba->memory.rom, gba->memory.romSize, gba->memory.romSize);
++	}
++	np_link = gwl_mgba_pick(option, autoMode);
++	np_wl_mode = gwl_mgba_wifi_mode(option, autoMode);
++}
+ #endif
+ 
+ bool retro_load_game(const struct retro_game_info* game) {
+@@ -2211,7 +2271,9 @@ bool retro_load_game(const struct retro_game_info* game) {
+ 
+ #ifdef M_CORE_GBA
+ 	if (core->platform(core) == mPLATFORM_GBA) {
+-		environCallback(RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE, (void*) &np_iface);
++		_resolveLinkMode();
++		environCallback(RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE,
++		                (void*) (np_link == GWL_PICK_WIFI ? &np_wl_iface : &np_iface));
+ 	}
+ #endif
+ 
+@@ -2225,6 +2287,7 @@ void retro_unload_game(void) {
+ #ifdef M_CORE_GBA
+ 	if (np_send) {
+ 		nx_lockstep_detach(core->board);
++		nx_wifi_link_detach(core->board);
+ 		np_send = NULL;
+ 		np_poll = NULL;
+ 		np_peer = false;
+@@ -2277,6 +2340,7 @@ bool retro_unserialize(const void* data, size_t size) {
+ #ifdef M_CORE_GBA
+ 	if (success && np_send) {
+ 		nx_lockstep_state_loaded();
++		nx_wifi_link_state_loaded();
+ 	}
+ #endif
+ 	return success;
+diff --git forkSrcPrefix/src/platform/libretro/libretro_core_options.h forkDstPrefix/src/platform/libretro/libretro_core_options.h
+index 9bd553bd..0862358f 100644
+--- forkSrcPrefix/src/platform/libretro/libretro_core_options.h
++++ forkDstPrefix/src/platform/libretro/libretro_core_options.h
+@@ -305,6 +305,26 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+       },
+       "OFF"
+    },
++   {
++      "mgba_link_mode",
++      "Link Cable Connectivity (Restart)",
++      NULL,
++      "Configures the serial (Link Cable) connection in a netplay session. 'Link Cable - Real' joins two mGBA over the USB Cable. 'Automatic' picks the game's mode the way gpSP does; 'Automatic (USB Cable)' uses the Wireless Adapter when that is the game's mode and the real link cable otherwise. The Wireless Adapter and the Pokemon / Advance Wars modes work with gpSP too.",
++      NULL,
++      "input",
++      {
++         { "cable",      "Link Cable - Real (USB only)" },
++         { "auto",       "Automatic" },
++         { "auto_cable", "Automatic (USB Cable)" },
++         { "rfu",        "GBA Wireless Adapter" },
++         { "mul_poke",   "Link Cable - Pokemon Gen3 mode" },
++         { "mul_aw1",    "Link Cable - Advance Wars 1 mode" },
++         { "mul_aw2",    "Link Cable - Advance Wars 2 mode" },
++         { "disabled",   "Disabled" },
++         { NULL, NULL },
++      },
++      "cable"
++   },
+    {
+       "mgba_idle_optimization",
+       "Idle Loop Removal",

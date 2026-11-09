@@ -27,7 +27,9 @@
  * that predate it ignore it, since every HELLO parse reads a fixed field count.
  * When both tokens name an emulator core ("core=<exe>,tag=<pak>", from
  * netplay-prelaunch.sh) and the cores differ, the host answers
- * REJECT core-<core>.<tag> (wiz_caps.h) — the two would never sync.
+ * REJECT core-<core>.<tag> (wiz_caps.h) — the two would never sync — or,
+ * when both sent a Wi-Fi link mode that can't carry the pair,
+ * REJECT link-<core>.<host wl>.<joiner wl>.
  *
  * A rejected or dropped client never ends the host's wait: the host closes that
  * connection and returns to its waiting screen. The client is the side that
@@ -618,27 +620,41 @@ static int wiz_host_handshake(const WizArgs* a, WizSession* s, int fd,
 		return 1;
 	}
 	// A different emulator core never syncs (MD's PicoDrive vs GPGX, gpSP vs
-	// mGBA), so refuse here and say so on both screens. The host keeps waiting
-	// on every mode: on WiFi and the hotspot for the players who did pick the
+	// mGBA on the real cable), so refuse here and say so on both screens; only
+	// gpSP and mGBA in the same Wi-Fi link mode, on a transport that keeps it,
+	// get through; mGBA off the cable also needs a peer that sent wl=, or it
+	// would fall back to the real cable over Wi-Fi. The host keeps waiting on
+	// every mode: on WiFi and the hotspot for the players who did pick the
 	// same folder, over the cable for the same peer, since a phone whose
 	// Emulator is Auto reconnects once with the core this REJECT names.
 	char joiner_caps[WIZ_CAPS_MAX];
 	WizCaps_find(line, joiner_caps, sizeof(joiner_caps));
-	if (WizCaps_coreMismatch(a->caps, joiner_caps)) {
+	bool usb = strcmp(s->mode, "usb") == 0;
+	if (WizCaps_linkMismatch(a->caps, joiner_caps, usb)) {
 		char reject[32]; // the joiner parses it with %31s
 		char core[WIZ_CAPS_MAX];
 		char tag[WIZ_CAPS_MAX];
 		char label[96];
 		char message[192];
 
-		WizCaps_coreReason(a->caps, reject, sizeof(reject));
+		char own_reason[32];
+		bool link_modes = WizCaps_linkReason(a->caps, joiner_caps, usb, reject, sizeof(reject));
+		if (!link_modes)
+			WizCaps_coreReason(a->caps, reject, sizeof(reject));
 		wiz_send_line(fd, "REJECT %s", reject);
+		WizCaps_linkReason(joiner_caps, a->caps, usb, own_reason, sizeof(own_reason));
 		WizCaps_value(joiner_caps, "core", core, sizeof(core));
 		WizCaps_value(joiner_caps, "tag", tag, sizeof(tag));
 		WizCaps_coreLabel(core, tag, label, sizeof(label));
 		fprintf(stderr, "netplay: player %d at %s runs core '%s' (%s), we run '%s'; refused\n",
 				player_num, peer_ip, core, tag, a->caps);
-		if (!WizModes_singlePeer(s->mode))
+		if (WizCaps_mgbaNeedsWl(a->caps, joiner_caps, usb))
+			snprintf(message, sizeof(message), "%s", WIZ_NET_MGBA_WL_TEXT);
+		else if (link_modes && !WizModes_singlePeer(s->mode))
+			snprintf(message, sizeof(message), "A player whose game links\nin another mode\nwas turned away.");
+		else if (link_modes)
+			snprintf(message, sizeof(message), "%s", wiz_reject_message(own_reason));
+		else if (!WizModes_singlePeer(s->mode))
 			snprintf(message, sizeof(message), "A player using\n%s\nwas turned away.", label);
 		else
 			snprintf(message, sizeof(message), "The other player is using\n%s.\n\n%s", label,
@@ -1159,11 +1175,16 @@ static int wiz_client_session(const WizArgs* a, WizSession* s, int fd, const cha
 	// it here rather than in a "State size mismatch" after both games boot.
 	char host_caps[WIZ_CAPS_MAX];
 	WizCaps_find(line, host_caps, sizeof(host_caps));
-	if (WizCaps_coreMismatch(a->caps, host_caps)) {
+	bool usb = strcmp(s->mode, "usb") == 0;
+	if (WizCaps_linkMismatch(a->caps, host_caps, usb)) {
 		char reject[32];
-		WizCaps_coreReason(host_caps, reject, sizeof(reject));
+		if (!WizCaps_linkReason(host_caps, a->caps, usb, reject, sizeof(reject)))
+			WizCaps_coreReason(host_caps, reject, sizeof(reject));
 		fprintf(stderr, "netplay: host %s runs '%s', we run '%s'; not joining\n", host_ip, host_caps, a->caps);
-		wiz_net_error(wiz_reject_message(reject));
+		if (WizCaps_mgbaNeedsWl(a->caps, host_caps, usb))
+			wiz_net_error(WIZ_NET_MGBA_WL_TEXT);
+		else
+			wiz_net_error(wiz_reject_message(reject));
 		return 1;
 	}
 

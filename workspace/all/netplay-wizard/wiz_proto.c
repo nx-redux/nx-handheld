@@ -12,7 +12,7 @@
 #include <sys/types.h>
 
 #include "network_common.h" // NET_MAX_GAME_NAME
-#include "wiz_caps.h"		// WizCaps_reasonLabel
+#include "wiz_caps.h"		// WizCaps_reasonLabel, WizCaps_parseLinkReason
 
 //////////////////////////////////
 // Wire protocol helpers
@@ -159,6 +159,20 @@ const char* wiz_reject_message(const char* reason) {
 		return "Both devices are hosting.\n\nOne of them must join instead.";
 	if (strcmp(reason, "sync") == 0)
 		return "The host could not share\nits saves.";
+	char core[32];
+	char theirs[16];
+	char ours[16];
+	if (WizCaps_parseLinkReason(reason, core, sizeof(core), theirs, sizeof(theirs), ours, sizeof(ours))) {
+		// Worded for either screen: the host shows it for its own refusal too.
+		static char message[192];
+		if (strcmp(theirs, ours) != 0)
+			snprintf(message, sizeof(message), "The other player's game links\nwith the %s,\nthis one with the %s.\n\n%s",
+					 WizCaps_linkModeName(theirs), WizCaps_linkModeName(ours), WIZ_NET_CORE_HINT);
+		else
+			snprintf(message, sizeof(message), "With two different emulators,\nthis game links only\nover Wi-Fi.\n\n%s",
+					 WIZ_NET_CORE_HINT);
+		return message;
+	}
 	if (strcmp(reason, "core") == 0 || strncmp(reason, "core-", 5) == 0) {
 		// "core-<core>.<tag>" names the host's emulator and folder.
 		static char message[192];

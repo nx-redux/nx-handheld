@@ -30,6 +30,7 @@
 #include "ui_splash.h"
 #include "utils.h"
 #include "wifi_direct.h"
+#include "gwl_mode.h"
 #include "wizard.h"
 #include "wiz_modes.h"
 
@@ -152,7 +153,7 @@ static void fput_shq(FILE* fp, const char* key, const char* val) {
 	fputs("'\n", fp);
 }
 
-int wizard_write_session(const char* path, const WizSession* s, const char* game) {
+int wizard_write_session(const char* path, const WizSession* s, const char* game, const char* caps) {
 	FILE* fp = fopen(path, "w");
 	if (!fp)
 		return -1;
@@ -163,6 +164,7 @@ int wizard_write_session(const char* path, const WizSession* s, const char* game
 	fput_shq(fp, "NETPLAY_GAME", game);
 	fput_shq(fp, "NETPLAY_PREV_SSID", s->prev_ssid);
 	fput_shq(fp, "NETPLAY_PEER_CAPS", s->peer_caps);
+	fput_shq(fp, "NETPLAY_CAPS", caps ? caps : "");
 
 	// A short write (tmpfs ENOSPC/EIO) must not read as success: exit 0 is the
 	// hard "start with netplay" contract, and launch.sh would then source a
@@ -882,6 +884,13 @@ static void wiz_cancel(WizSession* s) {
 }
 
 int main(int argc, char* argv[]) {
+	// netplay-prelaunch.sh's probe for the wl= caps value: answered before any
+	// screen, input or network set-up, since the wizard proper runs after it.
+	if (argc == 3 && strcmp(argv[1], "--gba-link-mode") == 0) {
+		printf("%s\n", gwl_mode_token(gwl_probe_file(argv[2])));
+		return 0;
+	}
+
 	WizArgs args;
 	if (parse_args(argc, argv, &args) != 0)
 		return 2;
@@ -1061,7 +1070,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		case ST_DONE:
-			if (wizard_write_session(args.session_path, &session, args.game) != 0) {
+			if (wizard_write_session(args.session_path, &session, args.game, args.caps) != 0) {
 				show_message("Failed to write session file", WIZ_MESSAGE_MS);
 				// wizard_write_session() unlinks what it half-wrote, so
 				// launch.sh's --cleanup would find no session file and undo

@@ -1,0 +1,23 @@
+gba_wifi_link
+=============
+
+rfu.c (GBA Wireless Adapter emulation) and serial_proto.c (Pokemon and Advance
+Wars link-cable protocol emulation) are from gpSP (gameplaySP),
+https://github.com/libretro/gpsp, written by David Guillen Fandos
+<david@davidgf.net>, copyright (C) 2023 and (C) 2025. They are unchanged from
+the gpSP commit the gpSP core is pinned to (gpsp_HASH in
+workspace/tg5040/cores/Makefile) with workspace/all/cores/patches/gpsp/
+001-rfu_disconnect_fix.patch and 002-rfu_queue_size.patch applied, except that
+each includes gwl_shim.h instead of gpSP's common.h.
+
+gwl.c reproduces gpSP's netpacket glue (libretro/libretro.c) and its random
+number generator (main.c, gameplaySP copyright (C) 2006 Exophase
+<exophase@gmail.com>). gwl_mode.c reproduces gpSP's per-game link mode
+choice (gba_memory.c), and gwl_games.h is generated from gpSP's game table
+(gba_over.h).
+
+gpSP is licensed under the GNU General Public License, version 2 or (at your
+option) any later version. This library as a whole (gwl.h, gwl_shim.h, gwl.c,
+gwl_mode.h, gwl_mode.c, gwl_games.h, rfu.c, serial_proto.c and tests/) is
+distributed under the same terms: GPL-2.0-or-later. See https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+or gpSP's COPYING file.

@@ -16,6 +16,44 @@ static void expect_value(const char* caps, const char* key, const char* want) {
 	}
 }
 
+static void test_link_mismatch(void) {
+	const char* gpsp_rfu = "core=gpsp,tag=GBA,wl=rfu";
+	const char* mgba_rfu = "core=mgba,tag=MGBA,wl=rfu";
+	assert(!WizCaps_linkMismatch(gpsp_rfu, mgba_rfu, false));
+	assert(!WizCaps_linkMismatch(gpsp_rfu, mgba_rfu, true));
+	assert(WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=poke", mgba_rfu, false));
+	assert(WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=poke", "core=mgba,tag=MGBA,wl=poke", true)); // USB: Adapter only
+	assert(!WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=poke", "core=mgba,tag=MGBA,wl=poke", false));
+	assert(WizCaps_linkMismatch(gpsp_rfu, "core=mgba,tag=MGBA", false)); // older peer
+	assert(WizCaps_linkMismatch(gpsp_rfu, "core=mgba,tag=MGBA,wl=none", false));
+	assert(!WizCaps_linkMismatch(gpsp_rfu, gpsp_rfu, true));
+	assert(!WizCaps_linkMismatch("core=gpsp,tag=GBA,wl=none", "core=gpsp,tag=GBA", false)); // same core
+	assert(WizCaps_linkMismatch("core=picodrive,tag=MD", "core=genesis_plus_gx,tag=GPGX", false));
+	assert(!WizCaps_linkMismatch(NULL, NULL, false));
+	// mGBA off USB with a side that sent no wl= (no caps at all, or an older
+	// build) would fall back to the real cable over Wi-Fi: refused either way round
+	assert(WizCaps_linkMismatch("", mgba_rfu, false));
+	assert(WizCaps_linkMismatch(mgba_rfu, "", false));
+	assert(WizCaps_linkMismatch(mgba_rfu, NULL, false));
+	assert(WizCaps_linkMismatch(mgba_rfu, "core=mgba,tag=MGBA", false));
+	assert(WizCaps_linkMismatch("core=mgba,tag=MGBA", mgba_rfu, false));
+	assert(WizCaps_linkMismatch(mgba_rfu, "dcbios=abc", false));
+	// over USB the real cable is fine, and gpSP never needs the peer's wl=
+	assert(!WizCaps_linkMismatch("", mgba_rfu, true));
+	assert(!WizCaps_linkMismatch(mgba_rfu, "core=mgba,tag=MGBA", true));
+	assert(!WizCaps_linkMismatch(mgba_rfu, NULL, true));
+	assert(!WizCaps_linkMismatch(gpsp_rfu, "", false));
+	assert(!WizCaps_linkMismatch("", gpsp_rfu, false));
+	assert(!WizCaps_linkMismatch(mgba_rfu, mgba_rfu, false));
+	// the same rule on its own, which picks the message both wizards show
+	assert(WizCaps_mgbaNeedsWl(mgba_rfu, "", false));
+	assert(WizCaps_mgbaNeedsWl("core=gpsp,tag=GBA", mgba_rfu, false));
+	assert(!WizCaps_mgbaNeedsWl(mgba_rfu, "", true));
+	assert(!WizCaps_mgbaNeedsWl(mgba_rfu, gpsp_rfu, false));
+	assert(!WizCaps_mgbaNeedsWl(gpsp_rfu, "core=gpsp,tag=GBA", false));
+	assert(!WizCaps_mgbaNeedsWl(NULL, NULL, false));
+}
+
 static void expect_label(const char* core, const char* tag, const char* want) {
 	char got[64];
 	WizCaps_coreLabel(core, tag, got, sizeof(got));
@@ -53,7 +91,62 @@ static void expect_find(const char* line, const char* want) {
 	}
 }
 
+static void expect_link_reason(const char* sender, const char* receiver, bool usb, const char* want) {
+	char got[32]; // the REJECT reason buffer both sides use (%31s)
+	bool ok = WizCaps_linkReason(sender, receiver, usb, got, sizeof(got));
+	if (ok != (want != NULL) || strcmp(got, want ? want : "") != 0) {
+		fprintf(stderr, "link reason of '%s' -> '%s' (usb %d): expected '%s', got '%s'\n", sender, receiver, usb,
+				want ? want : "(none)", got);
+		assert(0);
+	}
+}
+
+static void test_link_reason(void) {
+	const char* gpsp_rfu = "core=gpsp,tag=GBA,wl=rfu";
+	const char* mgba_poke = "core=mgba,tag=MGBA,wl=poke";
+	const char* gpsp_poke = "core=gpsp,tag=GBA,wl=poke";
+	// modes differ, on any transport; the sender's core and mode come first
+	expect_link_reason(gpsp_rfu, mgba_poke, false, "link-gpsp.rfu.poke");
+	expect_link_reason(mgba_poke, gpsp_rfu, false, "link-mgba.poke.rfu");
+	expect_link_reason(gpsp_rfu, mgba_poke, true, "link-gpsp.rfu.poke");
+	expect_link_reason("core=gpsp,tag=GBA,wl=aw1", "core=mgba,tag=MGBA,wl=aw2", false, "link-gpsp.aw1.aw2");
+	// same mode the USB Cable turns into the real cable
+	expect_link_reason(gpsp_poke, mgba_poke, true, "link-gpsp.poke.poke");
+	expect_link_reason("core=mgba,tag=GBA,wl=aw2", "core=gpsp,tag=GBA,wl=aw2", true, "link-mgba.aw2.aw2");
+	// a pair that links, or a refusal that is about something else
+	expect_link_reason(gpsp_poke, mgba_poke, false, NULL);
+	expect_link_reason(gpsp_rfu, "core=mgba,tag=MGBA,wl=rfu", true, NULL);
+	expect_link_reason(gpsp_rfu, "core=gpsp,tag=GBA,wl=poke", false, NULL); // same core
+	expect_link_reason(gpsp_rfu, "core=mgba,tag=MGBA,wl=none", true, NULL); // real cable side
+	expect_link_reason("core=gpsp,tag=GBA,wl=none", "core=mgba,tag=MGBA,wl=none", true, NULL);
+	expect_link_reason(gpsp_rfu, "core=mgba,tag=MGBA", false, NULL); // older peer: mGBA needs wl=
+	expect_link_reason(gpsp_rfu, "core=mgba,tag=MGBA", true, NULL);	 // older peer: plain core rule
+	expect_link_reason(gpsp_rfu, "core=mgba,tag=MGBA,wl=bogus", false, NULL);
+	expect_link_reason(NULL, NULL, false, NULL);
+	// every reason fits the %31s reply, and splits back to what was sent
+	char reason[32];
+	char core[32];
+	char a[16];
+	char b[16];
+	assert(WizCaps_linkReason(mgba_poke, gpsp_rfu, false, reason, sizeof(reason)));
+	assert(WizCaps_parseLinkReason(reason, core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!strcmp(core, "mgba") && !strcmp(a, "poke") && !strcmp(b, "rfu"));
+	assert(!WizCaps_parseLinkReason("link-gpsp.rfu", core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!WizCaps_parseLinkReason("link-gpsp.rfu.none", core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!WizCaps_parseLinkReason("link-.rfu.poke", core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!WizCaps_parseLinkReason("link-gpsp.rfu.poke.x", core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!WizCaps_parseLinkReason("core-gpsp.GBA", core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!WizCaps_parseLinkReason(NULL, core, sizeof(core), a, sizeof(a), b, sizeof(b)));
+	assert(!strcmp(WizCaps_linkModeName("rfu"), "Wireless Adapter"));
+	assert(!strcmp(WizCaps_linkModeName("poke"), "Pokémon cable"));
+	assert(!strcmp(WizCaps_linkModeName("aw1"), "Advance Wars cable"));
+	assert(!strcmp(WizCaps_linkModeName("aw2"), "Advance Wars 2 cable"));
+	assert(!strcmp(WizCaps_linkModeName("none"), ""));
+}
+
 int main(void) {
+	test_link_mismatch();
+	test_link_reason();
 	// tokens: short, wire-safe, no spaces
 	assert(WizCaps_isValid("dcbios=0123456789ab"));
 	assert(WizCaps_isValid("dcbios=none"));

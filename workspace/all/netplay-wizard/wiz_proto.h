@@ -27,6 +27,8 @@
 
 // The second half of both core-mismatch messages.
 #define WIZ_NET_CORE_HINT "Pick the game from the same\nfolder on both devices."
+// Off the USB Cable against a side without the Wi-Fi link modes (WizCaps_mgbaNeedsWl).
+#define WIZ_NET_MGBA_WL_TEXT "The other device can't link\nmGBA over Wi-Fi.\n\nUpdate it, or use the USB Cable."
 
 // Client HELLO flag: "join even though the titles differ" (see the header).
 #define WIZ_NET_ANY_GAME "any"

@@ -145,9 +145,10 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 		if (var && var->key) {
 			var->value = OptionList_getOptionValue(&config.core, var->key);
 			var->value = FF_coreOptionValue(var->key, var->value);
-			// gpsp_serial: Automatic means real link cable in a USB Cable
-			// session, and "lockstep" exists only there (gbalink_mode.c).
-			var->value = gbalink_serial_option(var->key, var->value, getenv("NETPLAY_MODE"));
+			// gpsp_serial / mgba_link_mode: the session decides the mode the
+			// core gets (gbalink_mode.c).
+			var->value = gbalink_serial_option(var->key, var->value, getenv("NETPLAY_MODE"),
+											   getenv("NETPLAY_CAPS"), getenv("NETPLAY_PEER_CAPS"));
 		}
 		break;
 	}

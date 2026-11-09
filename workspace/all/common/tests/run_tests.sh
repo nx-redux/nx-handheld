@@ -42,7 +42,7 @@ cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_ui_scale test_
 /tmp/nx_test_ui_scale
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_pill_cap test_pill_cap.c -lm
 /tmp/nx_test_pill_cap
-cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_caps ../../netplay-wizard/wiz_caps.c test_wiz_caps.c
+cc -std=gnu99 -Wall -Werror -fsanitize=address -g -I../../cores/gba_wifi_link -o /tmp/nx_test_wiz_caps ../../netplay-wizard/wiz_caps.c ../../cores/gba_wifi_link/gwl_mode.c test_wiz_caps.c
 /tmp/nx_test_wiz_caps
 cc -std=gnu99 -Wall -Werror -fsanitize=address -g -o /tmp/nx_test_wiz_modes ../../netplay-wizard/wiz_modes.c test_wiz_modes.c
 /tmp/nx_test_wiz_modes

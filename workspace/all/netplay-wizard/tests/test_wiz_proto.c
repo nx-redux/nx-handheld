@@ -125,6 +125,14 @@ static void test_other_lines(void) {
 	CHECK(wiz_parse_reject("", reason, sizeof(reason)) == -1, "reject: empty line");
 	CHECK(strstr(wiz_reject_message("role"), "Both devices are hosting") != NULL, "reject message: role");
 	CHECK(strstr(wiz_reject_message("core"), WIZ_NET_CORE_HINT) != NULL, "reject message: core");
+	CHECK(strstr(wiz_reject_message("link-gpsp.rfu.poke"),
+				 "The other player's game links\nwith the Wireless Adapter,\nthis one with the Pokémon cable.") != NULL,
+		  "reject message: link modes differ");
+	CHECK(strstr(wiz_reject_message("link-mgba.poke.poke"), "links only\nover Wi-Fi") != NULL,
+		  "reject message: link mode needs Wi-Fi");
+	CHECK(strstr(wiz_reject_message("link-mgba.poke.poke"), WIZ_NET_CORE_HINT) != NULL, "reject message: link hint");
+	CHECK(!strcmp(wiz_reject_message("link-gpsp.rfu"), "The host refused the connection."),
+		  "reject message: malformed link");
 	CHECK(!strcmp(wiz_reject_message("nonsense"), "The host refused the connection."), "reject message: unknown");
 	CHECK(!strcmp(wiz_reject_message(NULL), "The host refused the connection."), "reject message: NULL");
 

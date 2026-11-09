@@ -1,0 +1,3 @@
+# gpSP files kept byte-identical to upstream (tests/check_upstream.sh)
+rfu.c
+serial_proto.c
