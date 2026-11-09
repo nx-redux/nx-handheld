@@ -49,12 +49,20 @@ index 647ca32..08a3143 100644
 +#endif
  }
 diff --git a/libretro/libretro.c b/libretro/libretro.c
-index 6b0771e..f5323f3 100644
+index c482087..ba2c554 100644
 --- a/libretro/libretro.c
 +++ b/libretro/libretro.c
-@@ -534,6 +534,54 @@ static int nx_netplay_start(void)
+@@ -19,6 +19,7 @@
+  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
+ #include <stdio.h>
++#include <time.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <compat/strl.h>
+@@ -469,6 +470,54 @@ static void emu_step_initialize(void)
+     plugin_connect_all();
  }
- #endif
  
 +/* nx-redux: GLideN64's load progress (hi-res pack conversion, cache load).
 + * The text goes to the frontend as a progress message; at most every 100 ms
@@ -106,8 +114,8 @@ index 6b0771e..f5323f3 100644
 +
  static void* EmuThreadFunction(void* param)
  {
-     initializing = false;
-@@ -2195,7 +2243,9 @@ void retro_run (void)
+     uint32_t netplay_port = 0;
+@@ -2115,7 +2164,9 @@ void retro_run (void)
         glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
      }
  

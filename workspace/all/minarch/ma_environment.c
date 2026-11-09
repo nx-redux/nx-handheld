@@ -391,16 +391,6 @@ bool environment_callback(unsigned cmd, void* data) { // copied from picoarch in
 			*out = fast_forward != 0;
 		break;
 	}
-	case RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE: {
-		// SPIKE: mupen64plus-next's core netplay asks for fast-forward while
-		// this side lags the lead player (netplay_get_input) and drops it once
-		// caught up; without it a lagging device can never catch up. NULL is
-		// the "is it supported" probe.
-		const struct retro_fastforwarding_override* o = (const struct retro_fastforwarding_override*)data;
-		if (o && CoreNetplay_isActive())
-			fast_forward = setFastForward(o->fastforward);
-		return true;
-	}
 	case RETRO_ENVIRONMENT_SET_HW_RENDER: {
 		return HWR_setCallback((struct retro_hw_render_callback*)data);
 	}
