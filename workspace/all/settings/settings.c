@@ -2491,7 +2491,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	{
 		SettingsPage* pages[] = {
 			&appearance_page, &layouts_page, &display_page, &system_page,
-			&fn_switch_page, &notify_page, &simple_mode_page, &shortcuts_page, NULL};
+			&fn_switch_page, &fn_keys_page, &notify_page, &simple_mode_page, &shortcuts_page, NULL};
 		for (int p = 0; pages[p]; p++) {
 			for (int i = 0; i < pages[p]->item_count; i++) {
 				settings_item_sync(&pages[p]->items[i]);
