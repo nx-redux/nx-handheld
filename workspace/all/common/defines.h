@@ -33,6 +33,8 @@
 #define RECENT_PATH SHARED_USERDATA_PATH "/.minui/recent.txt"
 #define SHORTCUTS_PATH SHARED_USERDATA_PATH "/.minui/shortcuts.txt"
 #define SIMPLE_MODE_PATH SHARED_USERDATA_PATH "/enable-simple-mode"
+// Brick: F1/F2 step brightness (read by keymon, which has its own copy of the path)
+#define FKEY_BRIGHTNESS_PATH USERDATA_PATH "/enable-fkey-brightness"
 #define AUTO_RESUME_PATH SHARED_USERDATA_PATH "/.minui/auto_resume.txt"
 #define GAME_SWITCHER_PERSIST_PATH SHARED_USERDATA_PATH "/.minui/game_switcher.txt"
 // A quit that leaves its last frame up (MENU+SELECT into the switcher, Quit

@@ -2077,7 +2077,8 @@ GameListResult GameList_handleInput(unsigned long now, int currentScreen,
 		ScrollText_clear(&list_scroll);
 		return result;
 	} else if (HAS_FN_KEYS && !gl_simple_mode &&
-			   (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_FN2))) {
+			   (PAD_justPressed(BTN_FN1) || PAD_justPressed(BTN_FN2)) &&
+			   !exists((char*)FKEY_BRIGHTNESS_PATH)) { // keymon owns F1/F2 for brightness
 		// F1/F2 tool shortcuts (Brick family): launch the assigned tool pak
 		// from anywhere in normal browsing. Unassigned key or a tool that got
 		// uninstalled since it was assigned = no-op.

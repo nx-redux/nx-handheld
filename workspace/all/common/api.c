@@ -4511,6 +4511,12 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		}
 	}
 
+	// Brick: keymon steps brightness on F1/F2 while this flag file exists (Settings > F1 / F2 keys)
+	if ((PAD_isPressed(BTN_FN1) || PAD_isPressed(BTN_FN2)) && exists((char*)FKEY_BRIGHTNESS_PATH)) {
+		setting_shown_at = now;
+		show_setting = INDICATOR_BRIGHTNESS;
+	}
+
 	if (InitializedSettings()) {
 		int fn_on = GetFnMode();
 		int speaker_muted = GetSpeakerMute();
