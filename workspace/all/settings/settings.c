@@ -2324,10 +2324,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"F2 launches", "Tool the F2 key opens from the main menu.",
 		fn_tool_labels, fn_tool_count, NULL, get_fn2_tool, set_fn2_tool, reset_fn2_tool);
-	if (dev->model == MODEL_BRICK)
-		fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
-			"Use to control brightness", "F1/F2 lower/raise brightness anywhere.\nF1/F2 launches are ignored while on.",
-			on_off_labels, 2, on_off_values, get_fkey_brightness, set_fkey_brightness, reset_fkey_brightness);
+	fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Use to control brightness", "F1 and F2 lower and raise brightness everywhere.\nWhile on, they don't open the tools above.",
+		on_off_labels, 2, on_off_values, get_fkey_brightness, set_fkey_brightness, reset_fkey_brightness);
 	fnkey_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_fn_keys_page);

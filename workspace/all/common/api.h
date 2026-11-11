@@ -555,6 +555,7 @@ int PAD_anyJustPressed(void);
 int PAD_anyPressed(void);
 int PAD_anyJustReleased(void);
 
+int PAD_fnKeysControlBrightness(void);
 int PAD_justPressed(int btn);
 int PAD_isPressed(int btn);
 int PAD_justReleased(int btn);

@@ -321,6 +321,14 @@ int main(int argc, char* argv[]) {
 
 	const char* device = getenv("DEVICE");
 	int is_brick = device && strcmp(device, "brick") == 0;
+	int is_brickpro = device && strcmp(device, "brickpro") == 0;
+	// F1/F2 evdev codes: the Brick's are L3/R3; the Brick Pro's sticks own those, its F keys
+	// are KEY_F1/KEY_F2 (BRICKPRO.md). 0 (KEY_RESERVED, never sent) = no F keys.
+	int fkey_down_code = 0, fkey_up_code = 0;
+	if (is_brickpro)
+		fkey_down_code = KEY_F1, fkey_up_code = KEY_F2;
+	else if (is_brick)
+		fkey_down_code = BTN_THUMBL, fkey_up_code = BTN_THUMBR;
 
 	// Create epoll instance
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -389,14 +397,19 @@ int main(int argc, char* argv[]) {
 				next_repeat = up_repeat_at < down_repeat_at ? up_repeat_at : down_repeat_at;
 			int remaining = (int)(next_repeat - now);
 			timeout_ms = remaining > 0 ? remaining : 1;
-		} else if (fkey_dir) {
-			int remaining = (int)(fkey_repeat_at - now);
-			timeout_ms = remaining > 0 ? remaining : 1;
 		} else if (home_toggle_at) {
 			int remaining = (int)(home_toggle_at - now);
 			timeout_ms = remaining > 0 ? remaining : 1;
 		} else {
 			timeout_ms = 1000; // idle — wake up occasionally
+		}
+		// a held F key must not delay (or be delayed by) the deadlines above
+		if (fkey_dir) {
+			int remaining = (int)(fkey_repeat_at - now);
+			if (remaining < 1)
+				remaining = 1;
+			if (remaining < timeout_ms)
+				timeout_ms = remaining;
 		}
 
 		int nfds = epoll_wait(epoll_fd, events, 16, timeout_ms);
@@ -468,11 +481,11 @@ int main(int argc, char* argv[]) {
 				if (val == PRESSED && menu_pressed && input_ev.code != CODE_MENU2)
 					menu_long_fired = 1;
 				// MENU+F1/F2 stay free for game shortcuts
-				if (input_ev.code == BTN_THUMBL || input_ev.code == BTN_THUMBR) {
-					int dir = input_ev.code == BTN_THUMBL ? -1 : 1;
+				if (fkey_down_code && (input_ev.code == fkey_down_code || input_ev.code == fkey_up_code)) {
+					int dir = input_ev.code == fkey_down_code ? -1 : 1;
 					if (val == RELEASED && fkey_dir == dir)
 						fkey_dir = 0;
-					else if (is_brick && val == PRESSED && !menu_pressed && access(FKEY_BRIGHTNESS_PATH, F_OK) == 0) {
+					else if (val == PRESSED && !menu_pressed && access(FKEY_BRIGHTNESS_PATH, F_OK) == 0) {
 						brightness_step(dir);
 						fkey_dir = dir;
 						fkey_repeat_at = now + REPEAT_DELAY_MS;
