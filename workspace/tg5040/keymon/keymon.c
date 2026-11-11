@@ -44,6 +44,8 @@
 // Must match OSD_SUPPRESS_PATH in workspace/all/common/defines.h: while it
 // exists (minarch capturing a button bind) the MENU long-press is swallowed.
 #define OSD_SUPPRESS_PATH "/tmp/osd_suppress"
+// Must match FKEY_BRIGHTNESS_PATH in workspace/all/common/defines.h (Settings toggle)
+#define FKEY_BRIGHTNESS_PATH "/mnt/SDCARD/.userdata/" PLATFORM "/enable-fkey-brightness"
 
 #define RELEASED 0
 #define PRESSED 1
@@ -296,6 +298,13 @@ static void dpad_shortcut_abs(int fd, const struct input_event* ev, int menu_hel
 			dpad_shortcut_pressed(id, menu_held);
 }
 
+// Brick F1/F2: brightness down/up
+static void brightness_step(int dir) {
+	int b = GetBrightness() + dir;
+	if (b >= BRIGHTNESS_MIN && b <= BRIGHTNESS_MAX)
+		SetBrightness(b);
+}
+
 static uint32_t now_ms(void) {
 	struct timeval tod;
 	gettimeofday(&tod, NULL);
@@ -312,6 +321,14 @@ int main(int argc, char* argv[]) {
 
 	const char* device = getenv("DEVICE");
 	int is_brick = device && strcmp(device, "brick") == 0;
+	int is_brickpro = device && strcmp(device, "brickpro") == 0;
+	// F1/F2 evdev codes: the Brick's are L3/R3; the Brick Pro's sticks own those, its F keys
+	// are KEY_F1/KEY_F2 (BRICKPRO.md). 0 (KEY_RESERVED, never sent) = no F keys.
+	int fkey_down_code = 0, fkey_up_code = 0;
+	if (is_brickpro)
+		fkey_down_code = KEY_F1, fkey_up_code = KEY_F2;
+	else if (is_brick)
+		fkey_down_code = BTN_THUMBL, fkey_up_code = BTN_THUMBR;
 
 	// Create epoll instance
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -357,6 +374,10 @@ int main(int argc, char* argv[]) {
 	uint32_t down_just_pressed = 0;
 	uint32_t down_repeat_at = 0;
 
+	// held F1/F2 brightness key: -1/1, 0 = none
+	int fkey_dir = 0;
+	uint32_t fkey_repeat_at = 0;
+
 	uint32_t then = now_ms();
 
 	struct epoll_event events[16];
@@ -382,6 +403,14 @@ int main(int argc, char* argv[]) {
 		} else {
 			timeout_ms = 1000; // idle — wake up occasionally
 		}
+		// a held F key must not delay (or be delayed by) the deadlines above
+		if (fkey_dir) {
+			int remaining = (int)(fkey_repeat_at - now);
+			if (remaining < 1)
+				remaining = 1;
+			if (remaining < timeout_ms)
+				timeout_ms = remaining;
+		}
 
 		int nfds = epoll_wait(epoll_fd, events, 16, timeout_ms);
 		if (nfds < 0) {
@@ -402,6 +431,7 @@ int main(int argc, char* argv[]) {
 			up_repeat_at = 0;
 			down_repeat_at = 0;
 			abs_held = 0;
+			fkey_dir = 0;
 			// Drain all input fds
 			for (int i = 0; i < input_count; i++) {
 				if (input_fds[i] < 0)
@@ -450,6 +480,17 @@ int main(int argc, char* argv[]) {
 				// volume/brightness chords) — never pop the OSD on those.
 				if (val == PRESSED && menu_pressed && input_ev.code != CODE_MENU2)
 					menu_long_fired = 1;
+				// MENU+F1/F2 stay free for game shortcuts
+				if (fkey_down_code && (input_ev.code == fkey_down_code || input_ev.code == fkey_up_code)) {
+					int dir = input_ev.code == fkey_down_code ? -1 : 1;
+					if (val == RELEASED && fkey_dir == dir)
+						fkey_dir = 0;
+					else if (val == PRESSED && !menu_pressed && access(FKEY_BRIGHTNESS_PATH, F_OK) == 0) {
+						brightness_step(dir);
+						fkey_dir = dir;
+						fkey_repeat_at = now + REPEAT_DELAY_MS;
+					}
+				}
 				switch (input_ev.code) {
 				case CODE_PLUS:
 					up_pressed = up_just_pressed = val;
@@ -518,6 +559,11 @@ int main(int argc, char* argv[]) {
 			menu_long_fired = 1;
 			if (access(OSD_SUPPRESS_PATH, F_OK) != 0)
 				toggle_osd();
+		}
+
+		if (fkey_dir && (int)(now - fkey_repeat_at) >= 0) {
+			brightness_step(fkey_dir);
+			fkey_repeat_at += REPEAT_RATE_MS;
 		}
 
 		// Handle key repeat for volume/brightness

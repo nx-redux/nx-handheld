@@ -3951,6 +3951,11 @@ int PAD_anyJustReleased(void) {
 	return pad.just_released != BTN_NONE;
 }
 
+// Settings > F1 / F2 keys > Use to control brightness: keymon steps brightness on F1/F2
+int PAD_fnKeysControlBrightness(void) {
+	return HAS_FN_KEYS && exists((char*)FKEY_BRIGHTNESS_PATH);
+}
+
 int PAD_justPressed(int btn) {
 	return pad.just_pressed & btn;
 }
@@ -4509,6 +4514,13 @@ void PWR_update(bool* _dirty, IndicatorType* _show_setting, PWR_callback_t befor
 		} else {
 			show_setting = INDICATOR_VOLUME;
 		}
+	}
+
+	// held, not just pressed: keymon repeats the step. Buttons first so the file check
+	// only runs while a key is down; MENU+F1/F2 is a game shortcut, keymon skips it too.
+	if ((PAD_isPressed(BTN_FN1) || PAD_isPressed(BTN_FN2)) && !PAD_isPressed(BTN_MENU) && PAD_fnKeysControlBrightness()) {
+		setting_shown_at = now;
+		show_setting = INDICATOR_BRIGHTNESS;
 	}
 
 	if (InitializedSettings()) {

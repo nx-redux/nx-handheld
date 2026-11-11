@@ -110,6 +110,10 @@ brightness directly is futile: the next app launch re-applies
   is the 4-digit Settings PIN (empty/malformed = ungated; delete the file
   from the SD as recovery). Plaintext by design — a convenience gate, not
   security.
+- **F1/F2 brightness keys** (Brick, Brick Pro): the flag file
+  `.userdata/<platform>/enable-fkey-brightness` exists ⇒ keymon steps
+  brightness on F1/F2 and nextui/the music player ignore those keys. A file,
+  not a `minuisettings.txt` key, because keymon doesn't link `config.c`.
 - **ROM↔pak mapping**: the `(TAG)` suffix of the ROM's parent folder picks
   `<TAG>.pak` ([PAKS.md](PAKS.md)); `map.txt` in a ROM folder aliases
   filenames to display names (filename-keyed, tab-separated).
