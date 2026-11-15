@@ -87,6 +87,16 @@ static char* ambient_labels[] = {
 	"LR",
 	"Top/LR",
 	NULL};
+static char* ambient_labels_brickpro[] = {
+	"Off",
+	"All",
+	"Top",
+	"FN",
+	"LR",
+	"Top/LR",
+	"Sticks",
+	"Sticks/LR",
+	NULL};
 
 static char* effect_labels[] = {
 	"None",
@@ -1136,6 +1146,10 @@ static void Config_readControlsString(char* cfg) {
 void Config_load(void) {
 	config.released = 0;
 	config.device_tag = getenv("DEVICE");
+	if (config.device_tag && exactMatch(config.device_tag, "brickpro")) {
+		config.frontend.options[FE_OPT_AMBIENT].values = ambient_labels_brickpro;
+		config.frontend.options[FE_OPT_AMBIENT].labels = ambient_labels_brickpro;
+	}
 
 	// update for crop overscan support
 	Option* scaling_option = &config.frontend.options[FE_OPT_SCALING];

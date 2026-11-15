@@ -73,6 +73,13 @@ fi
 
 # leds_off
 echo 0 > /sys/class/led_anim/max_scale
+if [ "$DEVICE" = "brick" ] || [ "$DEVICE" = "brickpro" ]; then
+	echo 0 > /sys/class/led_anim/max_scale_lr 2>/dev/null
+	echo 0 > /sys/class/led_anim/max_scale_f1f2 2>/dev/null
+fi
+if [ "$DEVICE" = "brickpro" ]; then
+	echo 0 > /sys/class/led_anim/max_scale_rear 2>/dev/null
+fi
 
 # Disable SSH by default (security hardening)
 /etc/init.d/sshd stop > /dev/null 2>&1
