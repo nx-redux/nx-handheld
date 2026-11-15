@@ -7,6 +7,7 @@
 #include "ui_emptystate.h"
 #include "ui_menubar.h"
 #include "ui_player.h"
+#include "ui_tabs.h"
 #include "ui_icons.h"
 #include "ui_list.h"
 #include "ui_listview.h"
@@ -59,19 +60,20 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 	(void)show_setting;
 	GFX_clear(screen);
 
-	// Header title: "Media Player | Videos" at root, "Videos | <folder>" in subdirectories (LIST-LAYOUT §10.1)
-	const char* header_title = "Media Player | Videos";
+	bool is_root = (strcmp(ctx->current_path, VIDEO_ROOT) == 0);
+	const char* header_title = "Media Player | Library";
+	const char* sub_title = NULL;
 	char folder_title[300];
-	if (strcmp(ctx->current_path, VIDEO_ROOT) != 0) {
+	if (!is_root) {
 		const char* slash = strrchr(ctx->current_path, '/');
-		if (slash && slash[1] != '\0')
-			header_title = UI_pageTitle(folder_title, sizeof(folder_title), "Videos", slash + 1);
+		if (slash && slash[1] != '\0') {
+			sub_title = slash + 1;
+			header_title = UI_pageTitle(folder_title, sizeof(folder_title), "Videos", sub_title);
+		}
 	}
 
-	UI_renderMenuBar(screen, header_title);
-
 	ListView* v = &video_browser_view;
-	v->title = NULL; // menu bar drawn above (caller-owned chrome)
+	v->title = NULL;
 	v->font = font.medium;
 	v->count = ctx->entry_count;
 	v->get_row = browser_get_row;
@@ -79,16 +81,30 @@ void render_video_browser(SDL_Surface* screen, IndicatorType show_setting,
 	v->list_id = (const void*)ctx->entries;
 	v->empty_title = "No videos found";
 	v->empty_subtitle = "Add videos to /Videos on your SD card";
-	// A resumes a video with a saved position (play-from-start moves to the
-	// MENU context menu); surface that on the hint bar for the selected row.
-	static char* hints_open[] = {"B", "BACK", "A", "OPEN", NULL};
-	static char* hints_resume[] = {"B", "BACK", "A", "RESUME", NULL};
+	static char* empty_root_btns[] = {"L1", "ONLINE TV", "B", "EXIT", NULL};
+	v->empty_btn_pairs = is_root ? empty_root_btns : NULL;
+
+	static char* hints_root_empty[] = {"B", "EXIT", NULL};
+	static char* hints_root_open[] = {"B", "EXIT", "A", "OPEN", NULL};
+	static char* hints_root_resume[] = {"B", "EXIT", "A", "RESUME", NULL};
+	static char* hints_sub_open[] = {"B", "BACK", "A", "OPEN", NULL};
+	static char* hints_sub_resume[] = {"B", "BACK", "A", "RESUME", NULL};
+
 	VideoFileEntry* sel =
 		(ctx->entry_count > 0 && v->selected >= 0 && v->selected < ctx->entry_count)
 			? &ctx->entries[v->selected]
 			: NULL;
 	bool sel_can_resume = sel && !sel->is_dir && Positions_get(sel->path) > 0;
-	v->hint_pairs = sel_can_resume ? hints_resume : hints_open;
 
-	UI_listViewRender(v, screen);
+	char** hints;
+	if (is_root) {
+		if (ctx->entry_count <= 0)
+			hints = hints_root_empty;
+		else
+			hints = sel_can_resume ? hints_root_resume : hints_root_open;
+	} else {
+		hints = sel_can_resume ? hints_sub_resume : hints_sub_open;
+	}
+
+	MediaUI_renderPage(screen, v, header_title, sub_title, is_root, MEDIA_TAB_LIBRARY, hints);
 }
