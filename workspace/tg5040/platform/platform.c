@@ -980,34 +980,30 @@ void PLAT_setCurrentTimezone(const char* tz) {
 }
 
 bool PLAT_getNetworkTimeSync(void) {
-	char* output = (char*)malloc(256);
-	if (!output) {
+	char output[256] = {0};
+	FILE* fp = popen("uci -q get system.ntp.enabled || uci -q get system.ntp.enable", "r");
+	if (!fp)
 		return false;
-	}
-	FILE* fp = popen("uci get system.ntp.enable", "r");
-	if (!fp) {
-		free(output);
-		return false;
-	}
-	fgets(output, 256, fp);
+	fgets(output, sizeof(output), fp);
 	pclose(fp);
-	bool result = (output[0] == '1');
-	free(output);
-	return result;
+	return (output[0] == '1');
 }
 
 void PLAT_setNetworkTimeSync(bool on) {
-	// note: this is not the service residing at /etc/init.d/ntpd - that one has hardcoded time server URLs and does not interact with UCI.
+	// OpenWrt's procd service is /etc/init.d/sysntpd (S98sysntpd), which reads
+	// system.ntp.enabled (with a 'd'). Calling /etc/init.d/ntpd only signals the
+	// child process and procd immediately respawns it. Keep both enable/enabled
+	// in sync and replace the stock hardcoded regional servers when enabling.
 	if (on) {
-		// permanment
-		system("uci set system.ntp.enable=1");
-		system("uci commit system");
-		system("/etc/init.d/ntpd reload");
+		system("uci -q del_list system.ntp.server='ntp5.aliyun.com'; "
+			   "uci -q del_list system.ntp.server='0.cn.pool.ntp.org'; "
+			   "uci -q del_list system.ntp.server='time.cloudflare.com'; "
+			   "uci -q add_list system.ntp.server='time.cloudflare.com'; "
+			   "uci set system.ntp.enabled=1; uci set system.ntp.enable=1; "
+			   "uci commit system; /etc/init.d/sysntpd reload 2>/dev/null || /etc/init.d/sysntpd start 2>/dev/null");
 	} else {
-		// permanment
-		system("uci set system.ntp.enable=0");
-		system("uci commit system");
-		system("/etc/init.d/ntpd stop");
+		system("uci set system.ntp.enabled=0; uci set system.ntp.enable=0; "
+			   "uci commit system; /etc/init.d/sysntpd stop 2>/dev/null; /etc/init.d/ntpd stop 2>/dev/null");
 	}
 }
 

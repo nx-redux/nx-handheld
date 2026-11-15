@@ -91,7 +91,8 @@ fi
 echo 243 > /sys/class/gpio/export
 echo -n in > /sys/class/gpio/gpio243/direction
 
-syslogd -S
+# OpenWrt's logd is already running from S12log; only start busybox syslogd as fallback
+pidof logd > /dev/null 2>&1 || syslogd -S
 
 #######################################
 
@@ -269,6 +270,36 @@ sshonboot=$(nextval.elf sshOnBoot | sed -n 's/.*"sshOnBoot": \([0-9]*\).*/\1/p')
 if [ "$sshonboot" -eq 1 ]; then
 	/etc/init.d/sshd start > /dev/null 2>&1 &
 	BOOT_JOBS="$BOOT_JOBS $!"
+fi
+
+# Stop unused stock TinaLinux MtpDaemon (NX Redux uses usblink alongside adbd;
+# adbd stays running at ~260 kB RSS so USB adb and usblink remain ready).
+if [ -x /etc/init.d/mtp ]; then
+	/etc/init.d/mtp stop > /dev/null 2>&1 &
+fi
+
+# Sync OpenWrt procd sysntpd with NX Redux's ntp setting (stock /etc/config/system
+# omits 'enabled', leaving ntpd polling ntp5.aliyun.com even when ntp=0).
+ntpon=$(nextval.elf ntp | sed -n 's/.*"ntp": \([0-9]*\).*/\1/p')
+if [ "$ntpon" = "1" ]; then
+	(
+		uci -q del_list system.ntp.server='ntp5.aliyun.com'
+		uci -q del_list system.ntp.server='0.cn.pool.ntp.org'
+		uci -q del_list system.ntp.server='time.cloudflare.com'
+		uci -q add_list system.ntp.server='time.cloudflare.com'
+		uci set system.ntp.enabled=1
+		uci set system.ntp.enable=1
+		uci commit system
+		/etc/init.d/sysntpd reload 2>/dev/null || /etc/init.d/sysntpd start 2>/dev/null
+	) > /dev/null 2>&1 &
+else
+	(
+		uci set system.ntp.enabled=0
+		uci set system.ntp.enable=0
+		uci commit system
+		/etc/init.d/sysntpd stop 2>/dev/null
+		/etc/init.d/ntpd stop 2>/dev/null
+	) > /dev/null 2>&1 &
 fi
 
 # Touch the marker once every boot job above has exited (kill -0 = alive).
