@@ -484,10 +484,20 @@ void input_tester_run(SDL_Surface* screen) {
 
 	PAD_Axis prev_laxis = {0, 0};
 	PAD_Axis prev_raxis = {0, 0};
+	int prev_l2_axis = 0;
+	int prev_r2_axis = 0;
 
 	bool quit = false;
 	bool dirty = true;
 	IndicatorType show_setting = INDICATOR_NONE;
+
+	// Suppress OSD triggers (HOME / MENU long-press) and power-button sleep/poweroff
+	// while inside Input Tester so every physical button on Brick Pro can be tested,
+	// and a short screen timeout doesn't blank the screen during stick calibration.
+	touch(OSD_SUPPRESS_PATH);
+	PWR_disableSleep();
+	PWR_disablePowerOff();
+	PWR_disableAutosleep();
 
 	while (!quit && !app_quit) {
 		GFX_startFrame();
@@ -500,6 +510,11 @@ void input_tester_run(SDL_Surface* screen) {
 			dirty = true;
 			prev_laxis = pad.laxis;
 			prev_raxis = pad.raxis;
+		}
+		if (pad.l2_axis != prev_l2_axis || pad.r2_axis != prev_r2_axis) {
+			dirty = true;
+			prev_l2_axis = pad.l2_axis;
+			prev_r2_axis = pad.r2_axis;
 		}
 		if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_START))
 			quit = true;
@@ -540,8 +555,14 @@ void input_tester_run(SDL_Surface* screen) {
 				blitButton("L1", screen, PAD_isPressed(BTN_L1), bx, y + SCALE1(BUTTON_INSET), 0);
 				bx += getButtonWidth("L1") + SCALE1(BUTTON_INSET);
 				if (has_L2) {
+					int l2w = getButtonWidth("L2");
 					blitButton("L2", screen, PAD_isPressed(BTN_L2), bx, y + SCALE1(BUTTON_INSET), 0);
-					bx += getButtonWidth("L2") + SCALE1(BUTTON_INSET);
+					if (pad.l2_axis > 0) {
+						int fill = (int)((long)pad.l2_axis * l2w / 32767);
+						if (fill > 0)
+							SDL_FillRect(screen, &(SDL_Rect){bx, y + SCALE1(PILL_SIZE) - SCALE1(3), fill, SCALE1(2)}, THEME_COLOR2);
+					}
+					bx += l2w + SCALE1(BUTTON_INSET);
 				}
 				if (has_L4)
 					blitButton("L4", screen, PAD_isPressed(BTN_L4), bx, y + SCALE1(BUTTON_INSET), 0);
@@ -567,8 +588,14 @@ void input_tester_run(SDL_Surface* screen) {
 					bx += getButtonWidth("R4") + SCALE1(BUTTON_INSET);
 				}
 				if (has_R2) {
+					int r2w = getButtonWidth("R2");
 					blitButton("R2", screen, PAD_isPressed(BTN_R2), bx, y + SCALE1(BUTTON_INSET), 0);
-					bx += getButtonWidth("R2") + SCALE1(BUTTON_INSET);
+					if (pad.r2_axis > 0) {
+						int fill = (int)((long)pad.r2_axis * r2w / 32767);
+						if (fill > 0)
+							SDL_FillRect(screen, &(SDL_Rect){bx, y + SCALE1(PILL_SIZE) - SCALE1(3), fill, SCALE1(2)}, THEME_COLOR2);
+					}
+					bx += r2w + SCALE1(BUTTON_INSET);
 				}
 				blitButton("R1", screen, PAD_isPressed(BTN_R1), bx, y + SCALE1(BUTTON_INSET), 0);
 			}
@@ -772,6 +799,12 @@ void input_tester_run(SDL_Surface* screen) {
 			GFX_sync();
 		}
 	}
+
+	unlink(OSD_SUPPRESS_PATH);
+	PWR_enableAutosleep();
+	PWR_enablePowerOff();
+	PWR_enableSleep();
+	PAD_reset();
 
 	if (joy_dot)
 		SDL_FreeSurface(joy_dot);

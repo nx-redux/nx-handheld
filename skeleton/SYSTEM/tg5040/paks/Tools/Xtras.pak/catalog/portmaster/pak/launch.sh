@@ -375,6 +375,9 @@ patch_device_info_brickpro_sticks() { # $1 = device_info.txt
             print "    # NX Redux: Brick Pro sticks (its pad is virtual, so the probe counts 0)"
             print "    if [ \"$DEVICE\" = \"brickpro\" ] && [ -d /usr/trimui ]; then"
             print "        export ANALOG_STICKS=2"
+            print "        export ANALOG_TRIGGERS=2"
+            print "    elif [ \"$DEVICE\" = \"smartpro\" ] && [ -d /usr/trimui ]; then"
+            print "        export ANALOG_STICKS=2"
             print "    fi"
             done = 1; prev = $0; next
         }

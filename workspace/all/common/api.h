@@ -536,6 +536,8 @@ typedef struct PAD_Context {
 	uint32_t repeat_at[BTN_ID_COUNT];
 	PAD_Axis laxis;
 	PAD_Axis raxis;
+	int l2_axis; // 0..32767 normalized analog L2 trigger
+	int r2_axis; // 0..32767 normalized analog R2 trigger
 } PAD_Context;
 extern PAD_Context pad;
 

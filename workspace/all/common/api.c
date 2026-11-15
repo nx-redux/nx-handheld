@@ -3806,15 +3806,28 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void) {
 			int axis = event.jaxis.axis;
 			int val = event.jaxis.value;
 
-			// triggers on tg5040
-			if (axis == AXIS_L2) {
-				btn = BTN_L2;
-				id = BTN_ID_L2;
-				pressed = val > 0;
-			} else if (axis == AXIS_R2) {
-				btn = BTN_R2;
-				id = BTN_ID_R2;
-				pressed = val > 0;
+			// triggers on tg5040 (digital -32768/+32767 on Brick, Hall analog on Brick Pro).
+			// Normalize [-32768..32767] -> [0..32767] with a ~3% resting deadzone and
+			// ~20% press / ~14% release hysteresis so analog triggers actuate crisply
+			// without midpoint chatter, while preserving full 15-bit analog range.
+			if (axis == AXIS_L2 || axis == AXIS_R2) {
+				int raw = (val + 32768) >> 1;
+				if (raw < 0)
+					raw = 0;
+				if (raw > 32767)
+					raw = 32767;
+				int norm = (raw <= 1024) ? 0 : (int)(((int64_t)(raw - 1024) * 32767) / (32767 - 1024));
+				if (axis == AXIS_L2) {
+					pad.l2_axis = norm;
+					btn = BTN_L2;
+					id = BTN_ID_L2;
+				} else {
+					pad.r2_axis = norm;
+					btn = BTN_R2;
+					id = BTN_ID_R2;
+				}
+				int was_down = (pad.is_pressed & btn) != 0;
+				pressed = was_down ? (norm >= 4587) : (norm >= 6553);
 			}
 
 			else if (axis == AXIS_LX) {
