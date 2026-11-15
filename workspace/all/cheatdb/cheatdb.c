@@ -109,6 +109,8 @@ static bool do_download(void) {
 		snprintf(status, sizeof(status), "Installing %s (%d/%d)", CHEATDB_MAP[i].tag, i + 1, CHEATDB_MAP_COUNT);
 		render_progress(status, (i + 1) * 100 / CHEATDB_MAP_COUNT, "", 0);
 		Cheatdb_extractFolder(&P, CHEATDB_MAP[i].folder, dest);
+		if (strcmp(CHEATDB_MAP[i].tag, "NDS") == 0)
+			Cheatdb_convertNdsFolder(&P, CHEATDB_MAP[i].folder, dest);
 		Cheatdb_appendManifest(&P, CHEATDB_MAP[i].folder, dest);
 	}
 

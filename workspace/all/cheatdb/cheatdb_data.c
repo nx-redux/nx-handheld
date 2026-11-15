@@ -1,4 +1,5 @@
 #include "cheatdb_data.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -162,6 +163,265 @@ int Cheatdb_appendManifest(const CheatdbPaths* p, const char* folder, const char
 			fprintf(man, "%s/%s\n", destdir, line);
 	}
 	fclose(man);
+	pclose(in);
+	return 0;
+}
+
+static bool nds_append_str(char* out, size_t cap, size_t* pos, const char* s) {
+	size_t n = strlen(s);
+	if (*pos + n >= cap)
+		return false;
+	memcpy(out + *pos, s, n);
+	*pos += n;
+	out[*pos] = '\0';
+	return true;
+}
+
+static void nds_unquote_trim(const char* val, char* dst, size_t cap) {
+	while (*val == ' ' || *val == '\t')
+		val++;
+	size_t len = strlen(val);
+	while (len > 0 && (val[len - 1] == '\r' || val[len - 1] == '\n' || val[len - 1] == ' ' || val[len - 1] == '\t'))
+		len--;
+	if (len >= 2 && val[0] == '"' && val[len - 1] == '"') {
+		val++;
+		len -= 2;
+	}
+	if (len >= cap)
+		len = cap - 1;
+	memcpy(dst, val, len);
+	dst[len] = '\0';
+}
+
+int Cheatdb_convertNdsCheat(const char* libretro_text, char* out, size_t cap) {
+	if (!libretro_text || !out || cap == 0)
+		return -1;
+	out[0] = '\0';
+
+	// Idempotency guard: if already in DraStic [Section] format, copy verbatim.
+	const char* scan = libretro_text;
+	while (*scan == ' ' || *scan == '\t' || *scan == '\r' || *scan == '\n')
+		scan++;
+	if (*scan == '[') {
+		size_t len = strlen(libretro_text);
+		if (len >= cap)
+			return -1;
+		memcpy(out, libretro_text, len + 1);
+		return (int)len;
+	}
+
+	typedef struct {
+		int idx;
+		char desc[256];
+		char* code;
+		bool enable;
+	} NdsEntry;
+
+	int max_entries = 64;
+	NdsEntry* entries = (NdsEntry*)calloc((size_t)max_entries, sizeof(NdsEntry));
+	if (!entries)
+		return -1;
+	int entry_count = 0;
+
+	const char* p = libretro_text;
+	while (*p) {
+		const char* eol = strchr(p, '\n');
+		size_t linelen = eol ? (size_t)(eol - p) : strlen(p);
+		const char* lp = p;
+		while (linelen > 0 && (*lp == ' ' || *lp == '\t')) {
+			lp++;
+			linelen--;
+		}
+		if (strncmp(lp, "cheat", 5) == 0 && isdigit((unsigned char)lp[5])) {
+			int idx = 0;
+			const char* kp = lp + 5;
+			while (isdigit((unsigned char)*kp)) {
+				idx = idx * 10 + (*kp - '0');
+				kp++;
+			}
+			if (*kp == '_') {
+				kp++;
+				const char* eq = memchr(kp, '=', linelen - (size_t)(kp - lp));
+				if (eq) {
+					size_t klen = (size_t)(eq - kp);
+					while (klen > 0 && (kp[klen - 1] == ' ' || kp[klen - 1] == '\t'))
+						klen--;
+					size_t vlen = linelen - (size_t)((eq + 1) - lp);
+					char* valbuf = (char*)malloc(vlen + 1);
+					if (valbuf) {
+						memcpy(valbuf, eq + 1, vlen);
+						valbuf[vlen] = '\0';
+
+						int slot = -1;
+						for (int i = 0; i < entry_count; i++) {
+							if (entries[i].idx == idx) {
+								slot = i;
+								break;
+							}
+						}
+						if (slot < 0) {
+							if (entry_count == max_entries) {
+								int nmax = max_entries * 2;
+								NdsEntry* grown = (NdsEntry*)realloc(entries, (size_t)nmax * sizeof(NdsEntry));
+								if (grown) {
+									memset(grown + max_entries, 0, (size_t)(nmax - max_entries) * sizeof(NdsEntry));
+									entries = grown;
+									max_entries = nmax;
+								}
+							}
+							if (entry_count < max_entries) {
+								slot = entry_count++;
+								entries[slot].idx = idx;
+							}
+						}
+						if (slot >= 0) {
+							if (klen == 4 && strncmp(kp, "desc", 4) == 0) {
+								nds_unquote_trim(valbuf, entries[slot].desc, sizeof(entries[slot].desc));
+							} else if (klen == 4 && strncmp(kp, "code", 4) == 0) {
+								char* clean = (char*)malloc(vlen + 1);
+								if (clean) {
+									nds_unquote_trim(valbuf, clean, vlen + 1);
+									free(entries[slot].code);
+									entries[slot].code = clean;
+								}
+							} else if (klen == 6 && strncmp(kp, "enable", 6) == 0) {
+								char eb[32];
+								nds_unquote_trim(valbuf, eb, sizeof(eb));
+								entries[slot].enable = (strcmp(eb, "true") == 0 || strcmp(eb, "1") == 0);
+							}
+						}
+						free(valbuf);
+					}
+				}
+			}
+		}
+		p = eol ? (eol + 1) : (p + linelen);
+	}
+
+	size_t pos = 0;
+	bool ok = true;
+	for (int i = 0; i < entry_count && ok; i++) {
+		if (!entries[i].code || !entries[i].code[0])
+			continue;
+		const char* desc = entries[i].desc[0] ? entries[i].desc : "Cheat";
+		char hdr[280];
+		snprintf(hdr, sizeof(hdr), "%s[%s%s]\n", pos > 0 ? "\n" : "", desc, entries[i].enable ? "+" : "");
+		ok = nds_append_str(out, cap, &pos, hdr);
+
+		// Split code on '+', whitespace, ';', or ',' into 8-hex-digit words and
+		// emit two words per line: WORD1 WORD2.
+		const char* cp = entries[i].code;
+		char word1[16] = {0};
+		int have_word1 = 0;
+		while (*cp && ok) {
+			while (*cp && (*cp == '+' || *cp == ' ' || *cp == '\t' || *cp == ';' || *cp == ',' || *cp == '\r' || *cp == '\n'))
+				cp++;
+			if (!*cp)
+				break;
+			const char* start = cp;
+			while (*cp && *cp != '+' && *cp != ' ' && *cp != '\t' && *cp != ';' && *cp != ',' && *cp != '\r' && *cp != '\n')
+				cp++;
+			size_t tlen = (size_t)(cp - start);
+			// Handle concatenated 16-hex-digit token AAAAAAAAVVVVVVVV as well as 8-hex-digit words
+			if (tlen == 16) {
+				char linebuf[32];
+				snprintf(linebuf, sizeof(linebuf), "%.8s %.8s\n", start, start + 8);
+				ok = nds_append_str(out, cap, &pos, linebuf);
+			} else if (tlen > 0 && tlen < sizeof(word1)) {
+				if (!have_word1) {
+					memcpy(word1, start, tlen);
+					word1[tlen] = '\0';
+					have_word1 = 1;
+				} else {
+					char word2[16];
+					memcpy(word2, start, tlen);
+					word2[tlen] = '\0';
+					char linebuf[40];
+					snprintf(linebuf, sizeof(linebuf), "%s %s\n", word1, word2);
+					ok = nds_append_str(out, cap, &pos, linebuf);
+					have_word1 = 0;
+				}
+			}
+		}
+		if (have_word1 && ok) {
+			char linebuf[24];
+			snprintf(linebuf, sizeof(linebuf), "%s\n", word1);
+			ok = nds_append_str(out, cap, &pos, linebuf);
+		}
+	}
+
+	for (int i = 0; i < entry_count; i++)
+		free(entries[i].code);
+	free(entries);
+
+	return ok ? (int)pos : -1;
+}
+
+static int convert_nds_file_inplace(const char* filepath) {
+	FILE* f = fopen(filepath, "rb");
+	if (!f)
+		return -1;
+	if (fseek(f, 0, SEEK_END) != 0) {
+		fclose(f);
+		return -1;
+	}
+	long sz = ftell(f);
+	if (sz < 0 || fseek(f, 0, SEEK_SET) != 0) {
+		fclose(f);
+		return -1;
+	}
+	char* src = (char*)malloc((size_t)sz + 1);
+	if (!src) {
+		fclose(f);
+		return -1;
+	}
+	size_t rd = fread(src, 1, (size_t)sz, f);
+	fclose(f);
+	src[rd] = '\0';
+
+	size_t out_cap = rd * 2 + 4096;
+	char* out = (char*)malloc(out_cap);
+	if (!out) {
+		free(src);
+		return -1;
+	}
+	int n = Cheatdb_convertNdsCheat(src, out, out_cap);
+	free(src);
+	if (n < 0) {
+		free(out);
+		return -1;
+	}
+
+	f = fopen(filepath, "wb");
+	if (!f) {
+		free(out);
+		return -1;
+	}
+	if (n > 0)
+		fwrite(out, 1, (size_t)n, f);
+	fclose(f);
+	free(out);
+	return 0;
+}
+
+int Cheatdb_convertNdsFolder(const CheatdbPaths* p, const char* folder, const char* destdir) {
+	char cmd[2048];
+	if (strstr(p->unzip, "7zzs"))
+		snprintf(cmd, sizeof(cmd), "'%s' l '%s' '%s/*.cht' 2>/dev/null | grep '\\.cht$' | sed 's#.*/##'", p->unzip, p->zip, folder);
+	else
+		snprintf(cmd, sizeof(cmd), "'%s' -l '%s' '%s/*.cht' 2>/dev/null | grep '\\.cht$' | sed 's#.*/##'", p->unzip, p->zip, folder);
+	FILE* in = popen(cmd, "r");
+	if (!in)
+		return -1;
+	char line[512];
+	while (fgets(line, sizeof(line), in)) {
+		line[strcspn(line, "\r\n")] = '\0';
+		if (!line[0])
+			continue;
+		char path[1100];
+		snprintf(path, sizeof(path), "%s/%s", destdir, line);
+		convert_nds_file_inplace(path);
+	}
 	pclose(in);
 	return 0;
 }

@@ -30,6 +30,13 @@ void Cheatdb_writeDbVersion(const CheatdbPaths* p, const char* lastmod);
 void Cheatdb_truncateManifest(const CheatdbPaths* p);
 int Cheatdb_extractFolder(const CheatdbPaths* p, const char* folder, const char* destdir);
 int Cheatdb_appendManifest(const CheatdbPaths* p, const char* folder, const char* destdir);
+// Convert a libretro .cht text buffer into DraStic's [Desc]\nWORD1 WORD2 format.
+// Idempotent: if `libretro_text` already starts with a `[section]` header, copies
+// it through unchanged. Returns output byte length, or -1 if `cap` was too small.
+int Cheatdb_convertNdsCheat(const char* libretro_text, char* out, size_t cap);
+// Rewrite extracted .cht files in `destdir` from libretro format to DraStic format,
+// driving filenames from the archive index (exFAT-safe: no live readdir).
+int Cheatdb_convertNdsFolder(const CheatdbPaths* p, const char* folder, const char* destdir);
 void Cheatdb_removeAll(const CheatdbPaths* p);
 // ca_bundle: CA bundle to verify TLS against (nx_ca_bundle_path()), or NULL
 // on a card without one (falls back to no verification, like wget_fetch.c).

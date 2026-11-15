@@ -162,6 +162,48 @@ int main(void) {
 		CHECK(0, "WGET_ARGS_LOG not set (run via scripts/tests/test-cheatdb-data.sh)");
 	}
 
+	// NDS libretro -> DraStic format conversion (pure + archive-index folder rewrite)
+	{
+		const char* lr =
+			"cheats = 2\n"
+			"cheat0_desc = \"Anti-Piracy Bypass Code\"\n"
+			"cheat0_code = \"0204E334+E3A00000+0204E338+E12FFF1E\"\n"
+			"cheat0_enable = false\n"
+			"cheat1_desc = \"Max Coins\"\n"
+			"cheat1_code = \"1217ACDC 0000000A\"\n"
+			"cheat1_enable = true\n";
+		const char* expected =
+			"[Anti-Piracy Bypass Code]\n"
+			"0204E334 E3A00000\n"
+			"0204E338 E12FFF1E\n"
+			"\n"
+			"[Max Coins+]\n"
+			"1217ACDC 0000000A\n";
+		char converted[1024];
+		int clen = Cheatdb_convertNdsCheat(lr, converted, sizeof(converted));
+		CHECK(clen > 0 && strcmp(converted, expected) == 0, "NDS libretro .cht converts to DraStic format");
+
+		char idem[1024];
+		int ilen = Cheatdb_convertNdsCheat(converted, idem, sizeof(idem));
+		CHECK(ilen == clen && strcmp(idem, expected) == 0, "NDS DraStic conversion is idempotent");
+
+		char nds_dest[600], nds_file[700];
+		snprintf(nds_dest, sizeof(nds_dest), "%s/NDS", p.cheats_dir);
+		Cheatdb_extractFolder(&p, "Nintendo - Nintendo DS", nds_dest);
+		Cheatdb_convertNdsFolder(&p, "Nintendo - Nintendo DS", nds_dest);
+		snprintf(nds_file, sizeof(nds_file), "%s/Mario Kart DS (USA).cht", nds_dest);
+		FILE* nf = fopen(nds_file, "rb");
+		char disk[1024] = {0};
+		if (nf) {
+			size_t nr = fread(disk, 1, sizeof(disk) - 1, nf);
+			disk[nr] = '\0';
+			fclose(nf);
+		}
+		CHECK(strcmp(disk, expected) == 0, "Cheatdb_convertNdsFolder rewrites NDS .cht in place via archive index");
+		remove(nds_file);
+		rmdir(nds_dest);
+	}
+
 	printf(fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", fails);
 	return fails ? 1 : 0;
 }
