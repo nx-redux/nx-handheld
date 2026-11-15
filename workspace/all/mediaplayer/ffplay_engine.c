@@ -245,6 +245,10 @@ static int ffplay_exec(FfplayConfig* config, int use_subs) {
 	if (child == 0) {
 		// Child process: ensure ALSA finds .asoundrc managed by audiomon
 		setenv("HOME", USERDATA_PATH, 1);
+		// Gate SDL2 input behind /tmp/trimui_osd/osdd_show_up so pressing B to
+		// dismiss the OSD on Brick Pro never exits video playback.
+		if (access(SYSTEM_PATH "/lib/libosdgate.so", F_OK) == 0)
+			setenv("LD_PRELOAD", SYSTEM_PATH "/lib/libosdgate.so", 1);
 		// Generate a minimal fontconfig pointing to system fonts directory
 		// so fontconfig doesn't scan the entire filesystem (~13s startup delay)
 		if (use_subs) {
