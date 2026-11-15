@@ -33,6 +33,9 @@ turn_all_leds_off() {
     for eff in f1 f2 m lr rear l r; do
         [ -e "/sys/class/led_anim/effect_$eff" ] && echo 0 > "/sys/class/led_anim/effect_$eff" 2>/dev/null
     done
+    if [ -w "/sys/class/led_anim/frame_hex" ]; then
+        printf "000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 " > /sys/class/led_anim/frame_hex 2>/dev/null
+    fi
 }
 
 restore_leds_from_settings() {

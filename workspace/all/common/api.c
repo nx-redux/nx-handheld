@@ -1036,8 +1036,7 @@ void GFX_setAmbientColor(const void* data, unsigned width, unsigned height, size
 					 (has_rear ? (strcmp(z, "rear") == 0)
 							   : (strcmp(z, "lr") == 0 || strcmp(z, "l") == 0 || strcmp(z, "r") == 0));
 		} else if (mode == 6) {
-			active = has_rear ? (strcmp(z, "lr") == 0)
-							  : (strcmp(z, "l") == 0 || strcmp(z, "r") == 0);
+			active = (strcmp(z, "l") == 0 || strcmp(z, "r") == 0 || (has_rear && strcmp(z, "lr") == 0));
 		} else if (mode == 7) {
 			active = (strcmp(z, "lr") == 0 || strcmp(z, "rear") == 0 || strcmp(z, "l") == 0 || strcmp(z, "r") == 0);
 		}
@@ -4805,6 +4804,13 @@ FALLBACK_IMPLEMENTATION void PLAT_setLedColor(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedInbrightness(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedEffectCycles(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedEffectSpeed(LightSettings* led) {}
+FALLBACK_IMPLEMENTATION bool PLAT_applyLedBatteryBar(int mode, int charge_pct, bool charging, bool force_rewrite) {
+	(void)mode;
+	(void)charge_pct;
+	(void)charging;
+	(void)force_rewrite;
+	return false;
+}
 
 void LEDS_setProfile(int profile) {
 	if (lights_initialized == 0)
@@ -4846,8 +4852,11 @@ void LEDS_setProfile(int profile) {
 	default:
 		return;
 	}
-	if (profile != LIGHT_PROFILE_AMBIENT && lights == (LightSettings(*)[MAX_LIGHTS])new_lights)
+	if (profile != LIGHT_PROFILE_AMBIENT && lights == (LightSettings(*)[MAX_LIGHTS])new_lights) {
+		if (CFG_getLedBatteryBar() != LED_BATTERY_BAR_OFF)
+			LEDS_updateLeds(indicator);
 		return;
+	}
 	lights = (LightSettings(*)[MAX_LIGHTS])new_lights;
 
 	LEDS_updateLeds(indicator);
@@ -4921,9 +4930,29 @@ void LEDS_updateLeds(bool indicator_only) {
 		LOG_error("LEDS_updateLeds called but lights is NULL\n");
 		return;
 	}
+
+	int bat_mode = CFG_getLedBatteryBar();
+	bool bat_allowed = (lights == &lightsDefault || lights == &lightsCharging) &&
+					   disabled_now == 0 &&
+					   !(InitializedSettings() && CFG_getFnLEDs() && GetFnMode());
+	int eff_bat_mode = bat_allowed ? bat_mode : 0;
+	bool any_zone_written = false;
+
 	for (int i = 0; i < lightsize; i++) {
 		LightSettings led = (*lights)[i]; // local copy — we may force .effect off below
 		int eff_bright = indicator_only ? led.inbrightness : led.brightness;
+
+		// Addressable RGB battery bar (Brick Pro): silence effect_m / effect_l /
+		// effect_r on the zones it owns so trimui_ledc_run_thread preserves our
+		// per-LED frame_hex segments, while ensuring max_scale is non-zero.
+		bool bat_owns_zone = ((eff_bat_mode & LED_BATTERY_BAR_TOP) && strcmp(led.filename, "m") == 0) ||
+							 ((eff_bat_mode & LED_BATTERY_BAR_STICKS) &&
+							  (strcmp(led.filename, "l") == 0 || strcmp(led.filename, "r") == 0 || strcmp(led.filename, "lr") == 0));
+		if (bat_owns_zone) {
+			led.effect = 0;
+			if (eff_bright <= 0)
+				eff_bright = 20;
+		}
 
 		// On trimui led_anim hardware a brightness (max_scale) of 0 does NOT stop a
 		// running animation — the zone keeps showing its colour (e.g. the green charging
@@ -4945,21 +4974,65 @@ void LEDS_updateLeds(bool indicator_only) {
 		}
 
 		// set brightness of each led
-		if (indicator_only)
+		if (indicator_only) {
+			led.inbrightness = eff_bright;
 			PLAT_setLedInbrightness(&led);
-		else
+		} else {
+			led.brightness = eff_bright;
 			PLAT_setLedBrightness(&led);
+		}
 
 		PLAT_setLedEffectCycles(&led); // set how many times animation should loop
 		PLAT_setLedEffectSpeed(&led);  // set animation speed
 		PLAT_setLedColor(&led);		   // set color
 		PLAT_setLedEffect(&led);	   // finally set the effect, on trimui devices this also applies the settings
+		any_zone_written = true;
 
 		if (i < MAX_LIGHTS) {
 			applied_leds[i] = led;
 			applied_leds_eff_bright[i] = eff_bright;
 			applied_leds_valid[i] = 1;
 		}
+	}
+
+	int charge = pwr.initialized ? SDL_AtomicGet(&pwr.charge) : 100;
+	bool charging = pwr.initialized ? (SDL_AtomicGet(&pwr.is_charging) != 0) : false;
+	if (PLAT_applyLedBatteryBar(eff_bat_mode, charge, charging, any_zone_written)) {
+		// A zone was just released from battery-bar mode (e.g. Top bar -> Off):
+		// invalidate the cache and re-push normal zone effects immediately.
+		LEDS_invalidateCache();
+		for (int i = 0; i < lightsize; i++) {
+			LightSettings led = (*lights)[i];
+			int eff_bright = indicator_only ? led.inbrightness : led.brightness;
+			bool bat_owns_zone = ((eff_bat_mode & LED_BATTERY_BAR_TOP) && strcmp(led.filename, "m") == 0) ||
+								 ((eff_bat_mode & LED_BATTERY_BAR_STICKS) &&
+								  (strcmp(led.filename, "l") == 0 || strcmp(led.filename, "r") == 0 || strcmp(led.filename, "lr") == 0));
+			if (bat_owns_zone) {
+				led.effect = 0;
+				if (eff_bright <= 0)
+					eff_bright = 20;
+			}
+			if (eff_bright == 0)
+				led.effect = 0;
+			if (indicator_only) {
+				led.inbrightness = eff_bright;
+				PLAT_setLedInbrightness(&led);
+			} else {
+				led.brightness = eff_bright;
+				PLAT_setLedBrightness(&led);
+			}
+			PLAT_setLedEffectCycles(&led);
+			PLAT_setLedEffectSpeed(&led);
+			PLAT_setLedColor(&led);
+			PLAT_setLedEffect(&led);
+			if (i < MAX_LIGHTS) {
+				applied_leds[i] = led;
+				applied_leds_eff_bright[i] = eff_bright;
+				applied_leds_valid[i] = 1;
+			}
+		}
+		if (eff_bat_mode != 0)
+			PLAT_applyLedBatteryBar(eff_bat_mode, charge, charging, true);
 	}
 }
 

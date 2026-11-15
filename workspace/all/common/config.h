@@ -117,6 +117,15 @@ enum {
 	RA_SORT_COUNT
 };
 
+// Brick Pro addressable RGB battery bar modes (off by default).
+enum {
+	LED_BATTERY_BAR_OFF = 0,
+	LED_BATTERY_BAR_TOP = 1,
+	LED_BATTERY_BAR_STICKS = 2,
+	LED_BATTERY_BAR_BOTH = 3,
+	LED_BATTERY_BAR_COUNT
+};
+
 // "Button layout" setting. Physical layout is Nintendo (A right, B bottom);
 // Xbox swaps A<->B and X<->Y in every consumer at the next boot.
 enum {
@@ -180,8 +189,10 @@ typedef struct
 	char fn1Tool[256];
 	char fn2Tool[256];
 
-	// FN switch
+	// FN switch & LEDs
 	bool fnLeds;
+	int ledBatteryBar;	 // LED_BATTERY_BAR_* (Brick Pro 8-segment RGB battery gauge)
+	bool ledSplitSticks; // Split Brick Pro "Joysticks" zone into Joystick L + Joystick R
 
 	// Power
 	uint32_t screenTimeoutSecs;
@@ -324,6 +335,8 @@ typedef struct
 #define CFG_DEFAULT_RA_ACHIEVEMENT_SORT_ORDER RA_SORT_UNLOCKED_FIRST
 
 #define CFG_DEFAULT_KEEP_AWAKE_USB false
+#define CFG_DEFAULT_LEDBATTERYBAR LED_BATTERY_BAR_OFF
+#define CFG_DEFAULT_LEDSPLITSTICKS false
 
 // Developer defaults
 #define CFG_DEFAULT_DISABLE_SLEEP false
@@ -456,6 +469,12 @@ void CFG_setUseExtractedFileName(bool);
 // Enable/disable FN mode also shutting off LEDs.
 bool CFG_getFnLEDs(void);
 void CFG_setFnLEDs(bool);
+// Optional Brick Pro 8-LED addressable battery gauge (LED_BATTERY_BAR_*).
+int CFG_getLedBatteryBar(void);
+void CFG_setLedBatteryBar(int mode);
+// Optional Brick Pro separate Left / Right analog stick LED zones.
+bool CFG_getLedSplitSticks(void);
+void CFG_setLedSplitSticks(bool split);
 // Main menu tab layout per category (MENU_CAT_*): List, Grid or Carousel. A stored Backdrop (from an
 // older build) reads as Carousel without rewriting the stored value; an out-of-range category reads as List.
 int CFG_getMenuStyle(int category);

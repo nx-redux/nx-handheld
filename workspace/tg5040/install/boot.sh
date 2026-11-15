@@ -79,6 +79,8 @@ if [ "$DEVICE" = "brick" ] || [ "$DEVICE" = "brickpro" ]; then
 fi
 if [ "$DEVICE" = "brickpro" ]; then
 	echo 0 > /sys/class/led_anim/max_scale_rear 2>/dev/null
+	echo 0 > /sys/class/led_anim/effect_lr 2>/dev/null
+	printf "000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 " > /sys/class/led_anim/frame_hex 2>/dev/null
 fi
 
 # Disable SSH by default (security hardening)

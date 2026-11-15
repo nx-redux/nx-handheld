@@ -955,6 +955,7 @@ void PLAT_setLedBrightness(LightSettings* led);
 void PLAT_setLedInbrightness(LightSettings* led);
 void PLAT_setLedEffectSpeed(LightSettings* led);
 void PLAT_setLedEffectCycles(LightSettings* led);
+bool PLAT_applyLedBatteryBar(int mode, int charge_pct, bool charging, bool force_rewrite);
 
 bool PLAT_canTurbo(void);
 // "Toggle D-pad Joystick" shortcut: only the Brick (the Brick Pro and Smart

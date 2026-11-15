@@ -541,6 +541,14 @@ static const LedZone led_zones_brickpro[] = {
 	{"Joysticks", "lr"},
 	{"L/R triggers", "rear"},
 };
+static const LedZone led_zones_brickpro_split[] = {
+	{"FN 1 key", "f1"},
+	{"FN 2 key", "f2"},
+	{"Topbar", "m"},
+	{"Joystick L", "l"},
+	{"Joystick R", "r"},
+	{"L/R triggers", "rear"},
+};
 static const LedZone led_zones_smartpro[] = {
 	{"Joystick L", "l"},
 	{"Joystick R", "r"},
@@ -549,6 +557,10 @@ static const LedZone led_zones_smartpro[] = {
 
 static const LedZone* PLAT_getLedZones(int* count) {
 	if (is_brickpro) {
+		if (CFG_getLedSplitSticks()) {
+			*count = sizeof(led_zones_brickpro_split) / sizeof(led_zones_brickpro_split[0]);
+			return led_zones_brickpro_split;
+		}
 		*count = sizeof(led_zones_brickpro) / sizeof(led_zones_brickpro[0]);
 		return led_zones_brickpro;
 	}
@@ -592,8 +604,84 @@ void PLAT_initDefaultLeds() {
 		strncpy(lightsDefault[i].filename, zones[i].filename, sizeof(lightsDefault[i].filename) - 1);
 	}
 }
+static void PLAT_writeSysfsInt(const char* path, int val) {
+	FILE* f = fopen(path, "w");
+	if (f) {
+		fprintf(f, "%d\n", val);
+		fclose(f);
+	}
+}
+
+static void applyParsedLedSection(LightSettings* lights, int count, const LightSettings* parsed, bool has_section) {
+	if (!has_section)
+		return;
+	// Migrate between 5-zone [Joysticks] ("lr") and 6-zone [Joystick L]/[Joystick R] ("l"/"r")
+	if (is_brickpro && (strcmp(parsed->filename, "lr") == 0 || strcmp(parsed->name, "Joysticks") == 0)) {
+		for (int k = 0; k < count; k++) {
+			if (strcmp(lights[k].filename, "lr") == 0 ||
+				strcmp(lights[k].filename, "l") == 0 ||
+				strcmp(lights[k].filename, "r") == 0) {
+				lights[k].effect = parsed->effect;
+				lights[k].color1 = parsed->color1;
+				lights[k].color2 = parsed->color2;
+				lights[k].speed = parsed->speed;
+				lights[k].brightness = parsed->brightness;
+				lights[k].trigger = parsed->trigger;
+				lights[k].inbrightness = parsed->inbrightness;
+				lights[k].cycles = -1;
+			}
+		}
+		return;
+	}
+	if (is_brickpro && !CFG_getLedSplitSticks() &&
+		(strcmp(parsed->filename, "l") == 0 || strcmp(parsed->name, "Joystick L") == 0)) {
+		for (int k = 0; k < count; k++) {
+			if (strcmp(lights[k].filename, "lr") == 0) {
+				lights[k].effect = parsed->effect;
+				lights[k].color1 = parsed->color1;
+				lights[k].color2 = parsed->color2;
+				lights[k].speed = parsed->speed;
+				lights[k].brightness = parsed->brightness;
+				lights[k].trigger = parsed->trigger;
+				lights[k].inbrightness = parsed->inbrightness;
+				lights[k].cycles = -1;
+			}
+		}
+		return;
+	}
+	for (int k = 0; k < count; k++) {
+		if ((parsed->filename[0] && strcmp(lights[k].filename, parsed->filename) == 0) ||
+			(parsed->name[0] && strcmp(lights[k].name, parsed->name) == 0)) {
+			lights[k].effect = parsed->effect;
+			lights[k].color1 = parsed->color1;
+			lights[k].color2 = parsed->color2;
+			lights[k].speed = parsed->speed;
+			lights[k].brightness = parsed->brightness;
+			lights[k].trigger = parsed->trigger;
+			lights[k].inbrightness = parsed->inbrightness;
+			lights[k].cycles = -1;
+			return;
+		}
+	}
+}
+
 void PLAT_initLeds(LightSettings* lights) {
 	PLAT_initDefaultLeds();
+	int zone_count = PLAT_getLedCount();
+	if (lights != lightsDefault) {
+		for (int i = 0; i < zone_count; i++)
+			lights[i] = lightsDefault[i];
+	}
+	if (is_brickpro) {
+		// Stop whichever stick animation node(s) belong to the inactive stick-zone mode
+		if (CFG_getLedSplitSticks()) {
+			PLAT_writeSysfsInt("/sys/class/led_anim/effect_lr", 0);
+		} else {
+			PLAT_writeSysfsInt("/sys/class/led_anim/effect_l", 0);
+			PLAT_writeSysfsInt("/sys/class/led_anim/effect_r", 0);
+		}
+	}
+
 	FILE* file;
 	if (is_brickpro) {
 		file = PLAT_OpenSettings("ledsettings_brickpro.txt");
@@ -607,81 +695,79 @@ void PLAT_initLeds(LightSettings* lights) {
 		LOG_warn("Unable to open led settings file\n");
 	} else {
 		char line[256];
-		int current_light = -1;
+		LightSettings parsed = lightsDefault[0];
+		bool has_section = false;
 		while (fgets(line, sizeof(line), file)) {
 			if (line[0] == '[') {
-				// Section header
+				applyParsedLedSection(lights, zone_count, &parsed, has_section);
+				has_section = false;
 				char light_name[255];
 				if (sscanf(line, "[%49[^]]]", light_name) == 1) {
-					current_light++;
-					if (current_light < MAX_LIGHTS) {
-						strncpy(lights[current_light].name, light_name, 255 - 1);
-						lights[current_light].name[255 - 1] = '\0'; // Ensure null-termination
-						lights[current_light].cycles = -1;			// cycles (times animation loops) should basically always be -1 for unlimited unless specifically set
-					} else {
-						LOG_info("Maximum number of lights (%d) exceeded. Ignoring further sections.\n", MAX_LIGHTS);
-						current_light = -1; // Reset if max_lights exceeded
-					}
+					parsed = (LightSettings){"", "", 4, 1000, 5, 0xFFFFFF, 0xFFFFFF, 0, {}, 1, 0, -1};
+					strncpy(parsed.name, light_name, sizeof(parsed.name) - 1);
+					parsed.name[sizeof(parsed.name) - 1] = '\0';
+					has_section = true;
 				}
-			} else if (current_light >= 0 && current_light < MAX_LIGHTS) {
+			} else if (has_section) {
 				int temp_value;
 				uint32_t temp_color;
 				char filename[255];
 
 				if (sscanf(line, "filename=%254s", filename) == 1) {
-					strncpy(lights[current_light].filename, filename, 255 - 1);
+					strncpy(parsed.filename, filename, sizeof(parsed.filename) - 1);
+					parsed.filename[sizeof(parsed.filename) - 1] = '\0';
 					continue;
 				}
 				if (sscanf(line, "effect=%d", &temp_value) == 1) {
-					// Older builds offered effects the driver never had; those
-					// left the zone dark, so fall back to Static.
 					if (temp_value > LED_EFFECT_MAX)
 						temp_value = LED_EFFECT_STATIC;
-					lights[current_light].effect = temp_value;
+					parsed.effect = temp_value;
 					continue;
 				}
 				if (sscanf(line, "color1=%x", &temp_color) == 1) {
-					lights[current_light].color1 = temp_color;
+					parsed.color1 = temp_color;
 					continue;
 				}
 				if (sscanf(line, "color2=%x", &temp_color) == 1) {
-					lights[current_light].color2 = temp_color;
+					parsed.color2 = temp_color;
 					continue;
 				}
 				if (sscanf(line, "speed=%d", &temp_value) == 1) {
-					lights[current_light].speed = temp_value;
+					parsed.speed = temp_value;
 					continue;
 				}
 				if (sscanf(line, "brightness=%d", &temp_value) == 1) {
-					lights[current_light].brightness = temp_value;
+					parsed.brightness = temp_value;
 					continue;
 				}
 				if (sscanf(line, "trigger=%d", &temp_value) == 1) {
-					lights[current_light].trigger = temp_value;
+					parsed.trigger = temp_value;
 					continue;
 				}
 				if (sscanf(line, "inbrightness=%d", &temp_value) == 1) {
-					lights[current_light].inbrightness = temp_value;
+					parsed.inbrightness = temp_value;
 					continue;
 				}
 			}
 		}
+		applyParsedLedSection(lights, zone_count, &parsed, has_section);
 		fclose(file);
 	}
 }
 
 // Brick/Brick Pro have per-zone brightness nodes; the Smart Pro has a single
-// global one. f1 and f2 share max_scale_f1f2, which is why f2 writes are skipped.
-// The generic suffix covers max_scale_lr (Brick triggers / Brick Pro joysticks)
-// and max_scale_rear (Brick Pro triggers).
+// global one. f1 and f2 share max_scale_f1f2, and Brick Pro's l and r share
+// max_scale_lr, which is why f2 and Brick Pro r writes are skipped.
 #define LED_PATH_GLOBAL "/sys/class/led_anim/max_scale"
 
 static void PLAT_getLedBrightnessPath(LightSettings* led, char* filepath, size_t size) {
 	if (is_brick || is_brickpro) {
 		if (strcmp(led->filename, "m") == 0) {
 			snprintf(filepath, size, LED_PATH_GLOBAL);
-		} else if (strcmp(led->filename, "f1") == 0) {
+		} else if (strcmp(led->filename, "f1") == 0 || strcmp(led->filename, "f2") == 0) {
 			snprintf(filepath, size, "/sys/class/led_anim/max_scale_f1f2");
+		} else if (strcmp(led->filename, "l") == 0 || strcmp(led->filename, "r") == 0 || strcmp(led->filename, "lr") == 0) {
+			snprintf(filepath, size, "/sys/class/led_anim/max_scale_lr");
 		} else {
 			snprintf(filepath, size, "/sys/class/led_anim/max_scale_%s", led->filename);
 		}
@@ -693,6 +779,8 @@ static void PLAT_getLedBrightnessPath(LightSettings* led, char* filepath, size_t
 static void PLAT_writeLedBrightness(LightSettings* led, int value) {
 	if (strcmp(led->filename, "f2") == 0)
 		return; // f2 shares f1's node, nothing of its own to write
+	if (is_brickpro && strcmp(led->filename, "r") == 0)
+		return; // Brick Pro right stick shares max_scale_lr with left stick
 
 	char filepath[256];
 	PLAT_getLedBrightnessPath(led, filepath, sizeof(filepath));
@@ -749,6 +837,94 @@ void PLAT_setLedColor(LightSettings* led) {
 		fprintf(file, "%06X\n", led->color1);
 		fclose(file);
 	}
+}
+
+// Brick Pro 23-slot LEDC DMA layout (hardware-probed via /sys/class/led_anim/frame):
+//   [0..7]   = Top-back light bar ("m", 8 individually addressable RGB LEDs)
+//   [8]      = F2 / R4 ("f2")
+//   [9]      = F1 / L4 ("f1")
+//   [10..13] = Left analog stick ring ("l", 4 RGB LEDs)
+//   [14..17] = Right analog stick ring ("r", 4 RGB LEDs)
+//   [18..21] = Rear L/R triggers ("rear", 4 RGB LEDs)
+//   [22]     = Padding
+// Returns true when a previously owned zone was released so the caller re-applies
+// normal zone effects immediately.
+bool PLAT_applyLedBatteryBar(int mode, int charge_pct, bool charging, bool force_rewrite) {
+	PLAT_initPlatform();
+	if (!is_brickpro)
+		return false;
+
+	static int prev_mode = 0;
+	static int prev_segments = -1;
+	static uint32_t prev_color = 0;
+
+	int released_bits = prev_mode & ~mode;
+	if (mode == 0 && prev_mode == 0)
+		return false;
+
+	if (charge_pct < 0)
+		charge_pct = 0;
+	if (charge_pct > 100)
+		charge_pct = 100;
+	int segments = (mode == 0) ? 0 : (charge_pct <= 0 ? 1 : (charge_pct * 8 + 99) / 100);
+	if (segments > 8)
+		segments = 8;
+
+	uint32_t color = charging			? 0x00FF88u
+					 : charge_pct >= 50 ? 0x00E640u
+					 : charge_pct >= 20 ? 0xFFAA00u
+										: 0xFF2000u;
+
+	if (!force_rewrite && released_bits == 0 && mode == prev_mode &&
+		segments == prev_segments && color == prev_color) {
+		return false;
+	}
+
+	uint32_t raw[23];
+	memset(raw, 0, sizeof(raw));
+	FILE* rf = fopen("/sys/class/led_anim/frame", "rb");
+	if (rf) {
+		size_t got = fread(raw, sizeof(uint32_t), 23, rf);
+		(void)got;
+		fclose(rf);
+	}
+
+	if (released_bits & LED_BATTERY_BAR_TOP) {
+		for (int k = 0; k < 8; k++)
+			raw[k] = 0;
+	}
+	if (released_bits & LED_BATTERY_BAR_STICKS) {
+		for (int k = 0; k < 8; k++)
+			raw[10 + k] = 0;
+	}
+	if (mode & LED_BATTERY_BAR_TOP) {
+		for (int k = 0; k < 8; k++)
+			raw[k] = (k < segments) ? color : 0;
+	}
+	if (mode & LED_BATTERY_BAR_STICKS) {
+		for (int k = 0; k < 8; k++)
+			raw[10 + k] = (k < segments) ? color : 0;
+	}
+	raw[22] = 0;
+
+	if (mode != 0)
+		PLAT_writeSysfsInt("/sys/class/led_anim/enable", 1);
+
+	char hex_buf[23 * 7 + 4];
+	size_t off = 0;
+	for (int k = 0; k < 23; k++) {
+		off += (size_t)snprintf(hex_buf + off, sizeof(hex_buf) - off, "%06X ", raw[k] & 0xFFFFFFu);
+	}
+	FILE* wf = fopen("/sys/class/led_anim/frame_hex", "w");
+	if (wf) {
+		fputs(hex_buf, wf);
+		fclose(wf);
+	}
+
+	prev_mode = mode;
+	prev_segments = segments;
+	prev_color = color;
+	return released_bits != 0;
 }
 
 //////////////////////////////////////////////
