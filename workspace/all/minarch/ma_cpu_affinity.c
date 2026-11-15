@@ -27,6 +27,8 @@ void CpuProfile_applyAffinity(void) {
 }
 
 void CpuProfile_lateSweep(void) {
-	if (cpu_profile_affinity == CPU_AFFINITY_BIG)
+	if (cpu_profile_affinity == CPU_AFFINITY_BIG) {
 		PLAT_pinThreadsByCommToCoreSet("mali-", CPU_SET_SLOW);
+		PLAT_pinThreadsByCommToCoreSet("pvr", CPU_SET_SLOW);
+	}
 }

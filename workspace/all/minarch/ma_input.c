@@ -386,8 +386,17 @@ int16_t input_state_callback(unsigned port, unsigned device, unsigned index, uns
 			return player_buttons;
 		return (player_buttons >> id) & 1;
 	}
-	// Analog sticks: our pad on port 0, or both players' synchronized sticks in netplay
+	// Analog sticks and analog triggers (L2/R2 on Hall-effect devices like Brick Pro)
 	else if (device == RETRO_DEVICE_ANALOG) {
+		if (index == RETRO_DEVICE_INDEX_ANALOG_BUTTON) {
+			if (port != 0)
+				return 0;
+			if (id == RETRO_DEVICE_ID_JOYPAD_L2)
+				return (pad.l2_axis > 0) ? (int16_t)pad.l2_axis : ((player_buttons >> id) & 1 ? 0x7FFF : 0);
+			if (id == RETRO_DEVICE_ID_JOYPAD_R2)
+				return (pad.r2_axis > 0) ? (int16_t)pad.r2_axis : ((player_buttons >> id) & 1 ? 0x7FFF : 0);
+			return ((player_buttons >> id) & 1) ? 0x7FFF : 0;
+		}
 		int16_t sticks[4];
 		Input_getLocalSticks(sticks);
 		int axis = (index == RETRO_DEVICE_INDEX_ANALOG_LEFT ? 0 : 2) + (id == RETRO_DEVICE_ID_ANALOG_X ? 0 : 1);

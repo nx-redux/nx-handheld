@@ -312,6 +312,7 @@ int main(int argc, char* argv[]) {
 
 	const char* device = getenv("DEVICE");
 	int is_brick = device && strcmp(device, "brick") == 0;
+	int is_brickpro = device && strcmp(device, "brickpro") == 0;
 
 	// Create epoll instance
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -497,7 +498,7 @@ int main(int argc, char* argv[]) {
 					// Defer the toggle by HOME_TOGGLE_DELAY_MS so the daemon has
 					// discarded the release before the panel comes up. Repeat (2)
 					// is filtered out above.
-					if (val == RELEASED)
+					if (is_brickpro && val == RELEASED && access(OSD_SUPPRESS_PATH, F_OK) != 0)
 						home_toggle_at = now + HOME_TOGGLE_DELAY_MS;
 					break;
 				default:
@@ -509,7 +510,8 @@ int main(int argc, char* argv[]) {
 		// Deferred Brick Pro Home toggle (see CODE_HOME above)
 		if (home_toggle_at && (int)(now - home_toggle_at) >= 0) {
 			home_toggle_at = 0;
-			toggle_osd();
+			if (access(OSD_SUPPRESS_PATH, F_OK) != 0)
+				toggle_osd();
 		}
 
 		// Check menu long-press threshold — trigger OSD (swallowed while a

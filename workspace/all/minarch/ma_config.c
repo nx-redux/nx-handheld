@@ -324,6 +324,8 @@ ButtonMapping button_label_mapping[] = { // used to lookup the retro_id and loca
 	{"R2", RETRO_DEVICE_ID_JOYPAD_R2, BTN_ID_R2},
 	{"L3", RETRO_DEVICE_ID_JOYPAD_L3, BTN_ID_L3},
 	{"R3", RETRO_DEVICE_ID_JOYPAD_R3, BTN_ID_R3},
+	{"L4", -1, BTN_ID_L4},
+	{"R4", -1, BTN_ID_R4},
 	{NULL, 0, 0}};
 // clang-format on
 ButtonMapping core_button_mapping[RETRO_BUTTON_COUNT + 1] = {0};
