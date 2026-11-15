@@ -86,6 +86,8 @@ void CFG_defaults(NextUISettings* cfg) {
 		.fn2Tool = CFG_DEFAULT_FN2_TOOL,
 
 		.fnLeds = CFG_DEFAULT_FNLEDS,
+		.ledBatteryBar = CFG_DEFAULT_LEDBATTERYBAR,
+		.ledSplitSticks = CFG_DEFAULT_LEDSPLITSTICKS,
 
 		.screenTimeoutSecs = CFG_DEFAULT_SCREENTIMEOUTSECS,
 		.suspendTimeoutSecs = CFG_DEFAULT_SUSPENDTIMEOUTSECS,
@@ -285,6 +287,14 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb) {
 			// accept the new key and the legacy muteLeds= spelling
 			if (sscanf(line, "fnLeds=%i", &temp_value) == 1 || sscanf(line, "muteLeds=%i", &temp_value) == 1) {
 				CFG_setFnLEDs(temp_value);
+				continue;
+			}
+			if (sscanf(line, "ledBatteryBar=%i", &temp_value) == 1) {
+				CFG_setLedBatteryBar(temp_value);
+				continue;
+			}
+			if (sscanf(line, "ledSplitSticks=%i", &temp_value) == 1) {
+				CFG_setLedSplitSticks((bool)temp_value);
 				continue;
 			}
 			{
@@ -895,6 +905,28 @@ void CFG_setFnLEDs(bool on) {
 	CFG_sync();
 }
 
+int CFG_getLedBatteryBar(void) {
+	if (settings.ledBatteryBar < LED_BATTERY_BAR_OFF || settings.ledBatteryBar >= LED_BATTERY_BAR_COUNT)
+		return LED_BATTERY_BAR_OFF;
+	return settings.ledBatteryBar;
+}
+
+void CFG_setLedBatteryBar(int mode) {
+	if (mode < LED_BATTERY_BAR_OFF || mode >= LED_BATTERY_BAR_COUNT)
+		mode = LED_BATTERY_BAR_OFF;
+	settings.ledBatteryBar = mode;
+	CFG_sync();
+}
+
+bool CFG_getLedSplitSticks(void) {
+	return settings.ledSplitSticks;
+}
+
+void CFG_setLedSplitSticks(bool split) {
+	settings.ledSplitSticks = split;
+	CFG_sync();
+}
+
 // The mapping lives in menustyle_model.h (host-tested): the setters store the value (out of range → the
 // default; a main-menu Backdrop is kept as written), the getters map it (main-menu Backdrop → Carousel).
 int CFG_getMenuStyle(int category) {
@@ -1348,6 +1380,10 @@ void CFG_get(const char* key, char* value) {
 		sprintf(value, "%i", CFG_getUseExtractedFileName());
 	} else if (strcmp(key, "fnLeds") == 0 || strcmp(key, "muteLeds") == 0) {
 		sprintf(value, "%i", CFG_getFnLEDs());
+	} else if (strcmp(key, "ledBatteryBar") == 0) {
+		sprintf(value, "%i", CFG_getLedBatteryBar());
+	} else if (strcmp(key, "ledSplitSticks") == 0) {
+		sprintf(value, "%i", (int)CFG_getLedSplitSticks());
 	} else if (strcmp(key, "gameListStyle") == 0) {
 		sprintf(value, "%i", CFG_getGameListStyle());
 	} else if (strcmp(key, "gameListOrient") == 0) {
@@ -1454,6 +1490,8 @@ static int CFG_serialize(char* buf, size_t cap) {
 	EMIT("stateFormat=%i\n", settings.stateFormat);
 	EMIT("useExtractedFileName=%i\n", settings.useExtractedFileName);
 	EMIT("fnLeds=%i\n", settings.fnLeds);
+	EMIT("ledBatteryBar=%i\n", settings.ledBatteryBar);
+	EMIT("ledSplitSticks=%i\n", settings.ledSplitSticks);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		EMIT("%s=%i\n", menu_style_keys[c], settings.menuStyle[c]);
 	EMIT("gameListStyle=%i\n", settings.gameListStyle);
@@ -1713,6 +1751,8 @@ void CFG_print(void) {
 	printf("\t\"stateFormat\": %i,\n", settings.stateFormat);
 	printf("\t\"useExtractedFileName\": %i,\n", settings.useExtractedFileName);
 	printf("\t\"fnLeds\": %i,\n", settings.fnLeds);
+	printf("\t\"ledBatteryBar\": %i,\n", settings.ledBatteryBar);
+	printf("\t\"ledSplitSticks\": %i,\n", settings.ledSplitSticks);
 	for (int c = 0; c < MENU_CAT_COUNT; c++)
 		printf("\t\"%s\": %i,\n", menu_style_keys[c], settings.menuStyle[c]);
 	printf("\t\"gameListStyle\": %i,\n", settings.gameListStyle);

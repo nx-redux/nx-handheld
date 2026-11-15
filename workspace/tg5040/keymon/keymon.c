@@ -132,14 +132,14 @@ static int getInt(char* path) {
 }
 
 // Motor strength varies by model, so the confirmation buzz voltage is tuned
-// per device; each tap is 100 ms. Levels chosen by A/B on hardware 2026-08-02:
-//   Brick Pro : 2.0 V  (strong motor; 3.3 V felt too harsh, 0.9 V too soft).
-//   Brick     : 3.3 V  (weak motor; 1.5 V / 100 ms was imperceptible).
-//   others (Smart Pro on tg5040): left at the original 1.5 V, untested.
+// per device; each tap is 100 ms. Respects the OSD master motor switch
+// (GetRumble()) and matches platform.h's RUMBLE_MAX_VOLTAGE_BRICKPRO (1.7 V).
 static void buzz(int taps) {
+	if (!GetRumble())
+		return;
 	const char* device = getenv("DEVICE");
 	if (device && strcmp(device, "brickpro") == 0)
-		system("echo 2000000 > /sys/class/motor/voltage");
+		system("echo 1700000 > /sys/class/motor/voltage");
 	else if (device && strcmp(device, "brick") == 0)
 		system("echo 3300000 > /sys/class/motor/voltage");
 	else

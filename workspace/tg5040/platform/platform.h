@@ -189,8 +189,8 @@ extern float ui_scale;
 #define RUMBLE_MAX_VOLTAGE 3300000
 #define RUMBLE_MAX_VOLTAGE_BRICKPRO 1700000
 
-// Brick Pro has 5 zones (f1, f2, top bar, joysticks, triggers), Brick 4, Smart Pro 3
-#define MAX_LIGHTS 5
+// Brick Pro has 6 zones (f1, f2, top bar, joystick L, joystick R, triggers), Brick 4, Smart Pro 3
+#define MAX_LIGHTS 6
 
 ///////////////////////////////
 

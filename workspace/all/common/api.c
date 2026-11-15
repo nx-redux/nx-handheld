@@ -1003,20 +1003,50 @@ void GFX_setAmbientColor(const void* data, unsigned width, unsigned height, size
 		return;
 
 	uint32_t dominant_color = GFX_extract_average_color(data, width, height, pitch);
+	int count = PLAT_getLedCount();
+	int has_rear = 0;
+	for (int i = 0; i < count; i++) {
+		if (strcmp(lightsDefault[i].filename, "rear") == 0) {
+			has_rear = 1;
+			break;
+		}
+	}
 
-	if (mode == 1 || mode == 2 || mode == 5) {
-		(lightsAmbient)[2].color1 = dominant_color;
-		(lightsAmbient)[2].effect = 4;
-	}
-	if (mode == 1 || mode == 3) {
-		(lightsAmbient)[0].color1 = dominant_color;
-		(lightsAmbient)[0].effect = 4;
-		(lightsAmbient)[1].color1 = dominant_color;
-		(lightsAmbient)[1].effect = 4;
-	}
-	if (mode == 1 || mode == 4 || mode == 5) {
-		(lightsAmbient)[3].color1 = dominant_color;
-		(lightsAmbient)[3].effect = 4;
+	// Zone suffix semantics:
+	// - "m":    Topbar (Brick/Brick Pro) or Logo (Smart Pro/S)
+	// - "f1"/"f2": FN 1 / FN 2 keys (Brick/Brick Pro)
+	// - "rear": L/R triggers on Brick Pro (5-zone)
+	// - "lr":   L/R triggers on Brick (4-zone), Joysticks on Brick Pro (5-zone)
+	// - "l"/"r": Left/Right joysticks on Smart Pro / Smart Pro S
+	// Modes: 1=All, 2=Top, 3=FN, 4=LR (Triggers), 5=Top/LR, 6=Sticks, 7=Sticks/LR
+	for (int i = 0; i < count; i++) {
+		const char* z = lightsDefault[i].filename;
+		int active = 0;
+		if (mode == 1) {
+			active = 1;
+		} else if (mode == 2) {
+			active = (strcmp(z, "m") == 0);
+		} else if (mode == 3) {
+			active = (strcmp(z, "f1") == 0 || strcmp(z, "f2") == 0);
+		} else if (mode == 4) {
+			active = has_rear ? (strcmp(z, "rear") == 0)
+							  : (strcmp(z, "lr") == 0 || strcmp(z, "l") == 0 || strcmp(z, "r") == 0);
+		} else if (mode == 5) {
+			active = (strcmp(z, "m") == 0) ||
+					 (has_rear ? (strcmp(z, "rear") == 0)
+							   : (strcmp(z, "lr") == 0 || strcmp(z, "l") == 0 || strcmp(z, "r") == 0));
+		} else if (mode == 6) {
+			active = (strcmp(z, "l") == 0 || strcmp(z, "r") == 0 || (has_rear && strcmp(z, "lr") == 0));
+		} else if (mode == 7) {
+			active = (strcmp(z, "lr") == 0 || strcmp(z, "rear") == 0 || strcmp(z, "l") == 0 || strcmp(z, "r") == 0);
+		}
+
+		if (active) {
+			lightsAmbient[i].color1 = dominant_color;
+			lightsAmbient[i].effect = 4;
+		} else {
+			lightsAmbient[i] = lightsDefault[i];
+		}
 	}
 }
 
@@ -4182,15 +4212,15 @@ void VIB_previewStrength(void) {
 
 void VIB_triplePulse(int strength, int duration_ms, int gap_ms) {
 	VIB_setStrength(0);
-	VIB_singlePulse(VIB_scaleStrength(strength), duration_ms);
+	VIB_singlePulse(strength, duration_ms);
 	usleep(gap_ms * 1000);
 	VIB_setStrength(0);
 	usleep(gap_ms * 1000);
-	VIB_singlePulse(VIB_scaleStrength(strength), duration_ms);
+	VIB_singlePulse(strength, duration_ms);
 	usleep(gap_ms * 1000);
 	VIB_setStrength(0);
 	usleep(gap_ms * 1000);
-	VIB_singlePulse(VIB_scaleStrength(strength), duration_ms);
+	VIB_singlePulse(strength, duration_ms);
 	usleep(gap_ms * 1000);
 	VIB_setStrength(0);
 }
@@ -4322,6 +4352,7 @@ IndicatorType PWR_getShowSetting(void) {
 static bool PWR_screenOff(void) {
 	LOG_info("Screen off (background audio playing)\n");
 	PAD_reset();
+	LEDS_pushProfileOverride(LIGHT_PROFILE_OFF);
 	PLAT_enableBacklight(0);
 
 	uint32_t power_pressed_at = 0;
@@ -4337,6 +4368,7 @@ static bool PWR_screenOff(void) {
 			power_pressed_at = now;
 		if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now - power_pressed_at >= 1000)) {
 			power_pressed_at = 0;
+			LEDS_popProfileOverride(LIGHT_PROFILE_OFF);
 			system("gametimectl.elf stop_all");
 			PWR_powerOff(0);
 		}
@@ -4355,6 +4387,7 @@ static bool PWR_screenOff(void) {
 	}
 
 	PAD_reset();
+	LEDS_popProfileOverride(LIGHT_PROFILE_OFF);
 	if (!sleep_now)
 		PLAT_enableBacklight(1);
 	return sleep_now;
@@ -4771,6 +4804,13 @@ FALLBACK_IMPLEMENTATION void PLAT_setLedColor(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedInbrightness(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedEffectCycles(LightSettings* led) {}
 FALLBACK_IMPLEMENTATION void PLAT_setLedEffectSpeed(LightSettings* led) {}
+FALLBACK_IMPLEMENTATION bool PLAT_applyLedBatteryBar(int mode, int charge_pct, bool charging, bool force_rewrite) {
+	(void)mode;
+	(void)charge_pct;
+	(void)charging;
+	(void)force_rewrite;
+	return false;
+}
 
 void LEDS_setProfile(int profile) {
 	if (lights_initialized == 0)
@@ -4812,8 +4852,11 @@ void LEDS_setProfile(int profile) {
 	default:
 		return;
 	}
-	if (profile != LIGHT_PROFILE_AMBIENT && lights == (LightSettings(*)[MAX_LIGHTS])new_lights)
+	if (profile != LIGHT_PROFILE_AMBIENT && lights == (LightSettings(*)[MAX_LIGHTS])new_lights) {
+		if (CFG_getLedBatteryBar() != LED_BATTERY_BAR_OFF)
+			LEDS_updateLeds(indicator);
 		return;
+	}
 	lights = (LightSettings(*)[MAX_LIGHTS])new_lights;
 
 	LEDS_updateLeds(indicator);
@@ -4858,10 +4901,28 @@ void LEDS_applyRules() {
 	}
 }
 
+// Per-zone hardware state cache so LIGHT_PROFILE_AMBIENT (called on every
+// frame via PWR_update -> LEDS_applyRules) only touches sysfs when a zone's
+// effective settings actually change, instead of 25 sysfs opens/frame.
+static LightSettings applied_leds[MAX_LIGHTS];
+static int applied_leds_eff_bright[MAX_LIGHTS];
+static int applied_leds_valid[MAX_LIGHTS];
+static int last_leds_disabled_flag = -1;
+
+static void LEDS_invalidateCache(void) {
+	memset(applied_leds_valid, 0, sizeof(applied_leds_valid));
+}
+
 void LEDS_updateLeds(bool indicator_only) {
 	if (lights_initialized == 0) {
 		LOG_error("LEDS_updateLeds: lights not initialized, skipping\n");
 		return;
+	}
+
+	int disabled_now = (access(LEDS_DISABLED_PATH, F_OK) == 0) ? 1 : 0;
+	if (disabled_now != last_leds_disabled_flag) {
+		last_leds_disabled_flag = disabled_now;
+		LEDS_invalidateCache();
 	}
 
 	int lightsize = PLAT_getLedCount();
@@ -4869,19 +4930,29 @@ void LEDS_updateLeds(bool indicator_only) {
 		LOG_error("LEDS_updateLeds called but lights is NULL\n");
 		return;
 	}
+
+	int bat_mode = CFG_getLedBatteryBar();
+	bool bat_allowed = (lights == &lightsDefault || lights == &lightsCharging) &&
+					   disabled_now == 0 &&
+					   !(InitializedSettings() && CFG_getFnLEDs() && GetFnMode());
+	int eff_bat_mode = bat_allowed ? bat_mode : 0;
+	bool any_zone_written = false;
+
 	for (int i = 0; i < lightsize; i++) {
 		LightSettings led = (*lights)[i]; // local copy — we may force .effect off below
 		int eff_bright = indicator_only ? led.inbrightness : led.brightness;
 
-		// set brightness of each led
-		if (indicator_only)
-			PLAT_setLedInbrightness(&led);
-		else
-			PLAT_setLedBrightness(&led);
-
-		PLAT_setLedEffectCycles(&led); // set how many times animation should loop
-		PLAT_setLedEffectSpeed(&led);  // set animation speed
-		PLAT_setLedColor(&led);		   // set color
+		// Addressable RGB battery bar (Brick Pro): silence effect_m / effect_l /
+		// effect_r on the zones it owns so trimui_ledc_run_thread preserves our
+		// per-LED frame_hex segments, while ensuring max_scale is non-zero.
+		bool bat_owns_zone = ((eff_bat_mode & LED_BATTERY_BAR_TOP) && strcmp(led.filename, "m") == 0) ||
+							 ((eff_bat_mode & LED_BATTERY_BAR_STICKS) &&
+							  (strcmp(led.filename, "l") == 0 || strcmp(led.filename, "r") == 0 || strcmp(led.filename, "lr") == 0));
+		if (bat_owns_zone) {
+			led.effect = 0;
+			if (eff_bright <= 0)
+				eff_bright = 20;
+		}
 
 		// On trimui led_anim hardware a brightness (max_scale) of 0 does NOT stop a
 		// running animation — the zone keeps showing its colour (e.g. the green charging
@@ -4889,12 +4960,84 @@ void LEDS_updateLeds(bool indicator_only) {
 		// outright when the effective brightness is 0 so "0" reliably means off. Operates
 		// on the local copy, so the configured effect shown in the UI is untouched.
 		if (eff_bright == 0)
-			led.effect = 0;		 // "disable"
-		PLAT_setLedEffect(&led); // finally set the effect, on trimui devices this also applies the settings
+			led.effect = 0; // "disable"
+
+		if (i < MAX_LIGHTS && applied_leds_valid[i] &&
+			applied_leds_eff_bright[i] == eff_bright &&
+			applied_leds[i].effect == led.effect &&
+			applied_leds[i].color1 == led.color1 &&
+			applied_leds[i].color2 == led.color2 &&
+			applied_leds[i].speed == led.speed &&
+			applied_leds[i].cycles == led.cycles &&
+			strcmp(applied_leds[i].filename, led.filename) == 0) {
+			continue;
+		}
+
+		// set brightness of each led
+		if (indicator_only) {
+			led.inbrightness = eff_bright;
+			PLAT_setLedInbrightness(&led);
+		} else {
+			led.brightness = eff_bright;
+			PLAT_setLedBrightness(&led);
+		}
+
+		PLAT_setLedEffectCycles(&led); // set how many times animation should loop
+		PLAT_setLedEffectSpeed(&led);  // set animation speed
+		PLAT_setLedColor(&led);		   // set color
+		PLAT_setLedEffect(&led);	   // finally set the effect, on trimui devices this also applies the settings
+		any_zone_written = true;
+
+		if (i < MAX_LIGHTS) {
+			applied_leds[i] = led;
+			applied_leds_eff_bright[i] = eff_bright;
+			applied_leds_valid[i] = 1;
+		}
+	}
+
+	int charge = pwr.initialized ? SDL_AtomicGet(&pwr.charge) : 100;
+	bool charging = pwr.initialized ? (SDL_AtomicGet(&pwr.is_charging) != 0) : false;
+	if (PLAT_applyLedBatteryBar(eff_bat_mode, charge, charging, any_zone_written)) {
+		// A zone was just released from battery-bar mode (e.g. Top bar -> Off):
+		// invalidate the cache and re-push normal zone effects immediately.
+		LEDS_invalidateCache();
+		for (int i = 0; i < lightsize; i++) {
+			LightSettings led = (*lights)[i];
+			int eff_bright = indicator_only ? led.inbrightness : led.brightness;
+			bool bat_owns_zone = ((eff_bat_mode & LED_BATTERY_BAR_TOP) && strcmp(led.filename, "m") == 0) ||
+								 ((eff_bat_mode & LED_BATTERY_BAR_STICKS) &&
+								  (strcmp(led.filename, "l") == 0 || strcmp(led.filename, "r") == 0 || strcmp(led.filename, "lr") == 0));
+			if (bat_owns_zone) {
+				led.effect = 0;
+				if (eff_bright <= 0)
+					eff_bright = 20;
+			}
+			if (eff_bright == 0)
+				led.effect = 0;
+			if (indicator_only) {
+				led.inbrightness = eff_bright;
+				PLAT_setLedInbrightness(&led);
+			} else {
+				led.brightness = eff_bright;
+				PLAT_setLedBrightness(&led);
+			}
+			PLAT_setLedEffectCycles(&led);
+			PLAT_setLedEffectSpeed(&led);
+			PLAT_setLedColor(&led);
+			PLAT_setLedEffect(&led);
+			if (i < MAX_LIGHTS) {
+				applied_leds[i] = led;
+				applied_leds_eff_bright[i] = eff_bright;
+				applied_leds_valid[i] = 1;
+			}
+		}
+		if (eff_bat_mode != 0)
+			PLAT_applyLedBatteryBar(eff_bat_mode, charge, charging, true);
 	}
 }
 
 void LEDS_initLeds() {
+	LEDS_invalidateCache();
 	PLAT_initLeds(lightsDefault);
 
 	int lightsize = sizeof(lightsDefault) / sizeof(LightSettings);
@@ -4942,6 +5085,10 @@ void LEDS_initLeds() {
 }
 
 bool LEDS_pushProfileOverride(int profile) {
+	if (profile_override_top >= 0 && profile_override[profile_override_top] == profile) {
+		LEDS_applyRules();
+		return true;
+	}
 	if (profile_override_top == PROFILE_OVERRIDE_SIZE - 1) {
 		LOG_debug("LED_profile stack is full, ignoring.\n");
 		return false;

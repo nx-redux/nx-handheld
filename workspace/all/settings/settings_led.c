@@ -13,6 +13,7 @@
 
 #include "defines.h"
 #include "api.h"
+#include "config.h"
 #include "utils.h"
 
 #if MAX_LIGHTS == 0
@@ -186,6 +187,12 @@ static void led_sync_coupled_brightness(int source_zone) {
 			lightsDefault[1].brightness = val;
 			settings_item_sync(&zone_items[0][BRIGHTNESS_ITEM_IDX]);
 			settings_item_sync(&zone_items[1][BRIGHTNESS_ITEM_IDX]);
+		} else if (led_is_brickpro && CFG_getLedSplitSticks() && (source_zone == 3 || source_zone == 4)) {
+			/* Brick Pro Joystick L (zone 3) and Joystick R (zone 4) share max_scale_lr */
+			lightsDefault[3].brightness = val;
+			lightsDefault[4].brightness = val;
+			settings_item_sync(&zone_items[3][BRIGHTNESS_ITEM_IDX]);
+			settings_item_sync(&zone_items[4][BRIGHTNESS_ITEM_IDX]);
 		}
 	} else {
 		/* All zones share brightness */
@@ -204,6 +211,11 @@ static void led_sync_coupled_inbrightness(int source_zone) {
 			lightsDefault[1].inbrightness = val;
 			settings_item_sync(&zone_items[0][INBRIGHTNESS_ITEM_IDX]);
 			settings_item_sync(&zone_items[1][INBRIGHTNESS_ITEM_IDX]);
+		} else if (led_is_brickpro && CFG_getLedSplitSticks() && (source_zone == 3 || source_zone == 4)) {
+			lightsDefault[3].inbrightness = val;
+			lightsDefault[4].inbrightness = val;
+			settings_item_sync(&zone_items[3][INBRIGHTNESS_ITEM_IDX]);
+			settings_item_sync(&zone_items[4][INBRIGHTNESS_ITEM_IDX]);
 		}
 	} else {
 		for (int z = 0; z < led_num_lights; z++) {
@@ -273,20 +285,27 @@ LED_ZONE_CALLBACKS(4)
 #define LED_Z4(fn)
 #endif
 
+#if MAX_LIGHTS > 5
+LED_ZONE_CALLBACKS(5)
+#define LED_Z5(fn) , fn
+#else
+#define LED_Z5(fn)
+#endif
+
 /* Lookup tables for zone callbacks */
 typedef int (*led_get_fn)(void);
 typedef void (*led_set_fn)(int);
 
-static led_get_fn zone_get_effect[] = {led_get_effect_0, led_get_effect_1, led_get_effect_2, led_get_effect_3 LED_Z4(led_get_effect_4)};
-static led_set_fn zone_set_effect[] = {led_set_effect_0, led_set_effect_1, led_set_effect_2, led_set_effect_3 LED_Z4(led_set_effect_4)};
-static led_get_fn zone_get_color[] = {led_get_color_0, led_get_color_1, led_get_color_2, led_get_color_3 LED_Z4(led_get_color_4)};
-static led_set_fn zone_set_color[] = {led_set_color_0, led_set_color_1, led_set_color_2, led_set_color_3 LED_Z4(led_set_color_4)};
-static led_get_fn zone_get_speed[] = {led_get_speed_0, led_get_speed_1, led_get_speed_2, led_get_speed_3 LED_Z4(led_get_speed_4)};
-static led_set_fn zone_set_speed[] = {led_set_speed_0, led_set_speed_1, led_set_speed_2, led_set_speed_3 LED_Z4(led_set_speed_4)};
-static led_get_fn zone_get_brightness[] = {led_get_brightness_0, led_get_brightness_1, led_get_brightness_2, led_get_brightness_3 LED_Z4(led_get_brightness_4)};
-static led_set_fn zone_set_brightness[] = {led_set_brightness_0, led_set_brightness_1, led_set_brightness_2, led_set_brightness_3 LED_Z4(led_set_brightness_4)};
-static led_get_fn zone_get_inbrightness[] = {led_get_inbrightness_0, led_get_inbrightness_1, led_get_inbrightness_2, led_get_inbrightness_3 LED_Z4(led_get_inbrightness_4)};
-static led_set_fn zone_set_inbrightness[] = {led_set_inbrightness_0, led_set_inbrightness_1, led_set_inbrightness_2, led_set_inbrightness_3 LED_Z4(led_set_inbrightness_4)};
+static led_get_fn zone_get_effect[] = {led_get_effect_0, led_get_effect_1, led_get_effect_2, led_get_effect_3 LED_Z4(led_get_effect_4) LED_Z5(led_get_effect_5)};
+static led_set_fn zone_set_effect[] = {led_set_effect_0, led_set_effect_1, led_set_effect_2, led_set_effect_3 LED_Z4(led_set_effect_4) LED_Z5(led_set_effect_5)};
+static led_get_fn zone_get_color[] = {led_get_color_0, led_get_color_1, led_get_color_2, led_get_color_3 LED_Z4(led_get_color_4) LED_Z5(led_get_color_5)};
+static led_set_fn zone_set_color[] = {led_set_color_0, led_set_color_1, led_set_color_2, led_set_color_3 LED_Z4(led_set_color_4) LED_Z5(led_set_color_5)};
+static led_get_fn zone_get_speed[] = {led_get_speed_0, led_get_speed_1, led_get_speed_2, led_get_speed_3 LED_Z4(led_get_speed_4) LED_Z5(led_get_speed_5)};
+static led_set_fn zone_set_speed[] = {led_set_speed_0, led_set_speed_1, led_set_speed_2, led_set_speed_3 LED_Z4(led_set_speed_4) LED_Z5(led_set_speed_5)};
+static led_get_fn zone_get_brightness[] = {led_get_brightness_0, led_get_brightness_1, led_get_brightness_2, led_get_brightness_3 LED_Z4(led_get_brightness_4) LED_Z5(led_get_brightness_5)};
+static led_set_fn zone_set_brightness[] = {led_set_brightness_0, led_set_brightness_1, led_set_brightness_2, led_set_brightness_3 LED_Z4(led_set_brightness_4) LED_Z5(led_set_brightness_5)};
+static led_get_fn zone_get_inbrightness[] = {led_get_inbrightness_0, led_get_inbrightness_1, led_get_inbrightness_2, led_get_inbrightness_3 LED_Z4(led_get_inbrightness_4) LED_Z5(led_get_inbrightness_5)};
+static led_set_fn zone_set_inbrightness[] = {led_set_inbrightness_0, led_set_inbrightness_1, led_set_inbrightness_2, led_set_inbrightness_3 LED_Z4(led_set_inbrightness_4) LED_Z5(led_set_inbrightness_5)};
 
 // ============================================
 // Zone page construction
@@ -345,58 +364,116 @@ static void led_build_zone_page(int zone_idx, const char* title) {
 // Root LED page
 // ============================================
 
-#define MAX_LED_ROOT_ITEMS MAX_LIGHTS
+#define MAX_LED_ROOT_ITEMS (MAX_LIGHTS + 2)
 static SettingItem led_root_items[MAX_LED_ROOT_ITEMS];
 static SettingsPage led_root_page;
+
+static const char* battery_bar_labels[] = {"Off", "Top bar", "Joysticks", "Top + Joysticks"};
+static int battery_bar_values[] = {
+	LED_BATTERY_BAR_OFF,
+	LED_BATTERY_BAR_TOP,
+	LED_BATTERY_BAR_STICKS,
+	LED_BATTERY_BAR_BOTH,
+};
+static const char* split_sticks_labels[] = {"Off", "On"};
+static int split_sticks_values[] = {0, 1};
+
+static void led_rebuild_root_items(void);
+
+static int led_get_battery_bar(void) {
+	return CFG_getLedBatteryBar();
+}
+static void led_set_battery_bar(int val) {
+	CFG_setLedBatteryBar(val);
+	LEDS_applyRules();
+}
+static void led_reset_battery_bar(void) {
+	CFG_setLedBatteryBar(CFG_DEFAULT_LEDBATTERYBAR);
+	LEDS_applyRules();
+}
+
+static int led_get_split_sticks(void) {
+	return CFG_getLedSplitSticks() ? 1 : 0;
+}
+static void led_set_split_sticks(int val) {
+	bool want = (val != 0);
+	if (want == CFG_getLedSplitSticks())
+		return;
+	led_save_settings();
+	CFG_setLedSplitSticks(want);
+	LEDS_initLeds();
+	led_rebuild_root_items();
+	led_save_settings();
+	LEDS_applyRules();
+}
+static void led_reset_split_sticks(void) {
+	led_set_split_sticks(0);
+}
 
 /* Zone title strings (static storage for page titles) */
 static const char* brick_zone_titles[] = {"F1 key", "F2 key", "Top bar", "L&R triggers"};
 static const char* brickpro_zone_titles[] = {"F1 key", "F2 key", "Top bar", "Joysticks", "L&R triggers"};
+static const char* brickpro_split_zone_titles[] = {"F1 key", "F2 key", "Top bar", "Joystick L", "Joystick R", "L&R triggers"};
 static const char* default_zone_titles[] = {"Joystick L", "Joystick R", "Logo"};
+
+static void led_rebuild_root_items(void) {
+	led_num_lights = PLAT_getLedCount();
+	const char** zone_titles = led_is_brickpro
+								   ? (CFG_getLedSplitSticks() ? brickpro_split_zone_titles : brickpro_zone_titles)
+							   : led_is_brick ? brick_zone_titles
+											  : default_zone_titles;
+
+	for (int z = 0; z < led_num_lights; z++) {
+		snprintf(zone_title_bufs[z], sizeof(zone_title_bufs[z]),
+				 "LED Control | %s", zone_titles[z]);
+		led_build_zone_page(z, zone_title_bufs[z]);
+		for (int i = 0; i < zone_pages[z].item_count; i++)
+			settings_item_sync(&zone_pages[z].items[i]);
+	}
+
+	int idx = 0;
+	if (led_is_brickpro) {
+		led_root_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
+			"Battery Level Bar",
+			"Show battery charge across the 8-LED top bar and/or dual 4-LED stick rings.",
+			battery_bar_labels, 4, battery_bar_values,
+			led_get_battery_bar, led_set_battery_bar, led_reset_battery_bar);
+		settings_item_sync(&led_root_items[idx]);
+		idx++;
+
+		led_root_items[idx] = (SettingItem)ITEM_CYCLE_INIT(
+			"Split Joystick Zones",
+			"Configure Left and Right analog stick LED rings as separate zones.",
+			split_sticks_labels, 2, split_sticks_values,
+			led_get_split_sticks, led_set_split_sticks, led_reset_split_sticks);
+		settings_item_sync(&led_root_items[idx]);
+		idx++;
+	}
+	for (int z = 0; z < led_num_lights; z++) {
+		led_root_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
+			zone_titles[z], "", &zone_pages[z]);
+	}
+	led_root_page.items = led_root_items;
+	led_root_page.item_count = idx;
+	led_root_page.max_items = idx;
+	if (led_root_page.selected >= idx)
+		led_root_page.selected = idx > 0 ? idx - 1 : 0;
+	led_root_page.needs_layout = 1;
+}
 
 SettingsPage* led_page_create(void) {
 	char* device = getenv("DEVICE");
 	led_is_brick = exactMatch("brick", device);
 	led_is_brickpro = exactMatch("brickpro", device);
 	led_per_zone_brightness = led_is_brick || led_is_brickpro;
-	led_num_lights = PLAT_getLedCount();
 
 	led_init_labels();
 
-	const char** zone_titles = led_is_brickpro ? brickpro_zone_titles
-							   : led_is_brick  ? brick_zone_titles
-											   : default_zone_titles;
-
-	/* Build per-zone pages */
-	for (int z = 0; z < led_num_lights; z++) {
-		snprintf(zone_title_bufs[z], sizeof(zone_title_bufs[z]),
-				 "LED Control | %s", zone_titles[z]);
-		led_build_zone_page(z, zone_title_bufs[z]);
-	}
-
-	/* Sync all zone items */
-	for (int z = 0; z < led_num_lights; z++) {
-		for (int i = 0; i < zone_pages[z].item_count; i++) {
-			settings_item_sync(&zone_pages[z].items[i]);
-		}
-	}
-
-	/* Build root list page */
-	int idx = 0;
-	for (int z = 0; z < led_num_lights; z++) {
-		led_root_items[idx++] = (SettingItem)ITEM_SUBMENU_INIT(
-			zone_titles[z], "", &zone_pages[z]);
-	}
-
 	memset(&led_root_page, 0, sizeof(SettingsPage));
 	led_root_page.title = "Settings | LED Control";
-	led_root_page.items = led_root_items;
-	led_root_page.item_count = idx;
-	led_root_page.selected = 0;
-	led_root_page.scroll = 0;
-	led_root_page.is_list = 1;
+	led_root_page.is_list = led_is_brickpro ? 0 : 1;
 	led_root_page.dynamic_start = -1;
-	led_root_page.max_items = idx;
+	led_rebuild_root_items();
 
 	return &led_root_page;
 }

@@ -4,10 +4,8 @@
 # shutdown tap read the same flag.
 export LD_LIBRARY_PATH="/mnt/SDCARD/.system/lib:/usr/trimui/lib:$LD_LIBRARY_PATH"
 OSDCTL="/mnt/SDCARD/.system/bin/osdctl"
-# The rumble motor hangs off a different GPIO per platform (gpio227 on tg5040).
-# tg5050 has no rumble GPIO, so device/smartpros/ ships its own copy of this
-# widget that buzzes through the PWM motor level instead.
 RUMBLE_GPIO="/sys/class/gpio/gpio227/value"
+MOTOR_VOLT="/sys/class/motor/voltage"
 
 mkdir -p /tmp/trimui_osd/toggle_rumble/
 
@@ -21,7 +19,14 @@ else
         echo 0 > /tmp/trimui_osd/toggle_rumble/status
     else
         $OSDCTL set rumble 1
-        # brief buzz so the user feels the motor come back
+        # Set model-appropriate motor voltage before pulsing (Brick Pro 1.7 V, Brick 3.3 V)
+        if [ -e "/sys/class/led_anim/max_scale_rear" ]; then
+            echo 1700000 > "$MOTOR_VOLT" 2>/dev/null
+        elif [ "$(cut -d, -f1 /sys/class/graphics/fb0/virtual_size 2>/dev/null)" = "1024" ]; then
+            echo 3300000 > "$MOTOR_VOLT" 2>/dev/null
+        else
+            echo 1500000 > "$MOTOR_VOLT" 2>/dev/null
+        fi
         echo 1 > $RUMBLE_GPIO 2>/dev/null
         sleep 0.1
         echo 0 > $RUMBLE_GPIO 2>/dev/null

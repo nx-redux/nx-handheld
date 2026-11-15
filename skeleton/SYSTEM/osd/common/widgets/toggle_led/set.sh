@@ -1,21 +1,13 @@
 #!/bin/sh
 # Every model has several brightness nodes that must all be controlled
 # together: Smart Pro/S and Brick have max_scale/_lr/_f1f2, Brick Pro adds
-# _rear. Writing a node the device doesn't have is harmless (the file simply
-# isn't there), and the settings-file probe below covers every model's name,
-# so one script serves all four devices.
+# _rear. Check all active zones + /tmp/leds_disabled for accurate status, and
+# restore per-zone brightnesses from ledsettings when re-enabling.
 LED_MAIN="/sys/class/led_anim/max_scale"
 LED_LR="/sys/class/led_anim/max_scale_lr"
 LED_F1F2="/sys/class/led_anim/max_scale_f1f2"
 LED_REAR="/sys/class/led_anim/max_scale_rear"
-# Pick THIS model's settings file, don't probe for whichever exists. All three
-# live in .userdata/shared, which is shared across platforms — sync.c excludes
-# all three precisely because they coexist — so a card that has been in a Brick
-# still carries ledsettings_brick.txt on a Smart Pro. Probing in a fixed order
-# would then read the wrong model's brightness, permanently: Settings writes
-# ledsettings.txt on both Smart Pro and Smart Pro S, and it would stay shadowed.
-# Brick Pro is the only model with a _rear zone; Brick is the only other model
-# at 1024 px wide; everything else uses the plain file.
+
 if [ -e "$LED_REAR" ]; then
     LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings_brickpro.txt"
 elif [ "$(cut -d, -f1 /sys/class/graphics/fb0/virtual_size 2>/dev/null)" = "1024" ]; then
@@ -24,26 +16,83 @@ else
     LED_SETTINGS="/mnt/SDCARD/.userdata/shared/ledsettings.txt"
 fi
 
-# Read configured brightness from this model's ledsettings (first zone's value)
-get_configured_brightness() {
-    if [ -f "$LED_SETTINGS" ]; then
-        val=$(grep -m1 "^brightness=" "$LED_SETTINGS" | cut -d= -f2)
-        [ -n "$val" ] && [ "$val" -gt 0 ] 2>/dev/null && echo "$val" && return
-    fi
-    echo "50"
-}
-
 led_is_on() {
-    value=$(cat $LED_MAIN 2>/dev/null)
-    [ "$value" != "0" ] && [ -n "$value" ] && return 0
+    [ -f /tmp/leds_disabled ] && return 1
+    for node in "$LED_MAIN" "$LED_LR" "$LED_F1F2" "$LED_REAR"; do
+        [ -e "$node" ] || continue
+        value=$(cat "$node" 2>/dev/null)
+        [ -n "$value" ] && [ "$value" != "0" ] && return 0
+    done
     return 1
 }
 
-set_all_leds() {
-    echo $1 > $LED_MAIN 2>/dev/null
-    echo $1 > $LED_LR 2>/dev/null
-    echo $1 > $LED_F1F2 2>/dev/null
-    echo $1 > $LED_REAR 2>/dev/null
+turn_all_leds_off() {
+    for node in "$LED_MAIN" "$LED_LR" "$LED_F1F2" "$LED_REAR"; do
+        [ -e "$node" ] && echo 0 > "$node" 2>/dev/null
+    done
+    for eff in f1 f2 m lr rear l r; do
+        [ -e "/sys/class/led_anim/effect_$eff" ] && echo 0 > "/sys/class/led_anim/effect_$eff" 2>/dev/null
+    done
+    if [ -w "/sys/class/led_anim/frame_hex" ]; then
+        printf "000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 000000 " > /sys/class/led_anim/frame_hex 2>/dev/null
+    fi
+}
+
+restore_leds_from_settings() {
+    if [ ! -f "$LED_SETTINGS" ]; then
+        for node in "$LED_MAIN" "$LED_LR" "$LED_F1F2" "$LED_REAR"; do
+            [ -e "$node" ] && echo 50 > "$node" 2>/dev/null
+        done
+        return
+    fi
+    zone=""
+    bright="0"
+    eff="0"
+    col="FFFFFF"
+    any_lit=0
+    apply_section() {
+        [ -z "$zone" ] && return
+        case "$zone" in
+            m)    bnode="$LED_MAIN" ;;
+            lr|l|r) bnode="$LED_LR" ;;
+            f1|f2) bnode="$LED_F1F2" ;;
+            rear) bnode="$LED_REAR" ;;
+            *)    bnode="" ;;
+        esac
+        if [ -n "$bnode" ] && [ -e "$bnode" ]; then
+            echo "$bright" > "$bnode" 2>/dev/null
+            [ "$bright" != "0" ] && any_lit=1
+        fi
+        if [ -e "/sys/class/led_anim/effect_rgb_hex_$zone" ]; then
+            echo "$col" > "/sys/class/led_anim/effect_rgb_hex_$zone" 2>/dev/null
+        fi
+        if [ -e "/sys/class/led_anim/effect_$zone" ]; then
+            if [ "$bright" = "0" ]; then
+                echo 0 > "/sys/class/led_anim/effect_$zone" 2>/dev/null
+            else
+                echo "$eff" > "/sys/class/led_anim/effect_$zone" 2>/dev/null
+            fi
+        fi
+    }
+    while IFS= read -r line; do
+        case "$line" in
+            \[*\])
+                apply_section
+                zone=""; bright="0"; eff="0"; col="FFFFFF"
+                ;;
+            filename=*) zone="${line#filename=}" ;;
+            brightness=*) bright="${line#brightness=}" ;;
+            effect=*) eff="${line#effect=}" ;;
+            color1=0x*) col="${line#color1=0x}" ;;
+            color1=*) col="${line#color1=}" ;;
+        esac
+    done < "$LED_SETTINGS"
+    apply_section
+    if [ "$any_lit" -eq 0 ]; then
+        for node in "$LED_MAIN" "$LED_LR" "$LED_F1F2" "$LED_REAR"; do
+            [ -e "$node" ] && echo 50 > "$node" 2>/dev/null
+        done
+    fi
 }
 
 mkdir -p /tmp/trimui_osd/toggle_led/
@@ -56,18 +105,12 @@ if [ $# -eq 0 ] ; then
     fi
 else
     if led_is_on; then
-        # Currently on, turn off. The flag file tells the apps' LED profile
-        # engine (LEDS_setProfile, see defines.h LEDS_DISABLED_PATH) to stay
-        # off — otherwise the next app launch or charging/sleep profile
-        # change would reapply ledsettings and relight the LEDs.
         touch /tmp/leds_disabled
-        set_all_leds 0
+        turn_all_leds_off
         echo 0 > /tmp/trimui_osd/toggle_led/status
     else
-        # Currently off, turn on at configured brightness
         rm -f /tmp/leds_disabled
-        brightness=$(get_configured_brightness)
-        set_all_leds $brightness
+        restore_leds_from_settings
         echo 1 > /tmp/trimui_osd/toggle_led/status
     fi
 fi
