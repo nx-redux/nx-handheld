@@ -198,6 +198,8 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cp ./workspace/all/osdmusic/build/$(PLATFORM)/osdmusic.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	# LD_PRELOAD shim that slows trimui_osdd's idle SDL poll while hidden (see workspace/all/osdwait)
 	cp ./workspace/all/osdwait/build/$(PLATFORM)/libosdwait.so ./build/SYSTEM/$(PLATFORM)/lib/
+	# LD_PRELOAD shim that gates standalone SDL2 apps' input while the OSD is open (see workspace/all/osdgate)
+	cp ./workspace/all/osdgate/build/$(PLATFORM)/libosdgate.so ./build/SYSTEM/$(PLATFORM)/lib/
 
 ifeq ($(PLATFORM), tg5040)
 	# liblz4 for Rewind support

@@ -22,4 +22,9 @@ if [ "$NX_BUTTON_LAYOUT" = "xbox" ]; then
     } > /tmp/files.cfg
     CFG=/tmp/files.cfg
 fi
-./NextCommander --config "$CFG" &> "$LOGS_PATH/files.txt"
+OSDGATE="$SYSTEM_PATH/lib/libosdgate.so"
+if [ -f "$OSDGATE" ]; then
+    LD_PRELOAD="$OSDGATE" ./NextCommander --config "$CFG" &> "$LOGS_PATH/files.txt"
+else
+    ./NextCommander --config "$CFG" &> "$LOGS_PATH/files.txt"
+fi
