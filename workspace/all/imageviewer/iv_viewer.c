@@ -378,6 +378,18 @@ IvViewerStatus IvViewer_update(SDL_Surface* screen, bool* dirty) {
 			vw_cy += step;
 			panned = true;
 		}
+		// Smooth proportional right-stick pan on analog handhelds (Brick Pro, Smart Pro)
+		const int rdead = 4096;
+		if (abs(pad.raxis.x) > rdead || abs(pad.raxis.y) > rdead) {
+			float speed = SCALE1(14) / scale;
+			if (speed < 1.0f)
+				speed = 1.0f;
+			if (abs(pad.raxis.x) > rdead)
+				vw_cx += (int)((float)pad.raxis.x / 32767.0f * speed);
+			if (abs(pad.raxis.y) > rdead)
+				vw_cy += (int)((float)pad.raxis.y / 32767.0f * speed);
+			panned = true;
+		}
 		if (panned) {
 			vw_clamp_pan(screen, scale);
 			*dirty = true;

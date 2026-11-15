@@ -6,7 +6,9 @@ cd $(dirname "$0")
 echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 
 HOME="$SDCARD_PATH"
-if [ "$DEVICE" = "brick" ] || [ "$DEVICE" = "brickpro" ]; then
+if [ "$DEVICE" = "brickpro" ]; then
+    CFG="brickpro.cfg"
+elif [ "$DEVICE" = "brick" ]; then
     CFG="tg3040.cfg"
 else
     CFG="tg5040.cfg"
