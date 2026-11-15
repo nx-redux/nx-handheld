@@ -102,6 +102,66 @@ static void apply_locks(EmuOvlConfig* cfg, const char* content,
 	}
 }
 
+// Apply locks for a (base, device-override) cfg pair: keys absent from
+// dev_content inherit base_content's lock, while a key explicitly set without
+// '-' in dev_content clears base_content's lock for this tier (e.g. VB.pak's
+// default-brickpro.cfg unlocking -vb_right_analog_to_digital).
+static void apply_tier_locks(EmuOvlConfig* cfg, const char* base_content, const char* dev_content,
+							 bool locked[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS]) {
+	if (!dev_content) {
+		apply_locks(cfg, base_content, locked);
+		return;
+	}
+	if (!base_content) {
+		apply_locks(cfg, dev_content, locked);
+		return;
+	}
+	bool tier_locked[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS] = {{false}};
+	apply_locks(cfg, base_content, tier_locked);
+
+	bool seen[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS] = {{false}};
+	const char* cursor = dev_content;
+	char buf[LINE_MAX_LEN];
+	while (*cursor) {
+		size_t raw_len = peek_line(cursor, buf, sizeof(buf));
+		char *key, *val;
+		bool lock;
+		if (parse_cfg_line(buf, &key, &val, &lock)) {
+			int s, i;
+			if (find_schema_item(cfg, key, &s, &i) && !seen[s][i]) {
+				seen[s][i] = true;
+				tier_locked[s][i] = lock;
+			}
+		}
+		cursor += raw_len;
+	}
+	for (int s = 0; s < cfg->section_count; s++)
+		for (int i = 0; i < cfg->sections[s].item_count; i++)
+			if (tier_locked[s][i])
+				locked[s][i] = true;
+}
+
+// When options.sh passes .../default-<device>.cfg or .../system-<device>.cfg,
+// load the sibling .../default.cfg or .../system.cfg underneath it so device
+// files act as overlays rather than wholesale replacements (matching Config_load).
+static char* load_base_sibling_cfg(const char* cfg_path, const char* stem) {
+	if (!cfg_path)
+		return NULL;
+	const char* slash = strrchr(cfg_path, '/');
+	const char* base = slash ? slash + 1 : cfg_path;
+	size_t stem_len = strlen(stem);
+	size_t base_len = strlen(base);
+	if (base_len <= stem_len + 5 || strncmp(base, stem, stem_len) != 0 || base[stem_len] != '-' ||
+		strcmp(base + base_len - 4, ".cfg") != 0)
+		return NULL;
+	char sibling[1024];
+	int dir_len = slash ? (int)(slash - cfg_path + 1) : 0;
+	int n = snprintf(sibling, sizeof(sibling), "%.*s%s.cfg", dir_len, cfg_path, stem);
+	if (n < 0 || n >= (int)sizeof(sibling))
+		return NULL;
+	return allocFile(sibling);
+}
+
 // One pass over one layer's content filling vals[s][i] for every parseable,
 // non-locked schema-key line. Unknown enum values are interned here — the
 // ONLY place that interns — so a hand-edited or newer-core value displays
@@ -292,19 +352,23 @@ int opts_minarch_load(EmuOvlConfig* cfg, OptsMinarchState* st, OptsOverrideState
 	}
 
 	// System/default paths arrive pre-resolved from the shell; NULL or a
-	// missing file is simply an empty layer.
+	// missing file is simply an empty layer. When a device-suffixed file is
+	// passed (e.g. default-brickpro.cfg), load sibling default.cfg underneath
+	// so device files overlay rather than replace pak defaults.
+	char* base_system_content = load_base_sibling_cfg(system_cfg_path, "system");
 	char* system_content = system_cfg_path ? allocFile((char*)system_cfg_path) : NULL;
+	char* base_default_content = load_base_sibling_cfg(default_cfg_path, "default");
 	char* default_content = default_cfg_path ? allocFile((char*)default_cfg_path) : NULL;
 	st->console_content = allocFile((char*)st->console_path);
 	st->game_content = st->per_game ? allocFile((char*)st->game_path) : NULL;
 	st->game_existed = (st->game_content != NULL);
 
-	// Lock pass over all four layers FIRST, then prune, so every value
+	// Lock pass over all layers FIRST, then prune, so every value
 	// snapshot below uses stable post-prune indices. A pruned key's lines
 	// simply stop matching schema items and pass through writes untouched.
 	bool locked[EMU_OVL_MAX_SECTIONS][EMU_OVL_MAX_ITEMS] = {{false}};
-	apply_locks(cfg, system_content, locked);
-	apply_locks(cfg, default_content, locked);
+	apply_tier_locks(cfg, base_system_content, system_content, locked);
+	apply_tier_locks(cfg, base_default_content, default_content, locked);
 	apply_locks(cfg, st->console_content, locked);
 	apply_locks(cfg, st->game_content, locked);
 	prune_locked(cfg, locked);
@@ -317,7 +381,9 @@ int opts_minarch_load(EmuOvlConfig* cfg, OptsMinarchState* st, OptsOverrideState
 	for (int s = 0; s < cfg->section_count; s++)
 		for (int i = 0; i < cfg->sections[s].item_count; i++)
 			base[s][i] = cfg->sections[s].items[i].default_value;
+	apply_values(cfg, base_system_content, base);
 	apply_values(cfg, system_content, base);
+	apply_values(cfg, base_default_content, base);
 	apply_values(cfg, default_content, base);
 
 	memcpy(st->console_value, base, sizeof(st->console_value));
@@ -344,7 +410,9 @@ int opts_minarch_load(EmuOvlConfig* cfg, OptsMinarchState* st, OptsOverrideState
 		}
 	}
 
+	free(base_system_content);
 	free(system_content);
+	free(base_default_content);
 	free(default_content);
 	return 0;
 }

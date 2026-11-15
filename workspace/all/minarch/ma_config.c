@@ -921,25 +921,24 @@ void Config_getPath(char* filename, int override) {
 	else
 		snprintf(filename, MAX_PATH, "%s/minarch%s.cfg", core.config_dir, device_tag);
 }
-void Config_init(void) {
-	if (!config.default_cfg || config.initialized)
-		return;
+static int Config_parseDefaultBinds(const char* cfg, int count) {
+	if (!cfg)
+		return count;
 
-	char* tmp = config.default_cfg;
+	const char* tmp = cfg;
 	char* tmp2;
-	char* key;
+	const char* key;
 
 	char button_name[128];
 	char button_id[128];
-	int i = 0;
-	while (i < RETRO_BUTTON_COUNT && (tmp = strstr(tmp, "bind "))) {
+	while (count < RETRO_BUTTON_COUNT && (tmp = strstr(tmp, "bind "))) {
 		tmp += 5; // tmp now points to the button name (plus the rest of the line)
 		key = tmp;
 		tmp = strstr(tmp, " = ");
 		if (!tmp)
 			break;
 
-		int len = tmp - key;
+		int len = (int)(tmp - key);
 		if (len <= 0 || len >= (int)sizeof(button_name)) {
 			tmp += 3;
 			continue; // malformed or oversized bind name
@@ -962,7 +961,6 @@ void Config_init(void) {
 		int local_id = -1;
 
 		tmp2 = strrchr(button_id, ':');
-		int remap = 0;
 		if (tmp2) {
 			for (int j = 0; button_label_mapping[j].name; j++) {
 				ButtonMapping* button = &button_label_mapping[j];
@@ -985,14 +983,37 @@ void Config_init(void) {
 
 		tmp += strlen(button_id); // prepare to continue search
 
-		// TODO: test this without a final line return
-		tmp2 = calloc(strlen(button_name) + 1, sizeof(char));
-		strcpy(tmp2, button_name);
-		ButtonMapping* button = &core_button_mapping[i++];
-		button->name = tmp2;
-		button->retro = retro_id;
-		button->local = local_id;
-	};
+		// Update in place if default.cfg already registered this button name
+		int existing = -1;
+		for (int k = 0; k < count; k++) {
+			if (core_button_mapping[k].name && !strcmp(core_button_mapping[k].name, button_name)) {
+				existing = k;
+				break;
+			}
+		}
+		if (existing >= 0) {
+			core_button_mapping[existing].local = local_id;
+			if (retro_id != -1)
+				core_button_mapping[existing].retro = retro_id;
+		} else {
+			tmp2 = calloc(strlen(button_name) + 1, sizeof(char));
+			strcpy(tmp2, button_name);
+			ButtonMapping* button = &core_button_mapping[count++];
+			button->name = tmp2;
+			button->retro = retro_id;
+			button->local = local_id;
+		}
+	}
+	return count;
+}
+void Config_init(void) {
+	if ((!config.default_cfg && !config.device_default_cfg) || config.initialized)
+		return;
+
+	int count = Config_parseDefaultBinds(config.default_cfg, 0);
+	count = Config_parseDefaultBinds(config.device_default_cfg, count);
+	if (count < RETRO_BUTTON_COUNT)
+		core_button_mapping[count].name = NULL;
 
 	// populate shader presets
 	// TODO: None option?
@@ -1151,12 +1172,10 @@ void Config_load(void) {
 	if (config.device_tag)
 		snprintf(device_system_path, sizeof(device_system_path), "%s/system-%s.cfg", SYSTEM_PATH, config.device_tag);
 
-	if (config.device_tag && exists(device_system_path)) {
-		config.system_cfg = allocFile(device_system_path);
-	} else if (exists(system_path))
-		config.system_cfg = allocFile(system_path);
-	else
-		config.system_cfg = NULL;
+	config.system_cfg = exists(system_path) ? allocFile(system_path) : NULL;
+	config.device_system_cfg = (config.device_tag && exists(device_system_path))
+								   ? allocFile(device_system_path)
+								   : NULL;
 
 	char default_path[MAX_PATH];
 	getEmuPath((char*)core.tag, default_path);
@@ -1172,12 +1191,10 @@ void Config_load(void) {
 		strcpy(tmp, filename);
 	}
 
-	if (config.device_tag && exists(device_default_path)) {
-		config.default_cfg = allocFile(device_default_path);
-	} else if (exists(default_path))
-		config.default_cfg = allocFile(default_path);
-	else
-		config.default_cfg = NULL;
+	config.default_cfg = exists(default_path) ? allocFile(default_path) : NULL;
+	config.device_default_cfg = (config.device_tag && exists(device_default_path))
+									? allocFile(device_default_path)
+									: NULL;
 
 	char path[MAX_PATH];
 	config.loaded = CONFIG_NONE;
@@ -1200,9 +1217,15 @@ void Config_free(void) {
 	if (config.system_cfg)
 		free(config.system_cfg);
 	config.system_cfg = NULL;
+	if (config.device_system_cfg)
+		free(config.device_system_cfg);
+	config.device_system_cfg = NULL;
 	if (config.default_cfg)
 		free(config.default_cfg);
 	config.default_cfg = NULL;
+	if (config.device_default_cfg)
+		free(config.device_default_cfg);
+	config.device_default_cfg = NULL;
 	if (config.user_cfg)
 		free(config.user_cfg);
 	config.user_cfg = NULL;
@@ -1317,9 +1340,82 @@ static void Config_forceNetplayOptions(void) {
 	}
 }
 
+// Apply a (base, device-override) cfg pair as one tier: keys absent from
+// dev_cfg inherit both value and lock from base_cfg, while a key explicitly set
+// without '-' in dev_cfg unlocks a base_cfg '-' lock (e.g. VB.pak unlocking
+// vb_right_analog_to_digital on brickpro). Earlier tiers' locks remain sticky.
+static void Config_readOptionListTier(OptionList* list, const char* base_cfg, const char* dev_cfg, bool sync_fe) {
+	if (!list->options)
+		return;
+	char value[256];
+	for (int i = 0; list->options[i].key; i++) {
+		Option* option = &list->options[i];
+		int tier_lock = 0;
+		bool matched = false;
+		if (base_cfg && Config_getValue(base_cfg, option->key, value, &tier_lock)) {
+			OptionList_setOptionValue(list, option->key, value);
+			matched = true;
+		}
+		int dev_lock = 0;
+		if (dev_cfg && Config_getValue(dev_cfg, option->key, value, &dev_lock)) {
+			OptionList_setOptionValue(list, option->key, value);
+			tier_lock = dev_lock;
+			matched = true;
+		}
+		if (matched) {
+			if (tier_lock)
+				option->lock = 1;
+			if (sync_fe)
+				Config_syncFrontend(option->key, option->value);
+		}
+	}
+}
+static void Config_readTierScalarExtras(const char* base_cfg, const char* dev_cfg) {
+	char value[256];
+	const char* layers[2] = {base_cfg, dev_cfg};
+	int gp_tier_lock = 0;
+	bool gp_seen = false;
+	for (int l = 0; l < 2; l++) {
+		const char* cfg = layers[l];
+		if (!cfg)
+			continue;
+		int locked = 0;
+		if (has_custom_controllers && Config_getValue(cfg, "minarch_gamepad_type", value, &locked)) {
+			int type = strtol(value, NULL, 0);
+			int type_count = (int)(sizeof(gamepad_labels) / sizeof(gamepad_labels[0])) - 1;
+			Config_setGamepadType((type >= 0 && type < type_count) ? type : 0);
+			gp_tier_lock = locked;
+			gp_seen = true;
+		}
+		if (Config_getValue(cfg, "minarch_cpu_min", value, NULL))
+			cpu_profile_min_mhz = atoi(value);
+		if (Config_getValue(cfg, "minarch_cpu_max", value, NULL))
+			cpu_profile_max_mhz = atoi(value);
+		if (Config_getValue(cfg, "minarch_cpu_affinity", value, NULL))
+			cpu_profile_affinity = CpuProfile_parseAffinity(value);
+		if (Config_getValue(cfg, "minarch_face_buttons", value, NULL))
+			input_positional_faces = strcmp(value, "positional") == 0;
+		if (Config_getValue(cfg, "minarch_stick_dpad", value, NULL))
+			input_stick_dpad = strcmp(value, "off") != 0;
+	}
+	if (gp_seen && gp_tier_lock)
+		gamepad_type_locked = 1;
+}
+static void Config_readTierOptions(char* base_cfg, char* dev_cfg) {
+	if (!base_cfg && !dev_cfg)
+		return;
+	Config_readOptionListTier(&config.frontend, base_cfg, dev_cfg, true);
+	Config_readTierScalarExtras(base_cfg, dev_cfg);
+	Config_readOptionListTier(&config.core, base_cfg, dev_cfg, false);
+	Config_readOptionListTier(&config.shaders, base_cfg, dev_cfg, false);
+	for (int y = 0; y < config.shaders.options[SH_NROFSHADERS].value; y++) {
+		if (config.shaderpragmas[y].count > 0)
+			Config_readOptionListTier(&config.shaderpragmas[y], base_cfg, dev_cfg, false);
+	}
+}
 void Config_readOptions(void) {
-	Config_readOptionsString(config.system_cfg);
-	Config_readOptionsString(config.default_cfg);
+	Config_readTierOptions(config.system_cfg, config.device_system_cfg);
+	Config_readTierOptions(config.default_cfg, config.device_default_cfg);
 	Config_readOptionsString(config.user_cfg);
 	Config_forceNetplayPads(); // after the user's cfg: a session overrides it
 	Config_forceNetplayOptions();
@@ -1362,6 +1458,7 @@ static void Config_readShortcuts(void) {
 }
 void Config_readControls(void) {
 	Config_readControlsString(config.default_cfg);
+	Config_readControlsString(config.device_default_cfg);
 	Config_readControlsString(config.user_cfg);
 	Config_readShortcuts();
 }
@@ -1431,16 +1528,19 @@ void Config_restore(void) {
 	for (int i = 0; config.frontend.options[i].key; i++) {
 		Option* option = &config.frontend.options[i];
 		option->value = option->default_value;
+		option->lock = 0;
 		Config_syncFrontend(option->key, option->value);
 	}
 	for (int i = 0; config.core.options && config.core.options[i].key; i++) { // NULL: core has no options
 		Option* option = &config.core.options[i];
 		option->value = option->default_value;
+		option->lock = 0;
 	}
 	Config_restoreNetplayValues();
 	for (int i = 0; config.shaders.options[i].key; i++) {
 		Option* option = &config.shaders.options[i];
 		option->value = option->default_value;
+		option->lock = 0;
 	}
 	config.core.changed = 1; // let the core know
 
