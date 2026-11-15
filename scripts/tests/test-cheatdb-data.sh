@@ -6,10 +6,19 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/workspace/all/cheatdb"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-# fixture cheats.zip: two mapped systems + one unmapped
-FIX="$TMP/fix"; mkdir -p "$FIX/Nintendo - Game Boy Advance" "$FIX/Sega - Mega Drive - Genesis" "$FIX/PuzzleScript"
+# fixture cheats.zip: three mapped systems (incl. NDS for DraStic conversion) + one unmapped
+FIX="$TMP/fix"; mkdir -p "$FIX/Nintendo - Game Boy Advance" "$FIX/Sega - Mega Drive - Genesis" "$FIX/Nintendo - Nintendo DS" "$FIX/PuzzleScript"
 printf 'cheats = 0\n' > "$FIX/Nintendo - Game Boy Advance/Advance Wars (USA, Europe) (Code Breaker).cht"
 printf 'cheats = 0\n' > "$FIX/Sega - Mega Drive - Genesis/Sonic The Hedgehog (USA, Europe).cht"
+cat > "$FIX/Nintendo - Nintendo DS/Mario Kart DS (USA).cht" <<'NDSCHT'
+cheats = 2
+cheat0_desc = "Anti-Piracy Bypass Code"
+cheat0_code = "0204E334+E3A00000+0204E338+E12FFF1E"
+cheat0_enable = false
+cheat1_desc = "Max Coins"
+cheat1_code = "1217ACDC 0000000A"
+cheat1_enable = true
+NDSCHT
 printf 'cheats = 0\n' > "$FIX/PuzzleScript/PuzzleScript.cht"
 (cd "$FIX" && zip -qr "$TMP/cheats.zip" .)
 
