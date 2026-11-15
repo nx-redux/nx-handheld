@@ -78,6 +78,7 @@ int GetFnContrast(void);
 int GetFnSaturation(void);
 int GetFnExposure(void);
 int GetFnVolume(void);
+int GetFnPreventWake(void);
 
 void SetFnBrightness(int);
 void SetFnColortemp(int);
@@ -85,5 +86,6 @@ void SetFnContrast(int);
 void SetFnSaturation(int);
 void SetFnExposure(int);
 void SetFnVolume(int);
+void SetFnPreventWake(int);
 
 #endif // __msettings_h__

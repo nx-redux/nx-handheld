@@ -24,6 +24,18 @@
 
 #define KEY_POWER 116
 #define POWEROFF_HOLD_MS 1000
+#define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio363/value"
+
+static int is_fn_switch_on(void) {
+	int val = 0;
+	FILE* f = fopen(FN_SWITCH_GPIO_PATH, "r");
+	if (f) {
+		if (fscanf(f, "%d", &val) != 1)
+			val = 0;
+		fclose(f);
+	}
+	return val > 0;
+}
 
 #define MAX_INPUT_DEVICES 16
 #define INPUT_DIR "/dev/input"
@@ -93,10 +105,17 @@ static void do_suspend(void) {
 	// Mute volume
 	SetRawVolume(0);
 
-	// Call platform suspend script (try PATH first, then known locations)
-	if (system("suspend") != 0) {
-		system("/mnt/SDCARD/.system/bin/suspend");
-	}
+	// Re-enter deep sleep if woken by an accidental power-button bump while
+	// travel lock (FN switch blocks power button) is active.
+	do {
+		if (system("suspend") != 0) {
+			system("/mnt/SDCARD/.system/bin/suspend");
+		}
+		if (!(is_fn_switch_on() && GetFnPreventWake()))
+			break;
+		for (int w = 0; w < 10 && is_fn_switch_on() && GetFnPreventWake(); w++)
+			usleep(200000);
+	} while (is_fn_switch_on() && GetFnPreventWake());
 
 	// Restore backlight and volume on wake
 	(void)system("musicplayerctl.elf wake >/dev/null 2>&1");
