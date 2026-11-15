@@ -55,6 +55,7 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 	cd ./all/usblink/ && make
 	cd ./all/emu-options/ && make
 	cd ./all/extras/ && make
+	cd ./all/meleepvr/ && make
 	cd ./all/cheatdb/ && make
 	cd ./all/osdctl/ && make
 	cd ./all/osdmusic/ && make
@@ -113,6 +114,7 @@ endif
 	cd ./all/usblink/ && make clean
 	cd ./all/emu-options/ && make clean
 	cd ./all/extras/ && make clean
+	cd ./all/meleepvr/ && make clean
 	cd ./all/cheatdb/ && make clean
 	cd ./all/osdctl/ && make clean
 	cd ./all/osdmusic/ && make clean

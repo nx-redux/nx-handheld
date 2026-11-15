@@ -175,6 +175,8 @@ ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 
 	# Xtras catalog pak
 	cp ./workspace/all/extras/build/$(PLATFORM)/extras.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/
+	# LD_PRELOAD shim that binds Dawn's SwapChainEGL to SDL2's window surface for Melee on PowerVR
+	cp ./workspace/all/meleepvr/build/$(PLATFORM)/libmeleepvr.so ./build/SYSTEM/$(PLATFORM)/lib/
 	cp ./workspace/all/cheatdb/build/$(PLATFORM)/cheatdb.elf ./build/SYSTEM/$(PLATFORM)/paks/Tools/Xtras.pak/catalog/cheatdb/pak/
 
 	# Netplay pre-launch wizard (run bare off PATH by netplay-prelaunch.sh and the
