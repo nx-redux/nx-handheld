@@ -880,6 +880,10 @@ int PLAT_isUSBConnected(void);								   // 1 while configured as a USB gadget b
 void PLAT_enableBacklight(int enable);
 int PLAT_supportsDeepSleep(void);
 int PLAT_deepSleep(void);
+int PLAT_isFnSwitchOn(void);
+void PLAT_enterSleepCpu(void);
+void PLAT_reassertSleepCpu(void);
+void PLAT_exitSleepCpu(void);
 void PLAT_powerOff(int reboot);
 
 void* PLAT_cpu_monitor(void* arg);

@@ -63,8 +63,14 @@ if [ -f "/etc/init.d/lcservice" ]; then
 	rm /etc/init.d/lcservice 2> /dev/null
 fi
 
-# clear shadercache unconditionally, until it properly invalidates itself
-rm -rf $SDCARD_PATH/.shadercache
+# Keep compiled GLSL shader binaries across boots unless the NX Redux build
+# version changed, avoiding PowerVR recompilation stalls on first game launch.
+SHADER_VER_STAMP="$SDCARD_PATH/.shadercache/.nx_version"
+if [ ! -f "$SHADER_VER_STAMP" ] || ! cmp -s "$SYSTEM_PATH/version.txt" "$SHADER_VER_STAMP" 2>/dev/null; then
+	rm -rf "$SDCARD_PATH/.shadercache"
+	mkdir -p "$SDCARD_PATH/.shadercache"
+	cp "$SYSTEM_PATH/version.txt" "$SHADER_VER_STAMP" 2>/dev/null || true
+fi
 
 #PD11 pull high for VCC-5v
 echo 107 > /sys/class/gpio/export
@@ -312,6 +318,8 @@ while [ -f $EXEC_PATH ]; do
 		echo 1008000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null
 		eval "$CMD"
 		rm -f $NEXT_PATH
+		# Ensure keymon and audiomon are resumed if an app exited/died while in hybrid sleep
+		killall -CONT keymon.elf audiomon.elf 2>/dev/null || true
 		# Restore CPU state (games/tools may change governor and freq)
 		echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null
 		echo 408000 > /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null

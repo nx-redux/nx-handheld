@@ -24,6 +24,7 @@ before() {
 	# entry and resume, and the Brick Pro never wakes from deep sleep (#90).
 	# inputd also drops a stale flag by itself once it sees input with the
 	# LCD lit, so a missed cleanup can't leave the buttons dead for good.
+	touch /tmp/nx_suspend_active
 	touch /tmp/system_suspend
 	# inputd re-checks the flag every ~16 ms; let an in-flight read finish
 	sleep 0.2
@@ -100,8 +101,9 @@ for i in $(seq 1 $sleep_max_tries); do
 	sleep 3
 done
 
-# Let inputd resume its input threads (see before())
-rm -f /tmp/system_suspend
+# Let inputd resume its input threads unless bt_init.sh is currently waking BT
+rm -f /tmp/nx_suspend_active
+[ ! -e /tmp/nx_bt_wake_active ] && rm -f /tmp/system_suspend
 
 # Resume services in background to reduce UI latency
 after &

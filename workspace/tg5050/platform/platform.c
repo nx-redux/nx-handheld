@@ -280,6 +280,18 @@ int PLAT_supportsDeepSleep(void) {
 	return 1;
 }
 
+#define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio363/value"
+int PLAT_isFnSwitchOn(void) {
+	int value = 0;
+	FILE* file = fopen(FN_SWITCH_GPIO_PATH, "r");
+	if (file) {
+		if (fscanf(file, "%i", &value) != 1)
+			value = 0;
+		fclose(file);
+	}
+	return value;
+}
+
 ///////////////////////////////
 
 double get_time_sec() {

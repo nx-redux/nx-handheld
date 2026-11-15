@@ -261,6 +261,18 @@ int PLAT_supportsDeepSleep(void) {
 	return 1;
 }
 
+#define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio243/value"
+int PLAT_isFnSwitchOn(void) {
+	int value = 0;
+	FILE* file = fopen(FN_SWITCH_GPIO_PATH, "r");
+	if (file) {
+		if (fscanf(file, "%i", &value) != 1)
+			value = 0;
+		fclose(file);
+	}
+	return value;
+}
+
 ///////////////////////////////
 
 double get_time_sec() {
@@ -387,6 +399,39 @@ void PLAT_setCPUSpeedAuto(void) {
 void PLAT_setCPUSpeedRange(int min_khz, int max_khz) {
 	setGovernor(CPU_AUTO_GOVERNOR);
 	setFreqRange(min_khz, max_khz); // min, then max, then min (see setFreqRange)
+}
+
+static char saved_sleep_gov[32] = {0};
+static int saved_sleep_min = 0;
+static int saved_sleep_max = 0;
+static int sleep_cpu_saved = 0;
+
+void PLAT_enterSleepCpu(void) {
+	getFile(GOVERNOR_PATH, saved_sleep_gov, sizeof(saved_sleep_gov));
+	saved_sleep_gov[strcspn(saved_sleep_gov, "\r\n")] = '\0';
+	saved_sleep_min = getInt(MIN_FREQ_PATH);
+	saved_sleep_max = getInt(MAX_FREQ_PATH);
+	sleep_cpu_saved = (saved_sleep_min > 0 && saved_sleep_max > 0);
+	setGovernor("schedutil");
+	setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MIN);
+}
+
+void PLAT_reassertSleepCpu(void) {
+	if (getInt(MAX_FREQ_PATH) != CPU_FREQ_MIN) {
+		setGovernor("schedutil");
+		setFreqRange(CPU_FREQ_MIN, CPU_FREQ_MIN);
+	}
+}
+
+void PLAT_exitSleepCpu(void) {
+	if (sleep_cpu_saved) {
+		if (saved_sleep_gov[0])
+			setGovernor(saved_sleep_gov);
+		setFreqRange(saved_sleep_min, saved_sleep_max);
+		sleep_cpu_saved = 0;
+	} else {
+		PLAT_setCPUSpeed(CPU_SPEED_MENU);
+	}
 }
 
 // tg5040: FAST = cpu3 alone, SLOW = cpu0-2 (isolation, not a cluster split).
