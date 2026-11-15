@@ -18,6 +18,9 @@ touch /tmp/hide_osdd
 sync
 rm -f /tmp/nextui_exec
 touch /tmp/poweroff
-killall nextui.elf minarch.elf 2>/dev/null
-# Safety net: if no app was running to unwind the launch loop, power off directly
-( sleep 10; poweroff ) &
+killall -CONT keymon.elf audiomon.elf 2>/dev/null || true
+killall nextui.elf minarch.elf settings.elf musicplayer.elf mediaplayer.elf imageviewer.elf gametime.elf ratools.elf extras.elf cheatdb.elf sync.elf scraper.elf options.elf drastic 2>/dev/null || true
+# Safety net: if the foreground app didn't unwind into MinUI.pak/launch.sh, run
+# poweroff_next directly so the SD card unmounts cleanly and tg5040's AXP2202
+# PMIC cuts power without entering warm limbo.
+( sleep 2; /mnt/SDCARD/.system/bin/poweroff_next || poweroff ) &

@@ -26,15 +26,42 @@
 #define POWEROFF_HOLD_MS 1000
 #define FN_SWITCH_GPIO_PATH "/sys/class/gpio/gpio243/value"
 
-static int is_fn_switch_on(void) {
-	int val = 0;
-	FILE* f = fopen(FN_SWITCH_GPIO_PATH, "r");
+static int read_int_file(const char* path, int fallback) {
+	int val = fallback;
+	FILE* f = fopen(path, "r");
 	if (f) {
 		if (fscanf(f, "%d", &val) != 1)
-			val = 0;
+			val = fallback;
 		fclose(f);
 	}
-	return val > 0;
+	return val;
+}
+
+static void write_int_file(const char* path, int val) {
+	FILE* f = fopen(path, "w");
+	if (f) {
+		fprintf(f, "%d\n", val);
+		fclose(f);
+	}
+}
+
+static int is_fn_switch_on(void) {
+	return read_int_file(FN_SWITCH_GPIO_PATH, 0) > 0;
+}
+
+static int is_fn_leds_enabled(void) {
+	int enabled = 1;
+	FILE* f = fopen("/mnt/SDCARD/.userdata/shared/minuisettings.txt", "r");
+	if (f) {
+		char line[128];
+		while (fgets(line, sizeof(line), f)) {
+			int v;
+			if (sscanf(line, "fnLeds=%d", &v) == 1)
+				enabled = v != 0;
+		}
+		fclose(f);
+	}
+	return enabled;
 }
 
 #define MAX_INPUT_DEVICES 16
@@ -97,12 +124,27 @@ static void scan_input_devices(void) {
 	}
 }
 
+static const char* const led_scale_nodes[] = {
+	"/sys/class/led_anim/max_scale",
+	"/sys/class/led_anim/max_scale_lr",
+	"/sys/class/led_anim/max_scale_f1f2",
+	"/sys/class/led_anim/max_scale_rear",
+};
+#define LED_SCALE_NODE_COUNT (int)(sizeof(led_scale_nodes) / sizeof(led_scale_nodes[0]))
+
 static void do_suspend(void) {
 	(void)system("musicplayerctl.elf sleep >/dev/null 2>&1");
-	// Turn off backlight
-	SetRawBrightness(0);
 
-	// Mute volume
+	// Save current LED zone brightnesses and blank LEDs while asleep
+	int saved_leds[LED_SCALE_NODE_COUNT];
+	for (int i = 0; i < LED_SCALE_NODE_COUNT; i++) {
+		saved_leds[i] = read_int_file(led_scale_nodes[i], -1);
+		if (saved_leds[i] >= 0)
+			write_int_file(led_scale_nodes[i], 0);
+	}
+
+	// Turn off backlight and mute volume
+	SetRawBrightness(0);
 	SetRawVolume(0);
 
 	// Re-enter deep sleep if woken by an accidental power-button bump while
@@ -113,29 +155,42 @@ static void do_suspend(void) {
 		}
 		if (!(is_fn_switch_on() && GetFnPreventWake()))
 			break;
+		// Brief window to flip FN off before going back into deep sleep
 		for (int w = 0; w < 10 && is_fn_switch_on() && GetFnPreventWake(); w++)
 			usleep(200000);
 	} while (is_fn_switch_on() && GetFnPreventWake());
 
-	// Restore backlight and volume on wake
-	(void)system("musicplayerctl.elf wake >/dev/null 2>&1");
+	// Restore backlight (Brick & Brick Pro require an initial raw>=8 kick when
+	// waking to brightness 0 / raw 1), LEDs, and volume on wake.
+	if (access("/sys/class/led_anim/max_scale_lr", F_OK) == 0)
+		SetRawBrightness(8);
 	SetBrightness(GetBrightness());
+	if (access("/tmp/leds_disabled", F_OK) != 0 && !(is_fn_switch_on() && is_fn_leds_enabled())) {
+		for (int i = 0; i < LED_SCALE_NODE_COUNT; i++) {
+			if (saved_leds[i] >= 0)
+				write_int_file(led_scale_nodes[i], saved_leds[i]);
+		}
+	}
 	SetVolume(GetVolume());
+	(void)system("musicplayerctl.elf wake >/dev/null 2>&1");
 }
 
 static void do_poweroff(void) {
 	(void)system("musicplayerctl.elf shutdown >/dev/null 2>&1");
-	// Signal the main loop to poweroff
+	// Stop launch loop from respawning nextui and signal poweroff_next
+	unlink("/tmp/nextui_exec");
 	FILE* f = fopen("/tmp/poweroff", "w");
 	if (f)
 		fclose(f);
 	sync();
-	// Kill the foreground app so the MinUI loop picks up /tmp/poweroff
-	system("killall -TERM minarch.elf 2>/dev/null");
-	system("killall -TERM nextui.elf 2>/dev/null");
-	// Fallback: direct poweroff after a brief delay
-	usleep(3000000);
-	system("poweroff");
+	// Ensure stopped daemons can receive SIGTERM and ask standalone emulators to exit
+	system("killall -CONT keymon.elf audiomon.elf 2>/dev/null");
+	system("killall -TERM minarch.elf nextui.elf drastic 2>/dev/null");
+	usleep(1500000);
+	// Route through poweroff_next so /mnt/SDCARD unmounts cleanly and AXP2202
+	// cuts power without hitting the tg5040 PMIC limbo bug.
+	execl("/mnt/SDCARD/.system/bin/poweroff_next", "poweroff_next", (char*)NULL);
+	system("poweroff_next || poweroff");
 }
 
 int main(int argc, char* argv[]) {

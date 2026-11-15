@@ -105,8 +105,6 @@ static void do_suspend(void) {
 	// Mute volume
 	SetRawVolume(0);
 
-	// Re-enter deep sleep if woken by an accidental power-button bump while
-	// travel lock (FN switch blocks power button) is active.
 	do {
 		if (system("suspend") != 0) {
 			system("/mnt/SDCARD/.system/bin/suspend");
@@ -118,24 +116,23 @@ static void do_suspend(void) {
 	} while (is_fn_switch_on() && GetFnPreventWake());
 
 	// Restore backlight and volume on wake
-	(void)system("musicplayerctl.elf wake >/dev/null 2>&1");
 	SetBrightness(GetBrightness());
 	SetVolume(GetVolume());
+	(void)system("musicplayerctl.elf wake >/dev/null 2>&1");
 }
 
 static void do_poweroff(void) {
 	(void)system("musicplayerctl.elf shutdown >/dev/null 2>&1");
-	// Signal the main loop to poweroff
+	unlink("/tmp/nextui_exec");
 	FILE* f = fopen("/tmp/poweroff", "w");
 	if (f)
 		fclose(f);
 	sync();
-	// Kill the foreground app so the MinUI loop picks up /tmp/poweroff
-	system("killall -TERM minarch.elf 2>/dev/null");
-	system("killall -TERM nextui.elf 2>/dev/null");
-	// Fallback: direct poweroff after a brief delay
-	usleep(3000000);
-	system("poweroff");
+	system("killall -CONT keymon.elf audiomon.elf 2>/dev/null");
+	system("killall -TERM minarch.elf nextui.elf drastic 2>/dev/null");
+	usleep(1500000);
+	execl("/mnt/SDCARD/.system/bin/poweroff_next", "poweroff_next", (char*)NULL);
+	system("poweroff_next || poweroff");
 }
 
 int main(int argc, char* argv[]) {

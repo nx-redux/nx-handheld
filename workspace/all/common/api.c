@@ -4601,6 +4601,7 @@ void PWR_powerOff(int reboot) {
 		/* The music owner is independent of the foreground app; only an actual
 		 * poweroff ends it, and a missing/crashed owner is harmless. */
 		system("musicplayerctl.elf shutdown >/dev/null 2>&1");
+		system("killall -CONT keymon.elf audiomon.elf 2>/dev/null");
 		system("killall -TERM keymon.elf");
 		system("killall -TERM audiomon.elf");
 
