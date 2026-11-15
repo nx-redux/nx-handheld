@@ -24,16 +24,17 @@ start_hci_attach() {
 	# device rebooted when Bluetooth came back after a wake. Pause inputd's
 	# input threads with its suspend flag (see bin/suspend) around the write,
 	# unless the flag is already up.
-	paused_input=
+	touch /tmp/nx_bt_wake_active
 	if [ ! -e /tmp/system_suspend ]; then
 		touch /tmp/system_suspend
-		paused_input=1
 		# inputd re-checks the flag every ~16 ms; let an in-flight read finish
 		usleep 100000
 	fi
 	echo 1 > /proc/bluetooth/sleep/btwrite
-	[ -n "$paused_input" ] && rm -f /tmp/system_suspend
 	reset_bluetooth_power
+	rm -f /tmp/nx_bt_wake_active
+	# Never remove /tmp/system_suspend if bin/suspend concurrently entered deep sleep
+	[ ! -e /tmp/nx_suspend_active ] && rm -f /tmp/system_suspend
 
 	"$bt_hciattach" -n ttyS1 xradio >/dev/null 2>&1 &
 

@@ -3902,6 +3902,9 @@ FALLBACK_IMPLEMENTATION int PLAT_supportsDeepSleep(void) {
 FALLBACK_IMPLEMENTATION int PLAT_isFnSwitchOn(void) {
 	return GetFnMode();
 }
+FALLBACK_IMPLEMENTATION void PLAT_enterSleepCpu(void) {}
+FALLBACK_IMPLEMENTATION void PLAT_reassertSleepCpu(void) {}
+FALLBACK_IMPLEMENTATION void PLAT_exitSleepCpu(void) {}
 FALLBACK_IMPLEMENTATION int PLAT_deepSleep(void) {
 	const char* state_path = "/sys/power/state";
 	int state_fd = 0;
@@ -4625,14 +4628,19 @@ static void PWR_enterSleep(void) {
 	system("killall -STOP keymon.elf");
 	system("killall -STOP audiomon.elf");
 
-	PWR_updateFrequency(-1, false);
+	// Drop CPU to minimum OPP during hybrid sleep: on tg5040's 4.9 kernel,
+	// schedutil parks idle cores at scaling_max_freq, burning 1.0–2.0 GHz
+	// with the screen off otherwise.
+	PLAT_enterSleepCpu();
+	PWR_updateFrequency(30, false);
 
 	sync();
 }
 static void PWR_exitSleep(void) {
+	PLAT_exitSleepCpu();
 	LEDS_popProfileOverride(LIGHT_PROFILE_SLEEP);
 
-	PWR_updateFrequency(-1, true);
+	PWR_updateFrequency(5, true);
 
 	system("killall -CONT keymon.elf");
 	system("killall -CONT audiomon.elf");
@@ -4662,6 +4670,7 @@ static void PWR_exitSleep(void) {
 
 static void PWR_waitForWake(void) {
 	uint32_t sleep_ticks = SDL_GetTicks();
+	uint32_t cpu_check_ticks = sleep_ticks;
 	const int sleepDelay = CFG_getSuspendTimeoutSecs() * 1000;
 	while (!PAD_wake()) {
 		if (pwr.requested_wake) {
@@ -4669,6 +4678,13 @@ static void PWR_waitForWake(void) {
 			break;
 		}
 		SDL_Delay(200);
+		// Re-clamp sleep clocks periodically: Allwinner's usb-hardware-scan
+		// kthread forces scaling_governor=performance (2.0 GHz) whenever USB VBUS
+		// is plugged in while the screen is off.
+		if (SDL_GetTicks() - cpu_check_ticks >= 5000) {
+			PLAT_reassertSleepCpu();
+			cpu_check_ticks = SDL_GetTicks();
+		}
 		if (sleepDelay > 0 && SDL_GetTicks() - sleep_ticks >= sleepDelay) {
 			if (SDL_AtomicGet(&pwr.is_charging) ||
 				(CFG_getKeepAwakeUSB() && SDL_AtomicGet(&pwr.is_usb_connected)) ||

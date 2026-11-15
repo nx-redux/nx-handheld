@@ -665,16 +665,12 @@ void getFile(char* path, char* buffer, size_t buffer_size) {
 		return; // no room even for a terminator
 	FILE* file = fopen(path, "r");
 	if (file) {
-		fseek(file, 0L, SEEK_END);
-		long ftell_size = ftell(file);
-		// ftell can fail (unseekable file / error) — treat as empty
-		size_t size = ftell_size < 0 ? 0 : (size_t)ftell_size;
-		if (size > buffer_size - 1)
-			size = buffer_size - 1;
-		rewind(file);
-		fread(buffer, sizeof(char), size, file);
+		// Read directly instead of sizing via fseek(SEEK_END)+ftell(): Linux sysfs
+		// attributes report PAGE_SIZE (4096) via ftell() while returning only a few
+		// bytes from fread(), which previously left buffer[n..size-1] uninitialized.
+		size_t n = fread(buffer, sizeof(char), buffer_size - 1, file);
 		fclose(file);
-		buffer[size] = '\0';
+		buffer[n] = '\0';
 	}
 }
 char* allocFile(char* path) { // caller must free!

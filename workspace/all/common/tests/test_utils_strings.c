@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 // Returns a heap copy of s in a buffer of exactly `size` bytes.
@@ -173,6 +175,53 @@ static void test_write_file_atomic(void) {
 	assert(system(rm) == 0);
 }
 
+// Regression: getFile() used ftell(SEEK_END) for its NUL index instead of
+// fread()'s byte count, leaving trailing stack garbage on short reads (such as
+// 4096-byte Linux sysfs attributes) and returning empty on unseekable streams.
+static void test_get_file(void) {
+	char path[96];
+	snprintf(path, sizeof(path), "/tmp/nx_test_getfile_%d", (int)getpid());
+	assert(writeFileAtomic(path, "schedutil\n", 10));
+
+	char buf[32];
+	memset(buf, 'X', sizeof(buf));
+	getFile(path, buf, sizeof(buf));
+	assert(strcmp(buf, "schedutil\n") == 0);
+
+	// Capped read truncates cleanly at buffer_size - 1
+	memset(buf, 'X', sizeof(buf));
+	getFile(path, buf, 5);
+	assert(strcmp(buf, "sche") == 0);
+
+	// Zero-size buffer is a safe no-op
+	buf[0] = 'Z';
+	getFile(path, buf, 0);
+	assert(buf[0] == 'Z');
+	unlink(path);
+
+	// Unseekable FIFO (models procfs/sysfs where SEEK_END fails or misreports)
+	char fifo[96];
+	snprintf(fifo, sizeof(fifo), "/tmp/nx_test_fifo_%d", (int)getpid());
+	unlink(fifo);
+	assert(mkfifo(fifo, 0600) == 0);
+	pid_t child = fork();
+	assert(child >= 0);
+	if (child == 0) {
+		FILE* wf = fopen(fifo, "w");
+		if (wf) {
+			fputs("ondemand\n", wf);
+			fclose(wf);
+		}
+		_exit(0);
+	}
+	memset(buf, 'Y', sizeof(buf));
+	getFile(fifo, buf, sizeof(buf));
+	int st = 0;
+	waitpid(child, &st, 0);
+	unlink(fifo);
+	assert(strcmp(buf, "ondemand\n") == 0);
+}
+
 int main(void) {
 	test_replace_string();
 	test_escape_single_quotes();
@@ -181,6 +230,7 @@ int main(void) {
 	test_remove_extension();
 	test_put_int();
 	test_write_file_atomic();
+	test_get_file();
 	printf("test_utils_strings: OK\n");
 	return 0;
 }
