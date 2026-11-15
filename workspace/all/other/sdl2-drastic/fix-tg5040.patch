@@ -74,7 +74,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  typedef enum
  {
      ENUMERATION_UNSET,
-@@ -1923,7 +1952,7 @@
+@@ -1923,7 +1952,7 @@ static void PollAllValues(SDL_Joystick *joystick)
                          joystick->hwdata->key_map[i], i, value);
  #endif
                  SDL_PrivateJoystickButton(joystick,
@@ -83,7 +83,14 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              }
          }
      }
-@@ -1998,7 +2027,7 @@
+@@ -1994,11 +2023,14 @@ static void HandleInputEvents(SDL_Joystick *joystick)
+                 ((events[i].type != EV_SYN) || (code != SYN_REPORT))) {
+                 continue;
+             }
++            if (access("/tmp/trimui_osd/osdd_show_up", F_OK) == 0) {
++                continue;
++            }
+ 
              switch (events[i].type) {
              case EV_KEY:
                  SDL_PrivateJoystickButton(joystick,
@@ -92,7 +99,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                                            events[i].value);
                  break;
              case EV_ABS:
-@@ -2173,7 +2202,7 @@
+@@ -2173,7 +2205,7 @@ static void HandleClassicEvents(SDL_Joystick *joystick)
              case JS_EVENT_BUTTON:
                  code = joystick->hwdata->key_pam[events[i].number];
                  SDL_PrivateJoystickButton(joystick,
@@ -328,9 +335,9 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
 +    #define X       BTN_WEST     /* tg5040: left face button = physical "X" */
 +    #define Y       BTN_NORTH    /* tg5040: top face button = physical "Y" */
 +    #define L1      BTN_TL       /* tg5040: TRIMUI Player1 */
-+    #define L2      59           /* tg5040: TRIMUI Player1 KEY_59 */
++    #define L2      -1           /* tg5040: L2 is ABS_Z axis only; EV_KEY 59 is Brick Pro F1 */
 +    #define R1      BTN_TR       /* tg5040: TRIMUI Player1 */
-+    #define R2      60           /* tg5040: TRIMUI Player1 KEY_60 */
++    #define R2      -1           /* tg5040: R2 is ABS_RZ axis only; EV_KEY 60 is Brick Pro F2 */
 +    #define START   BTN_START    /* tg5040: TRIMUI Player1 */
 +    #define SELECT  BTN_SELECT   /* tg5040: TRIMUI Player1 */
 +    #define MENU    BTN_MODE     /* tg5040: TRIMUI Player1 */
@@ -344,7 +351,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
  
  MMIYOO_EventInfo evt = {0};
-@@ -97,6 +98,16 @@
+@@ -97,6 +98,16 @@ static int running = 0;
  static int event_fd = -1;
  static int lower_speed = 0;
  
@@ -361,7 +368,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  static SDL_sem *event_sem = NULL;
  static SDL_Thread *thread = NULL;
  static uint32_t cur_keypad_bitmaps = 0;
-@@ -261,29 +272,12 @@
+@@ -261,29 +272,12 @@ static int handle_hotkey(void)
      }
  
      if (hotkey_mask && hit_hotkey(MYKEY_LEFT)) {
@@ -393,7 +400,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          set_key(MYKEY_RIGHT, 0);
      }
  
-@@ -298,7 +292,7 @@
+@@ -298,7 +292,7 @@ static int handle_hotkey(void)
      }
  
      if (hotkey_mask && hit_hotkey(MYKEY_B)) {
@@ -402,7 +409,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          set_key(MYKEY_B, 0);
      }
  
-@@ -308,26 +302,7 @@
+@@ -308,26 +302,7 @@ static int handle_hotkey(void)
  
      if (hit_hotkey(MYKEY_Y)) {
          if (hotkey_mask) {
@@ -430,7 +437,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          }
          else {
              nds.menu.sel+= 1;
-@@ -367,20 +342,12 @@
+@@ -367,20 +342,12 @@ static int handle_hotkey(void)
  
  
      if (hotkey_mask && hit_hotkey(MYKEY_R1)) {
@@ -453,7 +460,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          set_key(MYKEY_L1, 0);
      }
  
-@@ -390,8 +357,7 @@
+@@ -390,8 +357,7 @@ static int handle_hotkey(void)
      }
  
      if (hotkey_mask && hit_hotkey(MYKEY_L2)) {
@@ -463,7 +470,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
          set_key(MYKEY_L2, 0);
      }
      else if (evt.keypad.bitmaps & (1 << MYKEY_L2)) {
-@@ -437,12 +403,26 @@
+@@ -437,11 +403,25 @@ int EventUpdate(void *data)
  
  	for (i=0; i < NUM_OF_MYKEY; i++) {
  		if (nds.input.key[i] != -1) {
@@ -472,7 +479,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  		}
  	}
 -	
- 
++
 +    // NX Redux "Button layout" (Settings > System). NDS.pak/launch.sh exports
 +    // NX_BUTTON_LAYOUT=xbox when the user wants A at the bottom: swap the
 +    // evdev codes for A<->B and X<->Y here, ahead of the per-event compares,
@@ -488,11 +495,24 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
 +            printf(PREFIX"button layout: xbox (A/B and X/Y evdev codes swapped)\n");
 +        }
 +    }
-+
+ 
      while (running) {
          SDL_SemWait(event_sem);
+@@ -505,7 +485,12 @@ int EventUpdate(void *data)
+         if (event_fd > 0) {
+             int r = 0;
  
-@@ -677,35 +657,13 @@
+-            if (read(event_fd, &ev, sizeof(struct input_event))) {
++            if (read(event_fd, &ev, sizeof(struct input_event)) > 0) {
++				if (access("/tmp/trimui_osd/osdd_show_up", F_OK) == 0) {
++					SDL_SemPost(event_sem);
++					usleep(1000000 / 60);
++					continue;
++				}
+ 				if (ev.type == EV_ABS) {
+ 					if (ev.code == ABS_HAT0X) {
+ 						 if ((nds.menu.enable == 0) && (nds.menu.drastic.enable == 0) && nds.keys_rotate) {
+@@ -677,138 +662,16 @@ int EventUpdate(void *data)
  						}
  					} 
  					else if (ev.code == ABS_Z) {
@@ -500,12 +520,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
 -						if (ev.value < -100) {
 -							// left
 -							evt.analogstick_left_x = ev.value / 1024;;
-+						// tg5040: L2 trigger axis -> digital L2 (edge-detected)
-+						int pressed = (ev.value >= trigger_threshold) ? 1 : 0;
-+						if (pressed != trigger_l2_down) {
-+							trigger_l2_down = pressed;
-+							set_key(MYKEY_L2, pressed);
- 						}
+-						}
 -						else if (ev.value > 100) {
 -							// right
 -							evt.analogstick_left_x = ev.value / 1024;;
@@ -514,7 +529,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
 -							// center 
 -							evt.analogstick_left_x = 0;
 -						}						
- 					}
+-					}
 -					else if (ev.code == ABS_RX) {
 -						// left analog y
 -						if (ev.value < -100) {
@@ -530,13 +545,56 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
 -							evt.analogstick_left_y = 0;
 -						}		
 -					}					
- 					else if (ev.code == ABS_RY) {
- 						if (nds.dis_mode == NDS_DIS_MODE_HH1) {
- 							if (evt.mode == MMIYOO_KEYPAD_MODE) {
-@@ -756,59 +714,9 @@
- 							}
- 						}
- 					}
+-					else if (ev.code == ABS_RY) {
+-						if (nds.dis_mode == NDS_DIS_MODE_HH1) {
+-							if (evt.mode == MMIYOO_KEYPAD_MODE) {
+-								// right analog x -> dpad
+-								// left -> up
+-								// right -> down
+-								if (ev.value < -100) {
+-									// up 
+-									if (evt.keypad.bitmaps & (1 << MYKEY_DOWN)) { 
+-										set_key(MYKEY_DOWN, 0); 
+-									} 
+-									set_key(MYKEY_UP,    1); 							
+-								}
+-								else if (ev.value > 100) {
+-									// down 
+-									if (evt.keypad.bitmaps & (1 << MYKEY_UP)) {
+-										set_key(MYKEY_UP, 0); 
+-									} 
+-									set_key(MYKEY_DOWN,    1); 							
+-								}
+-								else {
+-									// center 
+-									if (evt.keypad.bitmaps & (1 << MYKEY_UP)) { 
+-										set_key(MYKEY_UP, 0); 
+-									} 
+-
+-									if (evt.keypad.bitmaps & (1 << MYKEY_DOWN)) { 
+-										set_key(MYKEY_DOWN, 0); 
+-									} 							
+-								}
+-							}
+-							else {
+-								// right analog x -> touch
+-								// left -> up
+-								// right -> down
+-								if (ev.value < -100) {
+-									// up 
+-									evt.analogstick_right_y = ev.value / 1024;
+-								}
+-								else if (ev.value > 100) {
+-									// down 
+-									evt.analogstick_right_y= ev.value / 1024;
+-								}
+-								else {
+-									// center 
+-									evt.analogstick_right_y = 0;
+-								}								
+-							}
+-						}
+-					}
 -					else if (ev.code ==  ABS_RZ) {
 -						if (nds.dis_mode == NDS_DIS_MODE_HH1) {
 -							if (evt.mode == MMIYOO_KEYPAD_MODE) {
@@ -584,8 +642,13 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
 -									evt.analogstick_right_x  = 0;
 -								}										
 -							}
--						}
--					}
++						// tg5040: L2 trigger axis -> digital L2 (edge-detected)
++						int pressed = (ev.value >= trigger_threshold) ? 1 : 0;
++						if (pressed != trigger_l2_down) {
++							trigger_l2_down = pressed;
++							set_key(MYKEY_L2, pressed);
+ 						}
+ 					}
  				}
                  else if ((ev.type == EV_KEY) && (ev.value != 2)) {
                      r = 1;
@@ -593,7 +656,18 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
                      if (ev.code == l1)      { set_key(MYKEY_L1,    ev.value); }
                      if (ev.code == r1)      { set_key(MYKEY_R1,    ev.value); }
  
-@@ -840,6 +748,7 @@
+@@ -823,8 +686,8 @@ int EventUpdate(void *data)
+                     if (ev.code == y)       { set_key(MYKEY_Y,     ev.value); }
+ 
+ 
+-                    if (ev.code == r2)      { set_key(MYKEY_R2,    ev.value); }
+-                    if (ev.code == l2)      { set_key(MYKEY_L2,    ev.value); }
++                    if (r2 != -1 && ev.code == r2)      { set_key(MYKEY_R2,    ev.value); }
++                    if (l2 != -1 && ev.code == l2)      { set_key(MYKEY_L2,    ev.value); }
+ 
+ 
+                     if (ev.code == input[MYKEY_L3])      { set_key(MYKEY_L3,    ev.value);}
+@@ -840,6 +703,7 @@ int EventUpdate(void *data)
                  }
              }
  
@@ -601,7 +675,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
              handle_hotkey();
          }
          SDL_SemPost(event_sem);
-@@ -862,8 +771,20 @@
+@@ -862,8 +726,20 @@ void MMIYOO_EventInit(void)
  
      evt.mode = MMIYOO_KEYPAD_MODE;
  
@@ -623,7 +697,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  		event_fd = open(nds.input.dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
  	}
  	else {
-@@ -873,6 +794,15 @@
+@@ -873,6 +749,15 @@ void MMIYOO_EventInit(void)
      if(event_fd < 0){
          printf(PREFIX"Failed to open event0\n");
      }
@@ -639,7 +713,7 @@ diff -ruN --exclude=.git --exclude=build --exclude=*.o --exclude=*.a --exclude=*
  
      if((event_sem =  SDL_CreateSemaphore(1)) == NULL) {
          SDL_SetError("Can't create input semaphore");
-@@ -991,52 +921,11 @@
+@@ -991,52 +876,11 @@ void MMIYOO_PumpEvents(_THIS)
                  }
              }
  
