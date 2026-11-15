@@ -311,6 +311,24 @@ static void test_long_line_passthrough(void) {
 	emu_ovl_cfg_free(&cfg);
 }
 
+// 12. default-<device>.cfg overlays default.cfg: omitted keys inherit from
+// default.cfg, and a key set without '-' in default-<device>.cfg unlocks a
+// '-' lock from default.cfg (e.g. VB.pak on brickpro).
+static void test_device_default_overlay(void) {
+	reset_root();
+	write_file(ROOT "/default.cfg", "-tc_frameskip = off\ntc_ratio = 16:9\n");
+	write_file(ROOT "/default-brickpro.cfg", "tc_frameskip = auto\n");
+	static EmuOvlConfig cfg;
+	static OptsMinarchState st;
+	static OptsOverrideState ost;
+	load(&cfg, &st, &ost, NULL, ROOT "/default-brickpro.cfg", NULL);
+	assert(cfg.sections[0].item_count == 2);			 // tc_frameskip unlocked by default-brickpro.cfg
+	assert(cfg.sections[0].items[0].current_value == 1); // auto from default-brickpro.cfg
+	assert(cfg.sections[0].items[1].current_value == 1); // 16:9 inherited from default.cfg
+	opts_minarch_free(&st);
+	emu_ovl_cfg_free(&cfg);
+}
+
 int main(void) {
 	test_layering();
 	test_game_replaces_console();
@@ -323,6 +341,7 @@ int main(void) {
 	test_duplicate_first_wins();
 	test_crlf();
 	test_long_line_passthrough();
+	test_device_default_overlay();
 	printf("test_opts_minarch: all tests passed\n");
 	return 0;
 }

@@ -181,10 +181,12 @@ static inline int ButtonMapping_btn(const ButtonMapping* mapping) {
 // Option, OptionCategory, OptionList live in ma_option_types.h
 
 struct Config {
-	char* system_cfg;	  // system.cfg based on system limitations
-	char* default_cfg;	  // default.cfg (or default-<DEVICE>.cfg) based on platform limitations
-	char* user_cfg;		  // minarch.cfg or game.cfg based on user preference
-	char* shaders_preset; // minarch.cfg or game.cfg based on user preference
+	char* system_cfg;		  // system.cfg based on system limitations
+	char* device_system_cfg;  // system-<DEVICE>.cfg overlay on top of system.cfg
+	char* default_cfg;		  // default.cfg based on pak defaults
+	char* device_default_cfg; // default-<DEVICE>.cfg overlay on top of default.cfg
+	char* user_cfg;			  // minarch.cfg or game.cfg based on user preference
+	char* shaders_preset;	  // minarch.cfg or game.cfg based on user preference
 	char* device_tag;
 	OptionList frontend;
 	OptionList core;
