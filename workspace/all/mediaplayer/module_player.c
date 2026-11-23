@@ -12,6 +12,7 @@
 #include "display_helper.h"
 #include "ffplay_engine.h"
 #include "ui_player.h"
+#include "ui_tabs.h"
 #include "ui_listview.h"
 #include "positions.h"
 
@@ -30,6 +31,7 @@ static void load_video_directory(VideoBrowserContext* browser, const char* path)
 
 // Context-menu item ids
 #define PLAYER_CTX_PLAY_START 1 // play the selected video from 0:00 (A resumes)
+#define PLAYER_CTX_SWITCH_TAB 2 // switch to Online TV tab
 
 // Launch ffplay for a file entry at start_sec, then record where playback
 // ended. Returns the (possibly re-created) screen surface.
@@ -116,19 +118,23 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		PAD_poll();
 
 		ListView* v = VideoBrowser_view();
+		bool at_root = (strcmp(browser.current_path, VIDEO_ROOT) == 0);
+		v->no_lr_paging = at_root && MediaUI_isMinimal();
 
 		// Context menu for this page (MENU tap): A resumes a video with a saved
-		// position, so offer "Play from Start" for those; always offer Quit.
+		// position, so offer "Play from Start" for those; offer tab switch at root; always offer Quit.
 		VideoFileEntry* sel_entry =
 			(browser.entry_count > 0 && v->selected >= 0 && v->selected < browser.entry_count)
 				? &browser.entries[v->selected]
 				: NULL;
 		int sel_resume_sec = (sel_entry && !sel_entry->is_dir) ? Positions_get(sel_entry->path) : 0;
 
-		ContextMenuItem ctx_items[2];
+		ContextMenuItem ctx_items[3];
 		int ctx_count = 0;
 		if (sel_resume_sec > 0)
 			ContextMenu_addItem(ctx_items, &ctx_count, "Play from Start", PLAYER_CTX_PLAY_START);
+		if (at_root)
+			ContextMenu_addItem(ctx_items, &ctx_count, "Online TV", PLAYER_CTX_SWITCH_TAB);
 		ContextMenu_addItem(ctx_items, &ctx_count, "Quit App", CTX_ID_QUIT);
 
 		// Handle global input (quit chord, MENU context menu, power)
@@ -136,6 +142,11 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		if (global.should_quit) {
 			VideoBrowser_freeEntries(&browser);
 			return MODULE_EXIT_QUIT;
+		}
+		if (global.context_id == PLAYER_CTX_SWITCH_TAB) {
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			VideoBrowser_freeEntries(&browser);
+			return MODULE_EXIT_SWITCH_TAB;
 		}
 		if (global.context_id == PLAYER_CTX_PLAY_START && sel_entry) {
 			screen = play_video_file(screen, sel_entry, 0);
@@ -149,13 +160,21 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 			continue;
 		}
 
+		// L1/R1 (and LEFT/RIGHT on Minimal root) switch between Library and Online TV tabs
+		if (at_root && (PAD_justPressed(BTN_L1) || PAD_justPressed(BTN_R1) ||
+						(MediaUI_isMinimal() && (PAD_justPressed(BTN_LEFT) || PAD_justPressed(BTN_RIGHT))))) {
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			VideoBrowser_freeEntries(&browser);
+			return MODULE_EXIT_SWITCH_TAB;
+		}
+
 		// Browser navigation: the ListView owns nav (UP/DOWN/pageing/wrap);
 		// the module switches on the actions it reports.
 		ListViewAction act = UI_listViewHandleInput(v);
 		switch (act.type) {
 		case LISTVIEW_BACK:
-			// Go up or exit to menu
-			if (strcmp(browser.current_path, VIDEO_ROOT) != 0) {
+			// Go up or exit app
+			if (!at_root) {
 				// Navigate to parent directory
 				char* last_slash = strrchr(browser.current_path, '/');
 				if (last_slash && last_slash != browser.current_path) {
@@ -167,10 +186,10 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				dirty = 1;
 			} else {
-				// At root, return to main menu
+				// At root, exit directly back to Tools
 				GFX_clearLayers(LAYER_SCROLLTEXT);
 				VideoBrowser_freeEntries(&browser);
-				return MODULE_EXIT_TO_MENU;
+				return MODULE_EXIT_QUIT;
 			}
 			break;
 		case LISTVIEW_ACTIVATED:
@@ -201,15 +220,15 @@ ModuleExitReason PlayerModule_run(SDL_Surface* screen) {
 		ModuleCommon_PWR_update(&dirty, &show_setting);
 
 		// Render. The busy check keeps the dirty-flag loop redrawing while the
-		// selection pill glides or the marquee needs a main-surface render.
-		if (dirty || UI_listViewBusy(v)) {
+		// selection pill glides, Minimal tween settles, or marquee updates.
+		if (dirty || UI_listViewBusy(v) || MediaUI_animBusy()) {
 			render_video_browser(screen, show_setting, &browser);
 
 			GFX_flip(screen);
 			dirty = 0;
 		} else {
-			// Idle marquee tick (activate-after-delay + steady GPU scroll).
-			UI_listViewTickIdle(v);
+			if (!MediaUI_isMinimal())
+				UI_listViewTickIdle(v);
 			GFX_sync();
 		}
 	}

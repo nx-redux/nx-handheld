@@ -9,7 +9,8 @@
 
 typedef enum {
 	MODULE_EXIT_TO_MENU,
-	MODULE_EXIT_QUIT
+	MODULE_EXIT_QUIT,
+	MODULE_EXIT_SWITCH_TAB
 } ModuleExitReason;
 
 // Reserved context-menu item ids, handled centrally by

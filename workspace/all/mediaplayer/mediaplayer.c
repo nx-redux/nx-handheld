@@ -13,12 +13,12 @@
 
 #include "ffplay_engine.h"
 #include "module_common.h"
-#include "module_menu.h"
 #include "module_player.h"
 #include "module_iptv.h"
 #include "display_helper.h"
 #include "iptv.h"
 #include "iptv_curated.h"
+#include "ui_tabs.h"
 
 // Global quit flag (volatile sig_atomic_t: written from the signal handler)
 static volatile sig_atomic_t quit = false;
@@ -99,26 +99,17 @@ int main(int argc, char* argv[]) {
 	IPTV_init();
 	IPTV_curated_init();
 
-	// Main application loop
+	// Tabbed main loop: opens directly into Library with a bottom tab bar
+	// ("LIBRARY   ONLINE TV", switched via L1/R1 or context menu) matching the
+	// modern Tools / Collections / Consoles launcher UI.
+	MediaTab current_tab = MEDIA_TAB_LIBRARY;
 	while (!quit) {
-		// Run main menu - returns selected item or MENU_QUIT
-		int selection = MenuModule_run(screen);
+		ModuleExitReason reason = MODULE_EXIT_QUIT;
 
-		if (selection == MENU_QUIT) {
-			quit = true;
-			continue;
-		}
-
-		// Run the selected module
-		ModuleExitReason reason = MODULE_EXIT_TO_MENU;
-
-		switch (selection) {
-		case MENU_LOCAL:
+		if (current_tab == MEDIA_TAB_LIBRARY) {
 			reason = PlayerModule_run(screen);
-			break;
-		case MENU_IPTV:
+		} else {
 			reason = IPTVModule_run(screen);
-			break;
 		}
 
 		// TG5050: modules may have triggered display recovery (new screen surface)
@@ -128,14 +119,16 @@ int main(int argc, char* argv[]) {
 				screen = ns;
 		}
 
-		// Re-enable autosleep when returning to main menu
 		ModuleCommon_setAutosleepDisabled(false);
 
-		if (reason == MODULE_EXIT_QUIT) {
+		if (reason == MODULE_EXIT_SWITCH_TAB) {
+			current_tab = (current_tab == MEDIA_TAB_LIBRARY) ? MEDIA_TAB_IPTV : MEDIA_TAB_LIBRARY;
+		} else {
 			quit = true;
 		}
 	}
 
+	MediaUI_cleanup();
 	IPTVModule_cleanup();
 	IPTV_curated_cleanup();
 	ModuleCommon_quit();
