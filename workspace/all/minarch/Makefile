@@ -78,6 +78,10 @@ ARFLAGS=rc
 BUILD_DATE!=date +%Y.%m.%d
 BUILD_HASH!=cat ../../hash.txt
 CFLAGS += -DBUILD_DATE=\"${BUILD_DATE}\" -DBUILD_HASH=\"${BUILD_HASH}\"
+BUILD_VERSION:=$(shell cat ../../version.txt 2>/dev/null)
+ifneq (,$(BUILD_VERSION))
+CFLAGS += -DBUILD_VERSION=\"$(BUILD_VERSION)\"
+endif
 
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050))
 # Platforms with RA support

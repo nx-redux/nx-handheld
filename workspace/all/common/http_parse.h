@@ -3,7 +3,9 @@
 // The pure parts of http.c's curl runner (no popen), so the host tests can
 // cover them.
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // curl writes "<body>\n<status>" (-w '\n%{http_code}'). Splits the status off
 // the end of data, NUL-terminating the body in place and shortening *size.
@@ -54,6 +56,58 @@ static inline const char* HTTP_curlErrorText(int exit_code) {
 	default:
 		return "Network request failed";
 	}
+}
+
+// Appends src to dst[*len] (size dst_size, kept NUL-terminated), keeping only
+// characters a User-Agent product token may hold; a run of others becomes one
+// '_' when underscores is set, else is dropped. Stops at the first space when
+// first_word is set ("v2.5 4cbc7d4" -> "v2.5").
+static inline void HTTP_appendToken(char* dst, size_t dst_size, size_t* len, const char* src, int underscores, int first_word) {
+	int pending = 0;
+	size_t start = *len;
+	for (; src && *src; src++) {
+		char c = *src;
+		if (first_word && c == ' ' && *len > start)
+			break;
+		int ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '.' || c == '_' || c == '+' || c == '-';
+		if (!ok) {
+			pending = underscores;
+			continue;
+		}
+		if (pending && *len > start && *len + 1 < dst_size)
+			dst[(*len)++] = '_';
+		pending = 0;
+		if (*len + 1 < dst_size)
+			dst[(*len)++] = c;
+	}
+	dst[*len] = '\0';
+}
+
+// The User-Agent RetroAchievements' hardcore rules ask for:
+// "NXRedux/<version> (<platform>) <core>/<core version>". The core part is left
+// out without a core name, its "/<version>" without a version.
+static inline void HTTP_formatUserAgent(char* buffer, size_t buffer_size, const char* version, const char* platform,
+										const char* core_name, const char* core_version) {
+	if (buffer_size == 0)
+		return;
+	int n = snprintf(buffer, buffer_size, "NXRedux/%s (%s)", version, platform);
+	if (n < 0 || (size_t)n >= buffer_size)
+		return;
+	char core[96];
+	size_t len = 0;
+	core[0] = '\0';
+	HTTP_appendToken(core, sizeof(core), &len, core_name, 1, 0);
+	if (len == 0)
+		return;
+	size_t name_len = len;
+	if (len + 2 < sizeof(core)) {
+		core[len++] = '/';
+		core[len] = '\0';
+		HTTP_appendToken(core, sizeof(core), &len, core_version, 0, 1);
+		if (len == name_len + 1)
+			core[--len] = '\0'; // no version
+	}
+	snprintf(buffer + n, buffer_size - (size_t)n, " %s", core);
 }
 
 #endif

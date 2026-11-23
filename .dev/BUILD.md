@@ -118,6 +118,8 @@ Component source lives in `workspace/all/<component>` (shared) and
   workspace mount — observed transient linker failures from resource
   exhaustion. Per-platform component jobs are fine (except the opus_obj case).
 - `workspace/hash.txt` (git short hash) must exist for in-container builds.
+  `workspace/version.txt` (the release tag, from `make setup`) is optional: without it
+  the RetroAchievements User-Agent says `v0.0.0`.
 - `make clean` in a `workspace/all/<component>` dir typically wipes **all**
   platforms' `build/` — don't clean between the two platform builds of one
   component.

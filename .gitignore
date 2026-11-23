@@ -54,6 +54,7 @@ skeleton/BASE/Emus/shared/drastic/*
 !skeleton/BASE/Emus/shared/drastic/resources/
 
 workspace/hash.txt
+workspace/version.txt
 workspace/readmes
 compile_commands.json
 BUILD.md

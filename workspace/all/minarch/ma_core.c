@@ -18,6 +18,9 @@
 #include "ma_menu.h"
 #include <msettings.h>
 #include <dlfcn.h>
+#ifdef HAS_CHEEVOS
+#include "http.h"
+#endif
 #include <libgen.h>
 
 static void Core_getName(char* in_name, char* out_name, size_t out_size) {
@@ -116,6 +119,9 @@ void Core_open(const char* core_path, const char* tag_name) {
 
 	Core_getName((char*)core_path, (char*)core.name, sizeof(core.name));
 	snprintf((char*)core.version, sizeof(core.version), "%s (%s)", info.library_name, info.library_version);
+#ifdef HAS_CHEEVOS
+	HTTP_setUserAgentCore(info.library_name, info.library_version);
+#endif
 	snprintf((char*)core.tag, sizeof(core.tag), "%s", tag_name);
 	// valid_extensions may legally be NULL (no-content cores)
 	snprintf((char*)core.extensions, sizeof(core.extensions), "%s", info.valid_extensions ? info.valid_extensions : "");
