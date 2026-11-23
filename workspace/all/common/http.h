@@ -82,11 +82,18 @@ void HTTP_freeResponse(HTTP_Response* response);
 char* HTTP_urlEncode(const char* str);
 
 /**
- * Build a User-Agent string for RetroAchievements.
- * Format: "NextUI/<version> (<platform>) Integration/<version>"
+ * Build the User-Agent string every request sends (HTTP_formatUserAgent).
+ * Format: "NXRedux/<release tag> (<platform>) <core>/<core version>"
  * @param buffer Buffer to write User-Agent string to
  * @param buffer_size Size of buffer
  */
 void HTTP_getUserAgent(char* buffer, size_t buffer_size);
+
+/**
+ * The running core's retro_system_info library_name and library_version, for
+ * the User-Agent (RetroAchievements asks a multi-core client to name it).
+ * Main thread, before the requests that should carry it.
+ */
+void HTTP_setUserAgentCore(const char* name, const char* version);
 
 #endif // __HTTP_H__

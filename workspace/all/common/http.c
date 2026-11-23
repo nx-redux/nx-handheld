@@ -18,13 +18,14 @@
 #include "defines.h"
 #include "api.h" // PWR_pinBackgroundThread
 
-// Build version info (defined in makefile)
-#ifndef BUILD_HASH
-#define BUILD_HASH "dev"
+// The release tag (defined in the makefiles from workspace/version.txt)
+#ifndef BUILD_VERSION
+#define BUILD_VERSION "v0.0.0"
 #endif
 
-// User agent string
-#define HTTP_USER_AGENT_FMT "NextUI/%s (%s)"
+// The running core, named in every request's User-Agent (HTTP_setUserAgentCore)
+static char ua_core_name[64];
+static char ua_core_version[64];
 
 /*****************************************************************************
  * Internal helpers
@@ -417,5 +418,10 @@ char* HTTP_urlEncode(const char* str) {
 }
 
 void HTTP_getUserAgent(char* buffer, size_t buffer_size) {
-	snprintf(buffer, buffer_size, HTTP_USER_AGENT_FMT, BUILD_HASH, PLATFORM);
+	HTTP_formatUserAgent(buffer, buffer_size, BUILD_VERSION, PLATFORM, ua_core_name, ua_core_version);
+}
+
+void HTTP_setUserAgentCore(const char* name, const char* version) {
+	snprintf(ua_core_name, sizeof(ua_core_name), "%s", name ? name : "");
+	snprintf(ua_core_version, sizeof(ua_core_version), "%s", version ? version : "");
 }

@@ -28,7 +28,8 @@ DRASTIC_COMMIT=2b87c96a805758a249127ac979e0b33a64dd7199# 2026-01-21
 ###########################################################
 
 BUILD_HASH:=$(shell git rev-parse --short HEAD)
-BUILD_TAG:=$(shell git describe --tags --abbrev=0 2>/dev/null || echo "untagged")
+# ?=: the release job sets the next tag in the environment, before it is tagged
+BUILD_TAG?=$(shell git describe --tags --abbrev=0 2>/dev/null || echo "untagged")
 # Commit date of HEAD (GMT, YYYYMMDD): the About page shows this as the release
 # date so tag-named release builds and date-named dev builds read the same.
 BUILD_COMMIT_DATE:=$(shell TZ=GMT git log -1 --format=%cd --date=format-local:%Y%m%d 2>/dev/null || TZ=GMT date +%Y%m%d)
@@ -439,6 +440,7 @@ setup: name
 	cd ./build && find . -type f -name '.keep' -delete
 	cd ./build && find . -type f -name '*.meta' -delete
 	echo $(BUILD_HASH) > ./workspace/hash.txt
+	echo $(if $(filter untagged,$(BUILD_TAG)),v0.0.0,$(BUILD_TAG)) > ./workspace/version.txt
 	
 	# copy readmes to workspace so we can use Linux fmt instead of host's
 	mkdir -p ./workspace/readmes

@@ -45,6 +45,11 @@ SOURCE = ratools.c ratools_data.c ratools_browser.c ratools_sync.c ratools_prefe
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -I../../$(PLATFORM)/libmsettings -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
+# the release tag, for http.c's User-Agent
+BUILD_VERSION:=$(shell cat ../../version.txt 2>/dev/null)
+ifneq (,$(BUILD_VERSION))
+CFLAGS += -DBUILD_VERSION=\"$(BUILD_VERSION)\"
+endif
 CFLAGS += -DRC_CLIENT_SUPPORTS_HASH -DHAS_CHDR
 LDFLAGS += -L../../$(PLATFORM)/libmsettings -lmsettings -lrcheevos -lchdr -lzip -lz
 

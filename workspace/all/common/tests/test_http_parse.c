@@ -38,5 +38,23 @@ int main(void) {
 	assert(strstr(HTTP_curlErrorText(60), "certificate"));
 	assert(HTTP_curlErrorText(9999)[0]);
 	printf("ok test_http_parse\n");
+	// the User-Agent: release tag, platform, the core as one product token
+	char ua[160];
+	HTTP_formatUserAgent(ua, sizeof(ua), "v2.5.1", "tg5040", "melonDS DS", "1.4.0");
+	assert(!strcmp(ua, "NXRedux/v2.5.1 (tg5040) melonDS_DS/1.4.0"));
+	HTTP_formatUserAgent(ua, sizeof(ua), "v2.5.1", "tg5040", "Flycast", "v2.5 4cbc7d4");
+	assert(!strcmp(ua, "NXRedux/v2.5.1 (tg5040) Flycast/v2.5"));
+	HTTP_formatUserAgent(ua, sizeof(ua), "v2.5.1", "tg5040", "mGBA", " 0.10.3");
+	assert(!strcmp(ua, "NXRedux/v2.5.1 (tg5040) mGBA/0.10.3"));
+	HTTP_formatUserAgent(ua, sizeof(ua), "v2.5.1", "tg5040", " Beetle PSX HW ", "");
+	assert(!strcmp(ua, "NXRedux/v2.5.1 (tg5040) Beetle_PSX_HW"));
+	HTTP_formatUserAgent(ua, sizeof(ua), "v2.5.1", "tg5050", "", "1.0");
+	assert(!strcmp(ua, "NXRedux/v2.5.1 (tg5050)"));
+	HTTP_formatUserAgent(ua, sizeof(ua), "v2.5.1", "tg5050", NULL, NULL);
+	assert(!strcmp(ua, "NXRedux/v2.5.1 (tg5050)"));
+	// a small buffer stays terminated
+	HTTP_formatUserAgent(ua, 12, "v2.5.1", "tg5040", "mGBA", "0.10.3");
+	assert(strlen(ua) == 11);
+
 	return 0;
 }
