@@ -41,18 +41,22 @@ int main(void) {
 
 	// the leave dialog shorter than the core's disconnect timeout, so the
 	// player's own choice (or the dialog's timeout) always comes first
-	assert(CORE_NETPLAY_LEAVE_GRACE_MS == 20000);
+	assert(CORE_NETPLAY_LEAVE_GRACE_MS == 30000);
 	assert(CORE_NETPLAY_DISCONNECT_MS > CORE_NETPLAY_LEAVE_GRACE_MS);
 
 	// countdown: whole seconds left, rounded up, never negative
-	assert(CoreNetplay_leaveSecondsLeft(1000, 1000) == 20);
-	assert(CoreNetplay_leaveSecondsLeft(1000, 1001) == 20);
-	assert(CoreNetplay_leaveSecondsLeft(1000, 2000) == 19);
-	assert(CoreNetplay_leaveSecondsLeft(1000, 20999) == 1);
-	assert(CoreNetplay_leaveSecondsLeft(1000, 21000) == 0);
-	assert(CoreNetplay_leaveSecondsLeft(1000, 99000) == 0);
+	const uint32_t g = CORE_NETPLAY_LEAVE_GRACE_MS;
+	assert(CoreNetplay_leaveSecondsLeft(1000, 1000, g) == 30);
+	assert(CoreNetplay_leaveSecondsLeft(1000, 1001, g) == 30);
+	assert(CoreNetplay_leaveSecondsLeft(1000, 2000, g) == 29);
+	assert(CoreNetplay_leaveSecondsLeft(1000, 30999, g) == 1);
+	assert(CoreNetplay_leaveSecondsLeft(1000, 31000, g) == 0);
+	assert(CoreNetplay_leaveSecondsLeft(1000, 99000, g) == 0);
+	// a GBA link's shorter grace
+	assert(CoreNetplay_leaveSecondsLeft(1000, 1000, 20000) == 20);
+	assert(CoreNetplay_leaveSecondsLeft(1000, 21000, 20000) == 0);
 	// SDL tick wraparound
-	assert(CoreNetplay_leaveSecondsLeft(0xFFFFFF00u, 0x00000100u) == 20);
+	assert(CoreNetplay_leaveSecondsLeft(0xFFFFFF00u, 0x00000100u, g) == 30);
 
 	// Leaving says goodbye so the other side ends at once instead of after the
 	// core's disconnect timeout. Over loopback the peer is ourselves.

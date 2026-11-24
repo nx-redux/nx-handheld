@@ -100,7 +100,8 @@ void GBALink_holdLink(bool hold);
 // Any GBA link mode (wireless adapter too): while our menu is open the peer's
 // minarch stops running its game (GBALink_peerPaused) so neither side times
 // out. Also sends GBALink_holdLink. A pause outlasting the cap is ignored.
-#define GBALINK_PEER_PAUSE_MAX_MS 30000 // Leave prompt grace (20 s) + 10 s
+#define GBALINK_LEAVE_GRACE_MS 20000	// the Leave prompt's countdown in a GBA link
+#define GBALINK_PEER_PAUSE_MAX_MS 30000 // GBALINK_LEAVE_GRACE_MS + 10 s
 void GBALink_setPaused(bool paused);
 bool GBALink_peerPaused(void);
 

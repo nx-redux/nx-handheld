@@ -15,12 +15,13 @@
 #include <stdint.h>
 
 // How long a player may sit in the leave dialog before the session ends. The
-// other player's game waits meanwhile.
-#define CORE_NETPLAY_LEAVE_GRACE_MS 20000
+// other player's game waits meanwhile. The phones' 30 s netplay pause, so every
+// netplay console waits the same.
+#define CORE_NETPLAY_LEAVE_GRACE_MS 30000
 // Peer silence after which the core ends the session (passed to the core as
 // NX_GGPO_DISCONNECT_MS). Longer than the grace, so the dialog's own timeout
-// always comes first.
-#define CORE_NETPLAY_DISCONNECT_MS 25000
+// always comes first; a paused core sends nothing.
+#define CORE_NETPLAY_DISCONNECT_MS 35000
 
 // A player who leaves tells the other device at once ("bye" over UDP, sent a
 // few times), so its game ends now rather than after the disconnect timeout;
@@ -38,9 +39,9 @@ int CoreNetplay_isActive(void);
 // so before quitting. The session is no longer active afterwards.
 void CoreNetplay_markEnded(void);
 int CoreNetplay_hasEnded(void);
-// Whole seconds left in the leave dialog opened at start_ms (SDL ticks),
-// rounded up, 0 once the grace is over. Tick wraparound safe.
-int CoreNetplay_leaveSecondsLeft(uint32_t start_ms, uint32_t now_ms);
+// Whole seconds left in a leave dialog of grace_ms opened at start_ms (SDL
+// ticks), rounded up, 0 once the grace is over. Tick wraparound safe.
+int CoreNetplay_leaveSecondsLeft(uint32_t start_ms, uint32_t now_ms, uint32_t grace_ms);
 
 // The goodbye channel. Open binds the UDP port (0 ok, -1 when no session or
 // the socket failed: the timeout then remains the only signal). Send tells

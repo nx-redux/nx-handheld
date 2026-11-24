@@ -34,7 +34,7 @@
 #define SIOLS_RESEND_US 20000u							   // START re-sent while waiting (lost frame)
 #define SIOLS_BOUND_TIMEOUT_US 100000u					   // leader silent this long: follower runs free
 #define SIOLS_IDLE_SLEEP_US 50u
-#define SIOLS_HOLD_MAX_US 30000000u // a peer's hold (its menu) outlasting this is ignored: Leave grace 20 s + 10
+#define SIOLS_HOLD_MAX_US 30000000u // a peer's hold (its menu) outlasting this is ignored: GBA link Leave grace 20 s + 10
 #define SIOLS_INBOX 8
 
 enum { SIOLS_START = 1,

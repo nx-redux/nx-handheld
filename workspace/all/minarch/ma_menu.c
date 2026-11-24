@@ -1603,6 +1603,7 @@ void Menu_undoLoadState(void) {
 // the session (leaves), well before the core's disconnect timeout.
 typedef struct {
 	uint32_t start;
+	uint32_t grace_ms;
 	int seconds_left; // -1: no countdown
 	bool menu_down;	  // MENU pressed while the dialog is up
 } LeaveNetplayCtx;
@@ -1637,7 +1638,7 @@ static int leaveNetplay_handle(void* data) {
 	if (ctx->menu_down && PAD_justReleased(BTN_MENU))
 		return 0;
 	if (ctx->seconds_left >= 0) {
-		int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks());
+		int left = CoreNetplay_leaveSecondsLeft(ctx->start, SDL_GetTicks(), ctx->grace_ms);
 		if (left != ctx->seconds_left) {
 			ctx->seconds_left = left;
 			return UI_MODAL_DIRTY;
@@ -1649,15 +1650,16 @@ static int leaveNetplay_handle(void* data) {
 // true = leave the session (and the game)
 static bool Menu_leaveNetplay(void) {
 	// A GBA link peer waits too (GBALink_setPaused), for as long as its pause
-	// lasts (GBALINK_PEER_PAUSE_MAX_MS / SIOLS_HOLD_MAX_US, 10 s past this grace).
+	// lasts (GBALINK_PEER_PAUSE_MAX_MS / SIOLS_HOLD_MAX_US, 10 s past its grace).
 	bool timed = CoreNetplay_isActive() || GBALink_isConnected();
-	LeaveNetplayCtx ctx = {SDL_GetTicks(), timed ? CORE_NETPLAY_LEAVE_GRACE_MS / 1000 : -1};
+	uint32_t grace = CoreNetplay_isActive() ? CORE_NETPLAY_LEAVE_GRACE_MS : GBALINK_LEAVE_GRACE_MS;
+	LeaveNetplayCtx ctx = {SDL_GetTicks(), grace, timed ? (int)(grace / 1000) : -1};
 	UI_ModalOpts opts = {
 		.screen = screen,
 		.render = leaveNetplay_render,
 		.handle = leaveNetplay_handle,
 		.ctx = &ctx,
-		.timeout_ms = timed ? CORE_NETPLAY_LEAVE_GRACE_MS : 0, // expiry returns -1: leave
+		.timeout_ms = timed ? grace : 0, // expiry returns -1: leave
 		.reset_pad = true,
 	};
 	return UI_modalLoop(&opts) != 0;
