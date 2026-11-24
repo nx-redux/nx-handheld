@@ -42,11 +42,11 @@ int CoreNetplay_hasEnded(void) {
 	return ended;
 }
 
-int CoreNetplay_leaveSecondsLeft(uint32_t start_ms, uint32_t now_ms) {
+int CoreNetplay_leaveSecondsLeft(uint32_t start_ms, uint32_t now_ms, uint32_t grace_ms) {
 	uint32_t elapsed = now_ms - start_ms; // unsigned: wraparound safe
-	if (elapsed >= CORE_NETPLAY_LEAVE_GRACE_MS)
+	if (elapsed >= grace_ms)
 		return 0;
-	return (int)((CORE_NETPLAY_LEAVE_GRACE_MS - elapsed + 999) / 1000);
+	return (int)((grace_ms - elapsed + 999) / 1000);
 }
 
 int CoreNetplay_byeOpen(uint16_t port) {
