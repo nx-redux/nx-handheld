@@ -1405,7 +1405,7 @@ static void init_about_info(void) {
 #define MAX_DISPLAY_ITEMS 8
 #define MAX_SYSTEM_ITEMS 24
 #define MAX_FN_ITEMS 20
-#define MAX_FNKEY_ITEMS 3
+#define MAX_FNKEY_ITEMS 4
 #define MAX_NOTIFY_ITEMS 8
 #define MAX_ABOUT_ITEMS 8
 #define MAX_SIMPLE_MODE_ITEMS 2
@@ -1815,6 +1815,19 @@ static void set_fn2_tool(int idx) {
 }
 static void reset_fn2_tool(void) {
 	CFG_setFn2Tool("");
+}
+
+static int get_fkey_brightness(void) {
+	return exists((char*)FKEY_BRIGHTNESS_PATH) ? 1 : 0;
+}
+static void set_fkey_brightness(int v) {
+	if (v)
+		putFile((char*)FKEY_BRIGHTNESS_PATH, "1");
+	else
+		unlink(FKEY_BRIGHTNESS_PATH);
+}
+static void reset_fkey_brightness(void) {
+	unlink(FKEY_BRIGHTNESS_PATH);
 }
 
 static void reset_fn_keys_page(void) {
@@ -2311,6 +2324,9 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
 		"F2 launches", "Tool the F2 key opens from the main menu.",
 		fn_tool_labels, fn_tool_count, NULL, get_fn2_tool, set_fn2_tool, reset_fn2_tool);
+	fnkey_items[idx++] = (SettingItem)ITEM_CYCLE_INIT(
+		"Use to control brightness", "F1 and F2 lower and raise brightness everywhere.\nWhile on, they don't open the tools above.",
+		on_off_labels, 2, on_off_values, get_fkey_brightness, set_fkey_brightness, reset_fkey_brightness);
 	fnkey_items[idx++] = (SettingItem)ITEM_BUTTON_INIT(
 		"Reset to defaults", "Resets all options in this menu to their default values.",
 		reset_fn_keys_page);
@@ -2491,7 +2507,7 @@ static void build_menu_tree(const DeviceInfo* dev) {
 	{
 		SettingsPage* pages[] = {
 			&appearance_page, &layouts_page, &display_page, &system_page,
-			&fn_switch_page, &notify_page, &simple_mode_page, &shortcuts_page, NULL};
+			&fn_switch_page, &fn_keys_page, &notify_page, &simple_mode_page, &shortcuts_page, NULL};
 		for (int p = 0; pages[p]; p++) {
 			for (int i = 0; i < pages[p]->item_count; i++) {
 				settings_item_sync(&pages[p]->items[i]);
